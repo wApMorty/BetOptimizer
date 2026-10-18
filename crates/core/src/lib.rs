@@ -6,6 +6,7 @@
 pub mod config;
 pub mod domain;
 pub mod error;
+pub mod eval;
 pub mod ingest;
 pub mod init;
 pub mod market;
