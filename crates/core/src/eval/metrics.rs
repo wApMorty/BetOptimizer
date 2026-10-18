@@ -1,6 +1,6 @@
 //! Scores d'une prévision 1X2 face à l'issue réellement observée.
 
-use crate::domain::{Outcome, Probs1x2};
+use crate::domain::{Outcome, Probability, Probs1x2};
 
 /// Log loss (entropie croisée) : `−ln p_obs`, où `p_obs` est la probabilité donnée à l'issue réalisée.
 ///
@@ -36,6 +36,18 @@ pub fn rps(forecast: &Probs1x2, actual: Outcome) -> f64 {
         sum += cumulative_gap.powi(2);
     }
     sum / 2.0
+}
+
+/// Log loss d'un événement binaire (plus de 2,5 buts, les deux équipes marquent) : `−ln p` si l'événement s'est
+/// produit, `−ln(1 − p)` sinon.
+pub fn log_loss_binary(probability: Probability, happened: bool) -> f64 {
+    let p = probability.get();
+    -(if happened { p } else { 1.0 - p }).ln()
+}
+
+/// Score de Brier d'un événement binaire : `(p − o)²`, de 0 (parfait) à 1.
+pub fn brier_binary(probability: Probability, happened: bool) -> f64 {
+    (probability.get() - f64::from(u8::from(happened))).powi(2)
 }
 
 /// Vecteur « one-hot » de l'issue réalisée, dans l'ordre [`Outcome::ALL`].
@@ -130,5 +142,25 @@ mod tests {
             0.445,
             epsilon = 1e-12
         );
+    }
+
+    #[test]
+    fn binary_scores_match_hand_calculations() {
+        let p = |x| Probability::new(x).unwrap();
+        assert_abs_diff_eq!(
+            log_loss_binary(p(0.7), true),
+            -(0.7_f64.ln()),
+            epsilon = 1e-12
+        );
+        assert_abs_diff_eq!(
+            log_loss_binary(p(0.7), false),
+            -(0.3_f64.ln()),
+            epsilon = 1e-12
+        );
+        assert_abs_diff_eq!(brier_binary(p(0.7), true), 0.09, epsilon = 1e-12);
+        assert_abs_diff_eq!(brier_binary(p(0.7), false), 0.49, epsilon = 1e-12);
+        // Une prévision à 0,5 vaut ln 2 de log loss et 0,25 de Brier, quelle que soit l'issue.
+        assert_abs_diff_eq!(log_loss_binary(p(0.5), true), 2.0_f64.ln(), epsilon = 1e-12);
+        assert_abs_diff_eq!(brier_binary(p(0.5), false), 0.25, epsilon = 1e-12);
     }
 }

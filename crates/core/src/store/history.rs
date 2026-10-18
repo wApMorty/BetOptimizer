@@ -6,7 +6,7 @@
 use chrono::SecondsFormat;
 use rusqlite::{Connection, OptionalExtension, named_params, params};
 
-use crate::domain::{BookOdds, MatchRecord, Outcome};
+use crate::domain::{BookOdds, MatchRecord, Outcome, TotalsOdds};
 use crate::error::Result;
 
 /// Identifiant d'une équipe par son nom canonique, créée au besoin.
@@ -113,6 +113,25 @@ pub fn upsert_odds(conn: &Connection, game_id: i64, odds: &BookOdds) -> Result<(
         odds.odds.home.get(),
         odds.odds.draw.get(),
         odds.odds.away.get(),
+    ])?;
+    Ok(())
+}
+
+/// Insère ou met à jour les cotes plus/moins d'un bookmaker pour un match, un moment et une ligne.
+pub fn upsert_totals(conn: &Connection, game_id: i64, totals: &TotalsOdds) -> Result<()> {
+    conn.prepare_cached(
+        "INSERT INTO game_totals_odds (game_id, bookmaker, moment, line, over, under)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT (game_id, bookmaker, moment, line) DO UPDATE SET
+             over = excluded.over, under = excluded.under",
+    )?
+    .execute(params![
+        game_id,
+        totals.bookmaker,
+        totals.moment.as_str(),
+        totals.line,
+        totals.over.get(),
+        totals.under.get(),
     ])?;
     Ok(())
 }

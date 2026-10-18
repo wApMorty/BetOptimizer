@@ -37,8 +37,10 @@ pub struct ImportReport {
     pub games: usize,
     /// Matchs ajoutés (les autres existaient déjà et ont été mis à jour).
     pub new_games: usize,
-    /// Lignes de cotes écrites.
+    /// Lignes de cotes 1X2 écrites.
     pub odds_rows: usize,
+    /// Lignes de cotes plus/moins écrites.
+    pub totals_rows: usize,
     /// Lignes ignorées faute de données essentielles.
     pub incomplete_rows: usize,
     /// Triplets de cotes écartés (valeur invalide).
@@ -132,6 +134,10 @@ pub fn import_files(
                 history::upsert_odds(&tx, game_id, odds)?;
                 report.odds_rows += 1;
             }
+            for totals in &parsed_match.totals {
+                history::upsert_totals(&tx, game_id, totals)?;
+                report.totals_rows += 1;
+            }
             report.games += 1;
         }
     }
@@ -212,6 +218,10 @@ mod tests {
         assert_eq!(report.new_games, 11);
         assert_eq!(count(&conn, "game"), 11);
         assert!(report.odds_rows > 30);
+        assert!(
+            report.totals_rows > 10,
+            "les cotes plus/moins des saisons récentes sont importées"
+        );
         // « Man United » (football-data) est enregistré sous son nom canonique, une seule fois.
         let manchester: u32 = conn
             .query_row(

@@ -11,7 +11,7 @@
 
 use serde::Deserialize;
 
-use crate::domain::{Odds1x2, Probs1x2};
+use crate::domain::{Odds, Odds1x2, Probability, Probs1x2};
 
 /// Méthode de retrait de la marge. Dans la configuration : `multiplicative`, `power` ou `shin`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -51,43 +51,61 @@ pub fn remove_margin(odds: &Odds1x2, method: MarginMethod) -> Option<Probs1x2> {
         1.0 / odds.draw.get(),
         1.0 / odds.away.get(),
     ];
-    let p = match method {
-        MarginMethod::Multiplicative => multiplicative(pi),
-        MarginMethod::Power => power(pi)?,
-        MarginMethod::Shin => shin(pi)?,
-    };
-    Probs1x2::new(p[0], p[1], p[2])
+    let p = solve(&pi, method)?;
+    Probs1x2::new(*p.first()?, *p.get(1)?, *p.get(2)?)
+}
+
+/// Retire la marge d'un marché à **deux** issues (plus/moins de buts, les deux équipes marquent) et renvoie la
+/// probabilité de la première issue ; celle de la seconde vaut le complément à 1.
+pub fn remove_margin_two_way(
+    first: Odds,
+    second: Odds,
+    method: MarginMethod,
+) -> Option<Probability> {
+    let pi = [1.0 / first.get(), 1.0 / second.get()];
+    Probability::new(*solve(&pi, method)?.first()?)
+}
+
+/// Applique la méthode à des probabilités implicites `π` d'un nombre quelconque d'issues.
+fn solve(pi: &[f64], method: MarginMethod) -> Option<Vec<f64>> {
+    match method {
+        MarginMethod::Multiplicative => Some(multiplicative(pi)),
+        MarginMethod::Power => power(pi),
+        MarginMethod::Shin => shin(pi),
+    }
 }
 
 /// `p_i = π_i / β`, avec `β = Σ π_j`.
-fn multiplicative(pi: [f64; 3]) -> [f64; 3] {
+fn multiplicative(pi: &[f64]) -> Vec<f64> {
     let beta: f64 = pi.iter().sum();
-    pi.map(|x| x / beta)
+    pi.iter().map(|x| x / beta).collect()
 }
 
 /// `p_i = π_i^k` où `k` est l'unique solution de `Σ π_i^k = 1`.
 ///
-/// Chaque `π_i < 1`, donc `g(k) = Σ π_i^k − 1` décroît strictement de `g(0) = 2` vers −1 : une seule racine,
-/// trouvée par bissection. `k > 1` quand il y a une marge.
-fn power(pi: [f64; 3]) -> Option<[f64; 3]> {
+/// Chaque `π_i < 1`, donc `g(k) = Σ π_i^k − 1` décroît strictement de `g(0) = n − 1` (positif pour au moins deux
+/// issues) vers −1 : une seule racine, trouvée par bissection. `k > 1` quand il y a une marge.
+fn power(pi: &[f64]) -> Option<Vec<f64>> {
     let g = |k: f64| pi.iter().map(|x| x.powf(k)).sum::<f64>() - 1.0;
     let k = bisect(g, 0.0, 1000.0)?;
-    Some(pi.map(|x| x.powf(k)))
+    Some(pi.iter().map(|x| x.powf(k)).collect())
 }
 
 /// Modèle de Shin : `p_i = ( √(z² + 4(1−z)·π_i²/β) − z ) / ( 2(1−z) )`, où `z ∈ [0, 1)` est la part de
 /// parieurs informés, fixée par la condition `Σ p_i = 1`.
-fn shin(pi: [f64; 3]) -> Option<[f64; 3]> {
+fn shin(pi: &[f64]) -> Option<Vec<f64>> {
     let beta: f64 = pi.iter().sum();
     if (beta - 1.0).abs() < 1e-12 {
         // Cotes sans marge : rien à retirer.
-        return Some(pi);
+        return Some(pi.to_vec());
     }
     if beta < 1.0 {
         return None;
     }
-    let probs = |z: f64| {
-        pi.map(|x| ((z * z + 4.0 * (1.0 - z) * x * x / beta).sqrt() - z) / (2.0 * (1.0 - z)))
+    let probs = |z: f64| -> Vec<f64> {
+        pi.iter()
+            .map(|x| ((z * z + 4.0 * (1.0 - z) * x * x / beta).sqrt() - z) / (2.0 * (1.0 - z)))
+            .collect()
     };
     // f(0) = √β − 1 > 0 et f(1⁻) = Σπ²/β − 1 < 0 : la racine est dans l'intervalle ; f décroît.
     let f = |z: f64| probs(z).iter().sum::<f64>() - 1.0;
@@ -239,6 +257,56 @@ mod tests {
             let sum: f64 = probs(&o, method).iter().sum();
             assert_abs_diff_eq!(sum, 1.0, epsilon = 1e-12);
         }
+    }
+
+    #[test]
+    fn two_way_markets_match_independent_reference_values() {
+        let odd = |x: f64| Odds::new(x).unwrap();
+        let first = |a, b, method| remove_margin_two_way(odd(a), odd(b), method).unwrap().get();
+        // Plus/moins 2,5 à 1,85 / 2,00 : marge 4,05 %.
+        assert_abs_diff_eq!(
+            first(1.85, 2.0, MarginMethod::Multiplicative),
+            0.5194805195,
+            epsilon = 1e-9
+        );
+        assert_abs_diff_eq!(
+            first(1.85, 2.0, MarginMethod::Power),
+            0.5206654779,
+            epsilon = 1e-9
+        );
+        assert_abs_diff_eq!(
+            first(1.85, 2.0, MarginMethod::Shin),
+            0.5202702703,
+            epsilon = 1e-9
+        );
+        // Favori net.
+        assert_abs_diff_eq!(
+            first(1.5, 2.6, MarginMethod::Power),
+            0.6446499375,
+            epsilon = 1e-9
+        );
+        assert_abs_diff_eq!(
+            first(1.5, 2.6, MarginMethod::Shin),
+            0.6410256410,
+            epsilon = 1e-9
+        );
+        // Outsider : la première issue perd de la probabilité avec power et shin.
+        assert_abs_diff_eq!(
+            first(3.0, 1.38, MarginMethod::Power),
+            0.2984615915,
+            epsilon = 1e-9
+        );
+    }
+
+    #[test]
+    fn a_two_way_market_without_margin_is_unchanged() {
+        let p = remove_margin_two_way(
+            Odds::new(2.0).unwrap(),
+            Odds::new(2.0).unwrap(),
+            MarginMethod::Shin,
+        )
+        .unwrap();
+        assert_abs_diff_eq!(p.get(), 0.5, epsilon = 1e-12);
     }
 
     #[test]

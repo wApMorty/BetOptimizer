@@ -145,8 +145,8 @@ pub fn fd_import(paths: &Paths) -> Result<()> {
     let report = import_files(&mut conn, &aliases, &files)?;
 
     println!(
-        "{} fichiers importés : {} matchs ({} nouveaux), {} lignes de cotes.",
-        report.files, report.games, report.new_games, report.odds_rows
+        "{} fichiers importés : {} matchs ({} nouveaux), {} lignes de cotes 1X2, {} lignes de cotes plus/moins.",
+        report.files, report.games, report.new_games, report.odds_rows, report.totals_rows
     );
     println!(
         "Écartés : {} lignes incomplètes, {} doublons, {} triplets de cotes invalides.",

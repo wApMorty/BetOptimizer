@@ -12,7 +12,9 @@ use chrono::{DateTime, NaiveDate, NaiveTime, TimeZone, Utc};
 use chrono_tz::Europe::London;
 use csv::StringRecord;
 
-use crate::domain::{BookOdds, MatchRecord, MatchStats, Moment, Odds, Odds1x2, Outcome};
+use crate::domain::{
+    BookOdds, MatchRecord, MatchStats, Moment, Odds, Odds1x2, Outcome, TotalsOdds,
+};
 use crate::error::{Error, Result};
 
 /// Préfixes de colonnes des bookmakers (clés de `notes.txt`). Pour le préfixe `PS`, les cotes d'avant-match
@@ -23,6 +25,18 @@ pub const BOOKMAKER_PREFIXES: [&str; 25] = [
     "PS", "SB", "SJ", "SK", "SKB", "SO", "SY", "VC", "WH", "Avg", "Max",
 ];
 
+/// Bookmakers du marché plus/moins 2,5 buts : `(nom stocké, préfixe de colonne)`. Chez football-data, Pinnacle s'écrit
+/// `P` pour ce marché (`P>2.5`, `PC>2.5`) alors qu'il s'écrit `PS` pour le 1X2 : on stocke `PS` dans les deux cas.
+const TOTALS_BOOKMAKERS: [(&str, &str); 4] = [
+    ("PS", "P"),
+    ("Avg", "Avg"),
+    ("B365", "B365"),
+    ("Max", "Max"),
+];
+
+/// Ligne des cotes plus/moins publiées.
+const TOTALS_LINE: f64 = 2.5;
+
 /// Un match lu dans un fichier, avec les cotes de tous les bookmakers présents.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedMatch {
@@ -30,6 +44,8 @@ pub struct ParsedMatch {
     pub record: MatchRecord,
     /// Cotes 1X2 par bookmaker et par moment.
     pub odds: Vec<BookOdds>,
+    /// Cotes plus/moins 2,5 buts par bookmaker et par moment (depuis 2019/20).
+    pub totals: Vec<TotalsOdds>,
 }
 
 /// Contenu d'un fichier CSV, avec le décompte de ce qui a été écarté.
@@ -82,6 +98,7 @@ pub fn parse_csv(bytes: &[u8]) -> Result<ParsedFile> {
             RowOutcome::Blank => {}
             RowOutcome::Incomplete => parsed.incomplete_rows += 1,
             RowOutcome::Match(parsed_match) => {
+                let parsed_match = *parsed_match;
                 let key = (
                     parsed_match.record.date,
                     parsed_match.record.home_team.clone(),
@@ -124,7 +141,9 @@ impl Row<'_> {
 enum RowOutcome {
     Blank,
     Incomplete,
-    Match(ParsedMatch),
+    // Boîte : `ParsedMatch` est volumineux (cotes de plusieurs bookmakers) et les autres variantes sont vides ;
+    // sans `Box`, chaque `RowOutcome` occuperait toujours la taille de la plus grande variante.
+    Match(Box<ParsedMatch>),
 }
 
 fn parse_row(row: &Row, dropped_odds: &mut usize) -> Result<RowOutcome> {
@@ -177,7 +196,12 @@ fn parse_row(row: &Row, dropped_odds: &mut usize) -> Result<RowOutcome> {
         xg_away: row.number("AxG"),
     };
     let odds = extract_odds(row, dropped_odds);
-    Ok(RowOutcome::Match(ParsedMatch { record, odds }))
+    let totals = extract_totals(row, dropped_odds);
+    Ok(RowOutcome::Match(Box::new(ParsedMatch {
+        record,
+        odds,
+        totals,
+    })))
 }
 
 fn parse_result(text: &str) -> Option<Outcome> {
@@ -247,6 +271,32 @@ fn extract_odds(row: &Row, dropped_odds: &mut usize) -> Vec<BookOdds> {
                     odds: Odds1x2 { home, draw, away },
                 }),
                 // Triplet présent mais invalide : on l'écarte et on le compte (jamais corrigé en silence).
+                _ => *dropped_odds += 1,
+            }
+        }
+    }
+    found
+}
+
+/// Cherche, pour chaque bookmaker, les cotes plus/moins 2,5 d'avant-match (`P>2.5`, `P<2.5`) puis de clôture
+/// (`PC>2.5`, `PC<2.5`). Un couple invalide (≤ 1,0) est écarté et compté avec les autres cotes écartées.
+fn extract_totals(row: &Row, dropped_odds: &mut usize) -> Vec<TotalsOdds> {
+    let mut found = Vec::new();
+    for (bookmaker, prefix) in TOTALS_BOOKMAKERS {
+        for (moment, infix) in [(Moment::Pre, ""), (Moment::Close, "C")] {
+            let over: Option<f64> = row.number(&format!("{prefix}{infix}>2.5"));
+            let under: Option<f64> = row.number(&format!("{prefix}{infix}<2.5"));
+            let (Some(over), Some(under)) = (over, under) else {
+                continue;
+            };
+            match (Odds::new(over), Odds::new(under)) {
+                (Some(over), Some(under)) => found.push(TotalsOdds {
+                    bookmaker: bookmaker.to_string(),
+                    moment,
+                    line: TOTALS_LINE,
+                    over,
+                    under,
+                }),
                 _ => *dropped_odds += 1,
             }
         }
@@ -329,6 +379,31 @@ mod tests {
             parsed.matches[3].record.kickoff_utc.unwrap().to_rfc3339(),
             "2026-01-17T12:30:00+00:00"
         );
+    }
+
+    #[test]
+    fn over_under_odds_are_read_for_pinnacle_average_and_bet365_until_pinnacle_disappears() {
+        let parsed = parse_csv(E0_2526).unwrap();
+        let totals = |m: &ParsedMatch, bookmaker: &str, moment: Moment| {
+            m.totals
+                .iter()
+                .find(|t| t.bookmaker == bookmaker && t.moment == moment)
+                .cloned()
+        };
+
+        let before_cut = &parsed.matches[0];
+        let pinnacle = totals(before_cut, "PS", Moment::Close).unwrap();
+        assert_eq!(pinnacle.line, 2.5);
+        assert!(pinnacle.over.get() > 1.0 && pinnacle.under.get() > 1.0);
+        assert!(totals(before_cut, "Avg", Moment::Pre).is_some());
+        assert!(totals(before_cut, "B365", Moment::Close).is_some());
+
+        // Après janvier 2026 : plus de Pinnacle, mais toujours la moyenne du marché.
+        let after_cut = &parsed.matches[3];
+        assert!(totals(after_cut, "PS", Moment::Close).is_none());
+        assert!(totals(after_cut, "Avg", Moment::Close).is_some());
+        // Les saisons d'avant 2019/20 n'ont pas ces colonnes.
+        assert!(parse_csv(E0_1617).unwrap().matches[0].totals.is_empty());
     }
 
     #[test]

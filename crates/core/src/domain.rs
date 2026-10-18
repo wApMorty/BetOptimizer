@@ -174,6 +174,21 @@ pub struct BookOdds {
     pub odds: Odds1x2,
 }
 
+/// Cotes plus/moins de buts d'un bookmaker pour une ligne, à un moment donné.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TotalsOdds {
+    /// Préfixe de colonne football-data (`PS` pour Pinnacle, `Avg`, `B365`, `Max`).
+    pub bookmaker: String,
+    /// Relevé d'avant-match ou clôture.
+    pub moment: Moment,
+    /// Ligne du marché : 2,5 (football-data ne publie que celle-ci).
+    pub line: f64,
+    /// Cote « plus de `line` buts ».
+    pub over: Odds,
+    /// Cote « moins de `line` buts ».
+    pub under: Odds,
+}
+
 /// Statistiques d'un match publiées par football-data. Chaque valeur peut manquer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct MatchStats {
