@@ -3,3 +3,4 @@
 pub mod budget;
 pub mod client;
 pub mod odds_api;
+pub mod snapshot;
