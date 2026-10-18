@@ -3,6 +3,7 @@
 pub mod archive;
 pub mod history;
 pub mod migrate;
+pub mod predictions;
 
 use std::path::Path;
 
