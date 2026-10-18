@@ -1,0 +1,12 @@
+[Unit]
+Description=Relevé quotidien des cotes (edge)
+Documentation=file://%h/Documents/Workspace/BetOptimizer/docs/sources.md
+
+[Service]
+Type=oneshot
+# Après un réveil du portable, le réseau peut ne pas être prêt : on attend le DNS (5 minutes au plus)
+# avant de lancer le relevé. Pas de Restart= : relancer rejouerait toutes les ligues et dépenserait
+# des crédits une seconde fois.
+ExecStartPre=/usr/bin/sh -c 'for i in $(seq 1 30); do getent hosts api.the-odds-api.com >/dev/null && exit 0; sleep 10; done; exit 1'
+ExecStart=%h/.local/bin/edge snapshot
+TimeoutStartSec=600

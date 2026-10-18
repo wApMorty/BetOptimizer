@@ -1,0 +1,10 @@
+[Unit]
+Description=Relevé quotidien des cotes à 14h, heure de Paris
+
+[Timer]
+OnCalendar=*-*-* 14:00:00 Europe/Paris
+# Si le portable était éteint ou en veille à 14h, le relevé part dès qu'il se réveille.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
