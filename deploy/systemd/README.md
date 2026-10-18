@@ -23,3 +23,7 @@ edge quota                                           # crédits consommés (grat
 
 Lancer un relevé à la main : `edge snapshot` (6 crédits). Le coût sans rien appeler : `edge snapshot --dry-run`.
 Un relevé manqué ne se rattrape pas : l'historique des cotes est payant et hors budget.
+
+**Après toute phase qui ajoute une migration, réinstaller le binaire** (`cargo install …` ci-dessus). Sinon le
+relevé de 14h échoue avec « la base est en version N mais ce programme ne connaît que la version N−1 » : la base
+de production est migrée dès la première commande lancée avec le nouveau binaire de développement.
