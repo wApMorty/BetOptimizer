@@ -1,6 +1,7 @@
 //! Accès à la base SQLite : ouverture et migrations de schéma.
 
 pub mod archive;
+pub mod history;
 pub mod migrate;
 
 use std::path::Path;

@@ -104,6 +104,29 @@ pub enum Error {
     #[error("quota inconnu : l'API n'a pas renvoyé l'en-tête x-requests-used")]
     QuotaUnknown,
 
+    /// Un fichier de données (CSV) est illisible ou contient une valeur impossible.
+    #[error("données invalides : {0}")]
+    Data(String),
+
+    /// Lecture CSV impossible.
+    #[error("lecture CSV : {0}")]
+    Csv(#[from] csv::Error),
+
+    /// La table d'alias est invalide (TOML illisible, nom attribué à deux équipes).
+    #[error("table d'alias invalide : {0}")]
+    Aliases(String),
+
+    /// Des noms d'équipes ne figurent pas dans la table d'alias : l'import est bloqué sans rien écrire.
+    #[error(
+        "{} nom(s) d'équipe inconnu(s) : {} ; ajoute-les à config/aliases.toml puis réinstalle edge",
+        names.len(),
+        names.join(", ")
+    )]
+    UnknownTeams {
+        /// Noms inconnus, au format `ligue: nom`.
+        names: Vec<String>,
+    },
+
     /// Le fichier de configuration contient un secret mais d'autres utilisateurs peuvent le lire.
     #[error(
         "permissions trop ouvertes sur {path} ({mode:o}) : il contient un secret, exécute `chmod 600 {path}`"

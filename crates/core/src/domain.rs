@@ -1,6 +1,6 @@
 //! Grandeurs et entités du domaine, typées pour que le compilateur interdise de les confondre.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 
 /// Cote décimale d'un bookmaker : gain total pour 1 € misé, mise comprise (2,10 → 2,10 € rendus).
 ///
@@ -141,6 +141,97 @@ impl Probs1x2 {
     pub fn to_array(&self) -> [f64; 3] {
         [self.home.get(), self.draw.get(), self.away.get()]
     }
+}
+
+/// Moment où un bookmaker a relevé ses cotes, dans les données historiques de football-data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Moment {
+    /// Relevé d'avant-match : le vendredi après-midi (week-end) ou le mardi (semaine), donc 1 à 3 jours
+    /// avant le coup d'envoi. C'est le moment où l'on pourrait réellement parier.
+    Pre,
+    /// Cotes de clôture, juste avant le coup d'envoi : la référence la plus fine du marché.
+    Close,
+}
+
+impl Moment {
+    /// Valeur stockée en base (`game_odds.moment`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Moment::Pre => "pre",
+            Moment::Close => "close",
+        }
+    }
+}
+
+/// Les cotes 1X2 d'un bookmaker pour un match, à un moment donné.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BookOdds {
+    /// Préfixe de colonne football-data : `PS` (Pinnacle), `B365`, `Avg` (moyenne du marché), `Max`…
+    pub bookmaker: String,
+    /// Relevé d'avant-match ou clôture.
+    pub moment: Moment,
+    /// Cotes de l'issue domicile, nul, extérieur.
+    pub odds: Odds1x2,
+}
+
+/// Statistiques d'un match publiées par football-data. Chaque valeur peut manquer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MatchStats {
+    /// Tirs de l'équipe à domicile.
+    pub shots_home: Option<u16>,
+    /// Tirs de l'équipe à l'extérieur.
+    pub shots_away: Option<u16>,
+    /// Tirs cadrés à domicile.
+    pub shots_on_target_home: Option<u16>,
+    /// Tirs cadrés à l'extérieur.
+    pub shots_on_target_away: Option<u16>,
+    /// Corners à domicile.
+    pub corners_home: Option<u16>,
+    /// Corners à l'extérieur.
+    pub corners_away: Option<u16>,
+    /// Fautes à domicile.
+    pub fouls_home: Option<u16>,
+    /// Fautes à l'extérieur.
+    pub fouls_away: Option<u16>,
+    /// Cartons jaunes à domicile.
+    pub yellow_home: Option<u16>,
+    /// Cartons jaunes à l'extérieur.
+    pub yellow_away: Option<u16>,
+    /// Cartons rouges à domicile.
+    pub red_home: Option<u16>,
+    /// Cartons rouges à l'extérieur.
+    pub red_away: Option<u16>,
+}
+
+/// Un match terminé tel que publié par football-data, noms d'équipes bruts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchRecord {
+    /// Date du match (date locale publiée).
+    pub date: NaiveDate,
+    /// Coup d'envoi en UTC ; `None` quand l'heure n'est pas publiée (saisons 2016/17 à 2018/19).
+    pub kickoff_utc: Option<DateTime<Utc>>,
+    /// Équipe à domicile, nom brut.
+    pub home_team: String,
+    /// Équipe à l'extérieur, nom brut.
+    pub away_team: String,
+    /// Buts à domicile à la fin du match.
+    pub ft_home: u8,
+    /// Buts à l'extérieur à la fin du match.
+    pub ft_away: u8,
+    /// Résultat tel que publié (contrôlé contre les buts par la qualité des données).
+    pub ft_result: Outcome,
+    /// Buts à domicile à la mi-temps.
+    pub ht_home: Option<u8>,
+    /// Buts à l'extérieur à la mi-temps.
+    pub ht_away: Option<u8>,
+    /// Arbitre.
+    pub referee: Option<String>,
+    /// Tirs, corners, fautes, cartons.
+    pub stats: MatchStats,
+    /// xG de l'équipe à domicile (publié depuis 2026/27 seulement).
+    pub xg_home: Option<f64>,
+    /// xG de l'équipe à l'extérieur (publié depuis 2026/27 seulement).
+    pub xg_away: Option<f64>,
 }
 
 /// Compteurs de crédits lus dans les en-têtes d'une réponse de l'API.

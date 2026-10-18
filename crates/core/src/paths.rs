@@ -16,6 +16,10 @@ pub struct Paths {
     pub config_file: PathBuf,
     /// Base SQLite : archive des cotes, journal des appels.
     pub db_file: PathBuf,
+    /// Cache des CSV téléchargés (football-data) : on ne retélécharge pas ce qui ne change plus.
+    pub football_data_dir: PathBuf,
+    /// Rapports HTML générés.
+    pub reports_dir: PathBuf,
 }
 
 impl Paths {
@@ -26,6 +30,8 @@ impl Paths {
         Ok(Paths {
             config_file: dirs.config_dir().join("edge.toml"),
             db_file: dirs.data_dir().join("edge.db"),
+            football_data_dir: dirs.data_dir().join("football-data"),
+            reports_dir: dirs.data_dir().join("reports"),
         })
     }
 
@@ -34,6 +40,8 @@ impl Paths {
         Paths {
             config_file: root.join("edge.toml"),
             db_file: root.join("edge.db"),
+            football_data_dir: root.join("football-data"),
+            reports_dir: root.join("reports"),
         }
     }
 }
@@ -47,6 +55,11 @@ mod tests {
         let paths = Paths::under(Path::new("/tmp/racine"));
         assert_eq!(paths.config_file, Path::new("/tmp/racine/edge.toml"));
         assert_eq!(paths.db_file, Path::new("/tmp/racine/edge.db"));
+        assert_eq!(
+            paths.football_data_dir,
+            Path::new("/tmp/racine/football-data")
+        );
+        assert_eq!(paths.reports_dir, Path::new("/tmp/racine/reports"));
     }
 
     #[test]
