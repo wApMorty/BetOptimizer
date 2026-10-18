@@ -616,7 +616,34 @@ meilleur des 3 +0,0271, **meilleur des 5 +0,0512** [0,0333 ; 0,0686] (809 matchs
 souvent). Toutes les tranches ont un intervalle entièrement au-dessus de zéro. **Test d'information : le poids optimal de l'Elo dans le
 mélange avec le marché est 0** (choisi sur la validation) : l'Elo ne contient rien que Pinnacle ignore. Même conclusion qu'en football.
 
-## 23. Reste à vérifier
+## 23. Phase 8 — vérifications avant la NBA (2026-10-18)
+
+**The Odds API et la NBA.** `GET /v4/sports` (gratuit) : `basketball_nba` actif (46 matchs à venir, premier coup d'envoi le 2026-10-20 à
+19 h UTC), plus `basketball_nba_championship_winner` (marché « vainqueur », écarté). Marchés : `h2h`, `spreads` (handicaps), `totals`
+(plus/moins) ; « mainly available for US sports and bookmakers ». Coût = marchés × régions : mesuré **3 crédits** pour 3 marchés et 6
+bookmakers (`x-requests-last: 3`). Résultats : `GET /v4/sports/basketball_nba/scores/?daysFrom=1..3` coûte **2 crédits**
+(1 sans `daysFrom`, mais alors seulement les matchs en cours et à venir) ; réponse : `id`, `commence_time`, `completed`, `home_team`,
+`away_team`, `scores`, `last_update`. Historique : 10 crédits par région et par marché, **plans payants seulement**.
+
+**Couverture mesurée (46 matchs, relevé du 2026-10-18).** Pinnacle : `h2h`, `spreads` et `totals` sur 14 matchs (ceux des jours
+proches), marges 3,1 %, 3,0 % et 3,5 %. Opérateurs français : **`h2h` seulement** chez Winamax (23 matchs, marge 10,5 %), Betclic
+(23, **7,1 %**), Unibet (23, 10,0 %), PMU (21, 10,0 %) et NetBet (12, 9,5 %) ; handicaps seulement chez NetBet (marge 18,5 %), totaux
+seulement chez NetBet (18,2 %) et PMU (16,5 %). Les opérateurs français ne sont donc comparables à Pinnacle que sur le vainqueur.
+
+**Données historiques gratuites : aucune source vérifiée ne convient.** FiveThirtyEight `nbaallelo.csv` (via datahub.io) : aucune licence
+indiquée (« All rights reserved »), résultats issus de Basketball-Reference, couverture non précisée, FiveThirtyEight a fermé ses
+pages. `shufinskiy/nba_data` (Apache-2.0) : play-by-play de stats.nba.com jusqu'à 2024/25, sans conditions d'usage de la NBA ni cotes.
+Jeu « NBA Games » de Nathan Lauga (Kaggle, copie à jour au 2025-02-13) : licence inconnue. Base d'écarts et de totaux de Princeton
+(2006-2023) : inaccessible à un programme (page protégée). Basketball-Reference : page « bot traffic » en HTTP 403. Cotes historiques
+de l'API : payantes. Conclusion : **archive propre**, comme le prévoit CLAUDE.md ; la première comparaison modèle-marché ne sera
+possible qu'après quelques centaines de matchs archivés (début décembre 2026).
+
+**Elo avec marge de victoire.** Les pages méthodologiques de FiveThirtyEight (NBA, WNBA, calcul de l'Elo) redirigent toutes vers ABC News.
+Par recoupement avec un résumé de recherche, non vérifié à la source : multiplicateur de marge `(marge + 3)^0,8 / (7,5 + 0,006 × écart d'Elo)`
+(écart négatif si l'outsider gagne), avantage du terrain de 100 points d'Elo constant, `K` de 28 pour la WNBA (la valeur NBA n'est
+pas confirmée). Ces valeurs servent de point de départ ; elles seront réglées sur les données et présentées comme des choix du projet.
+
+## 24. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
   (non vérifié). La garde ne l'utilise pas ; `edge snapshot` signale toute baisse de `x-requests-used`.
@@ -647,3 +674,5 @@ mélange avec le marché est 0** (choisi sur la validation) : l'Elo ne contient 
   clés actives) ; conversion meilleur des 3 / meilleur des 5 (non faite).
 - Phase 7 : réglage de l'Elo en bordure de grille (`k_base` minimal) ; conversion meilleur des 3 → meilleur des 5, dont l'absence
   explique une partie de l'écart sur les Grands Chelems masculins ; couverture de Pinnacle par tennis-data après 2025.
+- Phase 8 : formule exacte de l'Elo NBA de FiveThirtyEight (K, repos, retour à la moyenne) ; part des matchs NBA avec des lignes
+  Pinnacle à 24 h et à 2 h du coup d'envoi ; date de début des lignes de handicap et de total chez Pinnacle.
