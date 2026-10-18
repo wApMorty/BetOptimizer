@@ -1,0 +1,197 @@
+# Sources et vérifications
+
+Chaque fait indique sa **nature** : *test réel* (appel effectué avec la clé du projet) ou *doc* (lu dans la
+documentation, non éprouvé). Date de toutes les vérifications ci-dessous : **2026-10-18**, relevés réalisés entre
+10:57 et 11:05 UTC. Les réponses brutes sont dans le scratchpad de session, pas dans le dépôt.
+
+## 1. The Odds API — offre gratuite
+
+| Fait | Nature | Source |
+|---|---|---|
+| 500 crédits par mois, tous sports, « most bookmakers », tous marchés | doc | https://the-odds-api.com/ |
+| Une clé fait 32 caractères ; compte neuf au premier appel (`x-requests-used: 0`) | test réel | `GET /v4/sports` |
+| Date de réinitialisation du quota **non documentée** pour l'offre gratuite (la page ne la donne que pour les offres payantes : « même jour du mois que le début de l'abonnement ») | doc | https://the-odds-api.com/ |
+| Historique des cotes : réservé aux offres payantes | doc | https://the-odds-api.com/liveapi/guides/v4/ |
+| Stockage illimité des données **autorisé** (« Storing our data and retaining it indefinitely » figure dans « Permitted uses ») ; revente comme flux brut interdite ; attribution non requise | doc | https://the-odds-api.com/terms-and-conditions.html |
+
+## 2. Clés des ligues (`GET /v4/sports?all=true`, gratuit, 180 sports renvoyés)
+
+Toutes `active: true` et `has_outrights: false` au 2026-10-18 — *test réel*.
+
+| Compétition | Clé API | Titre API |
+|---|---|---|
+| Premier League | `soccer_epl` | EPL |
+| La Liga | `soccer_spain_la_liga` | La Liga - Spain |
+| Bundesliga | `soccer_germany_bundesliga` | Bundesliga - Germany |
+| Serie A | `soccer_italy_serie_a` | Serie A - Italy |
+| Ligue 1 | `soccer_france_ligue_one` | Ligue 1 - France |
+| Premiership écossaise | `soccer_spl` | Premiership - Scotland |
+
+Pièges de nommage : la Championship est `soccer_efl_champ` (pas `soccer_england_championship`) ; la 2. Bundesliga
+est `soccer_germany_bundesliga2` ; l'Écosse est `soccer_spl`, pas `soccer_scotland_*`.
+
+Matchs à venir (`GET /v4/sports/{clé}/events`, coût 0, *test réel*) : EPL 25 (jusqu'au 2 nov.), La Liga 16
+(26 oct.), Bundesliga 11 (25 oct.), Serie A 16 (25 oct.), Ligue 1 14 (25 oct.), Premiership 5 (24 oct.).
+
+## 3. Bookmakers
+
+Source : https://the-odds-api.com/sports-odds-data/bookmaker-apis.html (*doc*), confirmé par appel (*test réel*).
+
+- Région `eu` (27 clés) : contient `pinnacle`, `winamax_fr`, `betclic_fr`, `unibet_fr`, `pmu_fr`, `winamax_de`…
+- Région `fr` (5 clés) : `betclic_fr`, `netbet_fr`, `pmu_fr`, `unibet_fr`, `winamax_fr`. Seule `netbet_fr` est propre à `fr`.
+- `pinnacle` est **uniquement** dans `eu`. Mention de la page : « Odds are from public website which may incur a delay ».
+- `zebet` et `parionssport_fr` n'apparaissent dans aucune des deux régions.
+- Dans les réponses, `title` vaut `Winamax (FR)`, `Betclic (FR)`, `Pinnacle`. L'ordre des bookmakers dans la réponse
+  n'est pas celui de la requête.
+
+### Couverture mesurée (marché `h2h`, `bookmakers=pinnacle,winamax_fr,betclic_fr`) — *test réel*
+
+| Ligue | Matchs | avec Pinnacle | avec Winamax | avec Betclic | les trois |
+|---|---|---|---|---|---|
+| `soccer_epl` | 25 | 15 | 25 | 25 | 15 |
+| `soccer_spain_la_liga` | 16 | 16 | 16 | 16 | 16 |
+| `soccer_germany_bundesliga` | 11 | 11 | 11 | 11 | 11 |
+| `soccer_italy_serie_a` | 16 | 16 | 16 | 16 | 16 |
+| `soccer_france_ligue_one` | 14 | 14 | 14 | 14 | 14 |
+| `soccer_spl` | 5 | 5 | **0** | **0** | 0 |
+
+- **Écosse : ni Winamax ni Betclic.** Avec `regions=fr`, la Premiership est cotée par `unibet_fr`, `pmu_fr` et
+  `netbet_fr` (5 matchs sur 5 chacun), pas par Winamax ni Betclic. Un seul relevé : à réévaluer avec l'archive.
+- **Horizon de Pinnacle.** Pinnacle apparaît pour les matchs à ≤ 201 h (8,4 jours) du coup d'envoi et manque pour
+  ceux à ≥ 313 h (13 jours) ; l'intervalle intermédiaire n'a pas été observé. Les 10 matchs EPL sans Pinnacle sont
+  tous au-delà de 313 h. Winamax et Betclic cotent dès le plus lointain.
+
+## 4. Décompte des crédits
+
+| Fait | Nature |
+|---|---|
+| Formule : coût = nombre de marchés × nombre de régions (« 1 per region per market ») | doc |
+| « Every group of 10 bookmakers is the equivalent of 1 region » : jusqu'à 10 bookmakers = 1, de 11 à 20 = 2 | doc |
+| `bookmakers` prime sur `regions` quand les deux sont fournis | doc |
+| 1 marché (`h2h`) × 3 bookmakers, sans `regions` : **1 crédit** (`x-requests-last: 1`) pour chacune des 6 ligues | test réel |
+| **Un appel renvoie tous les matchs à venir de la ligue** (25 pour l'EPL) pour le même coût : le coût ne dépend pas du nombre de matchs | test réel |
+| `regions=fr` × 1 marché (3 bookmakers renvoyés pour la Premiership) : 1 crédit | test réel |
+| Gratuits : `/sports`, `/events` | doc + test réel |
+| Une réponse sans événement ne coûte rien | doc (non éprouvé) |
+| Au-delà de 10 bookmakers : 2 crédits | doc (non éprouvé) |
+| **Un bookmaker inconnu** (`bookmakers=bookmaker_bidon`) : HTTP 200, chaque match renvoyé avec `"bookmakers": []`, **coût 1 crédit** — une faute de frappe est facturée sans erreur | test réel |
+| Erreurs 401 (clé), 404 (sport), 422 (marché) : coût 0 | test réel |
+
+## 5. En-têtes de quota (*doc* + *test réel*)
+
+- `x-requests-remaining` : crédits restants jusqu'à la réinitialisation.
+- `x-requests-used` : crédits consommés depuis la dernière réinitialisation.
+- `x-requests-last` : coût du dernier appel.
+- Présents sur les réponses 200, 404 et 422, **absents sur 401** (clé invalide). `remaining + used = 500`.
+- Un appel à `/sports` (gratuit) renvoie ces en-têtes : il permet de lire le quota réel **sans rien dépenser**.
+
+## 6. Format de réponse `GET /v4/sports/{clé}/odds` (*test réel*)
+
+Paramètres utilisés : `markets=h2h&bookmakers=pinnacle,winamax_fr,betclic_fr&oddsFormat=decimal&dateFormat=iso`
+(`decimal` et `iso` sont les valeurs par défaut). Filtres de date : `commenceTimeFrom`, `commenceTimeTo`
+(ISO 8601, *doc*).
+
+```json
+[{
+  "id": "dfd5d6648be46426e418801584d46a68",
+  "sport_key": "soccer_epl",
+  "sport_title": "EPL",
+  "commence_time": "2026-10-18T13:00:00Z",
+  "home_team": "Bournemouth",
+  "away_team": "Sunderland",
+  "bookmakers": [{
+    "key": "winamax_fr",
+    "title": "Winamax (FR)",
+    "last_update": "2026-10-18T10:57:26Z",
+    "markets": [{
+      "key": "h2h",
+      "last_update": "2026-10-18T10:57:25Z",
+      "outcomes": [
+        {"name": "Bournemouth", "price": 2.1},
+        {"name": "Sunderland",  "price": 3.15},
+        {"name": "Draw",        "price": 3.3}
+      ]
+    }]
+  }]
+}]
+```
+
+Mesuré sur 87 matchs et 241 marchés `h2h` :
+
+- Toujours 3 issues ; la 3ᵉ s'appelle littéralement `"Draw"` ; les deux autres portent le **nom exact** de
+  `home_team` / `away_team`. Aucun autre nom d'issue observé.
+- **L'ordre des issues n'est pas domicile / extérieur / nul.** Il suit l'ordre alphabétique des deux équipes, puis
+  `Draw` (ex. Udinese–Lecce : `Lecce`, `Udinese`, `Draw`). Le domicile est en première position dans 138 cas sur 241
+  seulement. Un parseur positionnel serait faux dans 43 % des cas : il faut associer par nom.
+- `last_update` existe au niveau bookmaker **et** au niveau marché ; la doc déclare celui du bookmaker déprécié :
+  utiliser celui du marché.
+- Cotes décimales de 1,15 à 11,44. Somme des probabilités implicites de 1,027 à 1,167 (dans [1,00 ; 1,30]).
+- Noms d'équipes bruts variables d'une source à l'autre (`Paris Saint Germain`, `Inter Milan`, `Falkirk F.C.`,
+  `Brighton and Hove Albion`, `Borussia Monchengladbach`, `Málaga`) : la table d'alias est indispensable en phase 2.
+- **Matchs déjà commencés.** Udinese–Lecce (coup d'envoi 10:31Z) figurait dans la réponse de 10:58Z avec un
+  `last_update` de 10:58 : ces cotes sont très probablement des cotes en direct (non prouvé). Elles ne doivent pas
+  entrer dans une archive d'avant-match.
+
+## 7. Erreurs (*test réel*)
+
+| Cas | HTTP | Corps |
+|---|---|---|
+| Clé invalide | 401 | `{"message":"API key is not valid…","error_code":"INVALID_KEY","details_url":"…"}` (aucun en-tête `x-requests-*`) |
+| Sport inconnu | 404 | `{"message":"Unknown sport","error_code":"UNKNOWN_SPORT",…}` |
+| Marché invalide | 422 | `{"message":"Invalid markets: …","error_code":"INVALID_MARKET",…}` |
+| Limite de débit | 429 | doc uniquement : « try spacing out requests over several seconds » (non provoqué) |
+
+Les corps d'erreur sont du JSON avec `error_code` : à lire pour construire le message d'erreur.
+Liste officielle des codes : https://the-odds-api.com/liveapi/guides/v4/api-error-codes.html (non lue).
+
+## 8. Crates (crates.io, versions stables au 2026-10-18)
+
+| Crate | Version | MSRV déclaré | Publiée |
+|---|---|---|---|
+| clap | 4.6.7 | 1.85 | 2026-09-14 |
+| serde | 1.0.229 | 1.56 | 2026-07-18 |
+| serde_json | 1.0.154 | 1.71 | 2026-10-11 |
+| toml | 1.1.8 | 1.85 | 2026-10-09 |
+| ureq | 3.4.2 | 1.85 | 2026-09-13 |
+| rusqlite | 0.40.2 | non déclaré | 2026-08-08 |
+| chrono | 0.4.45 | 1.62 | 2026-06-04 |
+| chrono-tz | 0.10.4 | 1.65 | 2025-07-11 |
+| directories | 6.0.0 | non déclaré | 2025-01-12 |
+| tracing | 0.1.44 | 1.65 | 2025-12-18 |
+| tracing-subscriber | 0.3.23 | 1.65 | 2026-03-13 |
+| thiserror | 2.0.21 | 1.77 | 2026-09-23 |
+| anyhow | 1.0.104 | 1.68 | 2026-07-18 |
+| approx | 0.5.1 | non déclaré | 2022-01-12 |
+
+- Chaîne Rust minimale : **1.85** (édition 2024 et plusieurs dépendances).
+- `ureq` 3.x : features `rustls` (défaut), `gzip`, `json`… ; la 3.x n'a pas la même API que la 2.x : confirmer sur
+  docs.rs au démarrage de la phase 1 (lecture du corps des réponses 4xx, accès aux en-têtes).
+- `rusqlite` : feature `bundled` présente.
+
+## 9. Environnement local au 2026-10-18
+
+- `cargo`, `rustc`, `rustup` : **absents**. `sqlite3` 3.53.4, `curl`, `jq`, `python3` 3.14.7 présents.
+- systemd 262 ; lingering désactivé à la vérification, **activé ensuite** (`loginctl enable-linger`, `Linger=yes`).
+- `.env` à la racine du dépôt : permissions 644 à la vérification, **corrigées en 600** ; `.gitignore` créé
+  (`.env`, `target/`, `*.db`). La variable `EDGE_ODDS_API_KEY` n'était pas exportée dans l'environnement du shell de
+  session ; la vérification a lu la valeur dans `.env` sans jamais l'afficher ni l'écrire ailleurs.
+- Compilateur C (`gcc`) présent : suffisant pour `rusqlite` (`bundled`) et `ureq` (rustls).
+
+## 10. Crédits consommés par ces vérifications
+
+| Appels | Crédits |
+|---|---|
+| `/sports`, 6 × `/events`, 3 erreurs (401, 404, 422) | 0 |
+| 6 × `/odds` (une par ligue, `h2h`, 3 bookmakers) | 6 |
+| 1 × `/odds` avec un bookmaker inconnu (non prévu) | 1 |
+| 1 × `/odds` Premiership, `regions=fr` | 1 |
+| **Total** | **8** (reste 492 au dernier en-tête lu) |
+
+## 11. Reste à vérifier
+
+- Date de réinitialisation du quota gratuit (tableau de bord du compte ; sinon détection d'une baisse de `used`).
+- Colonnes Pinnacle de football-data.co.uk après juillet 2025 (phase 2).
+- Comportement réel de 11 bookmakers ou plus (2 crédits ?) et d'une réponse vide (0 crédit ?).
+- Plage de Pinnacle entre 201 h et 313 h avant le coup d'envoi.
+- Fréquence de mise à jour de Pinnacle (délai « public website ») : mesurable avec l'archive.
+- Liste officielle des codes d'erreur et comportement exact du 429.
