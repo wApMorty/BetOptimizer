@@ -1,7 +1,7 @@
-# Workspace Cargo du projet `edge` : un cœur (`core`) sans interface, et un binaire (`cli`) qui l'appelle.
+# Workspace Cargo du projet `edge` : un cœur (`core`) sans interface, un binaire (`cli`) et une application (`gui`) qui l'appellent.
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/cli"]
+members = ["crates/core", "crates/cli", "crates/gui"]
 
 [workspace.package]
 version = "0.1.0"
@@ -22,6 +22,10 @@ chrono-tz = "0.10.4"
 clap = { version = "4.6.7", features = ["derive"] }
 csv = "1.4.0"
 directories = "6.0.0"
+# Application (phase 6). Paire compatible : egui_plot 0.37 attend egui 0.36, que fournit eframe 0.36 ; eframe 0.37 vise egui 0.37.
+# wgpu : backend imposé par CLAUDE.md ; Wayland et X11 : la session de Paul est sous Wayland. Pas de glow ni d'accesskit.
+eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "wayland", "x11", "default_fonts"] }
+egui_plot = "0.37.0"
 minijinja = "2.24.0"
 plotters = { version = "0.3.7", default-features = false, features = ["svg_backend", "line_series", "point_series"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }

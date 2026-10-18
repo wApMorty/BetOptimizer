@@ -1,0 +1,26 @@
+[package]
+name = "edge-gui"
+description = "Application `edge-gui` : recommandations, paris, bankroll, CLV et calibration."
+version.workspace = true
+edition.workspace = true
+# 1.95 : minimum d'eframe 0.36. Seule cette crate l'exige ; le cœur reste compilable en 1.89.
+rust-version = "1.95"
+publish.workspace = true
+
+# Le paquet s'appelle `edge-gui`, l'exécutable aussi.
+[[bin]]
+name = "edge-gui"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+eframe.workspace = true
+edge-core.workspace = true
+egui_plot.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
