@@ -22,6 +22,21 @@ pub fn odds_path(sport_key: &str) -> String {
     format!("/sports/{sport_key}/odds")
 }
 
+/// Chemin des cotes d'un seul match : `/sports/{ligue}/events/{match}/odds`.
+///
+/// Renvoie `None` si l'identifiant du match contient autre chose que des lettres et des chiffres : il vient de la base
+/// mais se glisse dans le chemin d'une URL, donc on refuse tout caractère qui pourrait la détourner.
+pub fn event_odds_path(sport_key: &str, event_id: &str) -> Option<String> {
+    let safe = !event_id.is_empty() && event_id.chars().all(|c| c.is_ascii_alphanumeric());
+    safe.then(|| format!("/sports/{sport_key}/events/{event_id}/odds"))
+}
+
+/// Paramètres journalisés d'un appel par match : l'identifiant du match (dans le chemin de la requête) est noté en
+/// tête pour que le journal des appels dise de quel match il s'agit, puis viennent les vrais paramètres.
+pub fn event_odds_params(event_id: &str, markets: &[String], bookmakers: &[String]) -> String {
+    format!("eventId={event_id}&{}", odds_params(markets, bookmakers))
+}
+
 /// Paramètres de la requête `/odds`, **sans la clé API** : c'est ce texte qui est journalisé.
 ///
 /// Sans paramètre `regions`, `bookmakers` fait foi (documentation) ; jusqu'à 10 bookmakers comptent
@@ -32,6 +47,11 @@ pub fn odds_params(markets: &[String], bookmakers: &[String]) -> String {
         markets.join(","),
         bookmakers.join(",")
     )
+}
+
+/// Paramètres réellement envoyés pour un appel par match : ceux du journal, sans l'identifiant noté en tête.
+pub fn event_request_params(logged: &str) -> &str {
+    logged.split_once('&').map_or(logged, |(_, rest)| rest)
 }
 
 /// URL complète d'une requête, clé API comprise. Cette chaîne ne doit jamais être journalisée.
@@ -99,40 +119,57 @@ pub fn parse_odds(body: &str, fetched_at: DateTime<Utc>) -> Result<ParsedOdds> {
         dropped_markets: 0,
     };
     // `for raw_event in raw` consomme le vecteur : chaque `String` est déplacée dans l'`Event`
-    // sans copie. Le `to_string()` n'est nécessaire que pour la clé du bookmaker, partagée par
-    // plusieurs cotes.
+    // sans copie.
     for raw_event in raw {
-        if raw_event.commence_time <= fetched_at {
-            parsed.already_started += 1;
-            continue;
-        }
-        let mut quotes = Vec::new();
-        for bookmaker in raw_event.bookmakers {
-            for market in bookmaker.markets {
-                match market_quotes(&bookmaker.key, market) {
-                    Some(market_quotes) => quotes.extend(market_quotes),
-                    None => {
-                        parsed.dropped_markets += 1;
-                        tracing::warn!(
-                            bookmaker = %bookmaker.key,
-                            home = %raw_event.home_team,
-                            away = %raw_event.away_team,
-                            "marché écarté : une cote est invalide"
-                        );
-                    }
+        add_event(&mut parsed, raw_event, fetched_at);
+    }
+    Ok(parsed)
+}
+
+/// Lit le corps d'une réponse `/events/{match}/odds` réussie : un seul match, pas une liste.
+pub fn parse_event_odds(body: &str, fetched_at: DateTime<Utc>) -> Result<ParsedOdds> {
+    let raw: RawEvent = serde_json::from_str(body)?;
+    let mut parsed = ParsedOdds {
+        events: Vec::new(),
+        already_started: 0,
+        dropped_markets: 0,
+    };
+    add_event(&mut parsed, raw, fetched_at);
+    Ok(parsed)
+}
+
+/// Ajoute un match au résultat, ou le compte comme « déjà commencé ».
+fn add_event(parsed: &mut ParsedOdds, raw_event: RawEvent, fetched_at: DateTime<Utc>) {
+    if raw_event.commence_time <= fetched_at {
+        parsed.already_started += 1;
+        return;
+    }
+    let mut quotes = Vec::new();
+    // Le `to_string()` n'est nécessaire que pour la clé du bookmaker, partagée par plusieurs cotes.
+    for bookmaker in raw_event.bookmakers {
+        for market in bookmaker.markets {
+            match market_quotes(&bookmaker.key, market) {
+                Some(market_quotes) => quotes.extend(market_quotes),
+                None => {
+                    parsed.dropped_markets += 1;
+                    tracing::warn!(
+                        bookmaker = %bookmaker.key,
+                        home = %raw_event.home_team,
+                        away = %raw_event.away_team,
+                        "marché écarté : une cote est invalide"
+                    );
                 }
             }
         }
-        parsed.events.push(Event {
-            id: raw_event.id,
-            sport_key: raw_event.sport_key,
-            commence_time: raw_event.commence_time,
-            home_team: raw_event.home_team,
-            away_team: raw_event.away_team,
-            quotes,
-        });
     }
-    Ok(parsed)
+    parsed.events.push(Event {
+        id: raw_event.id,
+        sport_key: raw_event.sport_key,
+        commence_time: raw_event.commence_time,
+        home_team: raw_event.home_team,
+        away_team: raw_event.away_team,
+        quotes,
+    });
 }
 
 /// Convertit les issues d'un marché en cotes. Renvoie `None` si une seule cote est invalide :
@@ -395,5 +432,53 @@ mod tests {
         let message = api_error(502, &long).to_string();
         assert!(message.contains("502"));
         assert!(message.len() < 400);
+    }
+
+    #[test]
+    fn the_event_path_refuses_anything_but_letters_and_digits() {
+        assert_eq!(
+            event_odds_path("soccer_epl", "f0153980fbafeb84"),
+            Some("/sports/soccer_epl/events/f0153980fbafeb84/odds".to_string())
+        );
+        assert_eq!(event_odds_path("soccer_epl", "a/../b"), None);
+        assert_eq!(event_odds_path("soccer_epl", "a?x=1"), None);
+        assert_eq!(event_odds_path("soccer_epl", ""), None);
+    }
+
+    #[test]
+    fn the_logged_params_name_the_match_and_the_sent_params_do_not() {
+        let markets = vec!["h2h".to_string()];
+        let bookmakers = vec!["pinnacle".to_string()];
+
+        let logged = event_odds_params("abc123", &markets, &bookmakers);
+
+        assert_eq!(
+            logged,
+            "eventId=abc123&markets=h2h&bookmakers=pinnacle&oddsFormat=decimal&dateFormat=iso"
+        );
+        assert_eq!(
+            event_request_params(&logged),
+            "markets=h2h&bookmakers=pinnacle&oddsFormat=decimal&dateFormat=iso"
+        );
+    }
+
+    #[test]
+    fn a_single_event_response_is_read_like_one_element_of_the_list() {
+        let body = r#"{"id":"e1","sport_key":"soccer_spl","commence_time":"2026-10-18T14:00:00Z",
+            "home_team":"Celtic","away_team":"Hearts","bookmakers":[{"key":"pinnacle","title":"Pinnacle",
+            "markets":[{"key":"h2h","last_update":"2026-10-18T10:58:27Z","outcomes":[
+            {"name":"Celtic","price":1.56},{"name":"Hearts","price":5.21},{"name":"Draw","price":4.92}]}]}]}"#;
+
+        let before = parse_event_odds(body, "2026-10-18T13:30:00Z".parse().unwrap()).unwrap();
+        let after = parse_event_odds(body, "2026-10-18T14:30:00Z".parse().unwrap()).unwrap();
+
+        assert_eq!(before.events.len(), 1);
+        assert_eq!(before.events[0].quotes.len(), 3);
+        assert_eq!(before.events[0].id, "e1");
+        assert!(
+            after.events.is_empty(),
+            "un match commencé n'est pas archivé"
+        );
+        assert_eq!(after.already_started, 1);
     }
 }

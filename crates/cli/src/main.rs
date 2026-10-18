@@ -51,6 +51,12 @@ enum Command {
         #[arg(long, value_name = "EUROS")]
         min_stake: Option<f64>,
     },
+    /// Relève la clôture de Pinnacle des matchs suivis qui commencent dans les 30 minutes (1 crédit par match).
+    Closing {
+        /// Liste les matchs concernés sans appeler l'API.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Écrit les recommandations du dernier relevé dans le journal immuable (et notifie sur Discord avec --notify).
     Recommend {
         /// Envoie les nouvelles recommandations sur Discord, rapport HTML joint.
@@ -159,6 +165,7 @@ fn main() -> Result<()> {
                 min_stake,
             },
         ),
+        Command::Closing { dry_run } => commands::closing(&paths, dry_run),
         Command::Recommend { notify } => commands::recommend(&paths, notify),
         Command::Backtest { command } => match command {
             BacktestCommand::Tune => commands::backtest_tune(&paths),

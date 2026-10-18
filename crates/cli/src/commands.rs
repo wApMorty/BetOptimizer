@@ -1,5 +1,6 @@
 //! Les sous-commandes de `edge`. Chacune lit la configuration, appelle `edge-core` et affiche le résultat.
 
+use std::io::IsTerminal;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
@@ -12,6 +13,7 @@ use edge_core::domain::{Euros, Outcome};
 use edge_core::format;
 use edge_core::ingest::aliases::Aliases;
 use edge_core::ingest::client::OddsApiClient;
+use edge_core::ingest::closing;
 use edge_core::ingest::football_data::fetch::{FileClient, fetch_all};
 use edge_core::ingest::football_data::import::{import_files, load_files};
 use edge_core::ingest::football_data::quality::{self, SeasonStatus};
@@ -572,6 +574,67 @@ pub fn value(paths: &Paths, options: &ValueOptions) -> Result<()> {
          échantillon (voir `edge backtest report`) : vérifie chaque prix à la main avant tout pari ; si la cote affichée\n\
          par l'opérateur est sous la cote minimale, ne parie pas."
     );
+    Ok(())
+}
+
+/// `edge closing` : relève la clôture de Pinnacle des matchs suivis qui commencent dans les 30 minutes.
+///
+/// Lancée toutes les dix minutes par un timer : sans match concerné, elle n'appelle pas l'API, ne demande même pas la
+/// clé, et ne dit rien quand la sortie va dans un journal (elle parle seulement dans un terminal).
+pub fn closing(paths: &Paths, dry_run: bool) -> Result<()> {
+    let config = Config::load(&paths.config_file)?;
+    let mut conn = open_database(paths)?;
+    let targets = closing::pending(&conn, Utc::now())?;
+    let talkative = dry_run || std::io::stdout().is_terminal();
+
+    if targets.is_empty() {
+        if talkative {
+            println!(
+                "Aucun match suivi (recommandation ou pari) ne commence dans les {} prochaines minutes sans clôture.",
+                closing::WINDOW_MINUTES
+            );
+        }
+        return Ok(());
+    }
+    if dry_run {
+        println!(
+            "Aucun appel n'est effectué. Matchs dont la clôture serait relevée (1 crédit chacun) :"
+        );
+        for target in &targets {
+            println!(
+                "  {} · {}",
+                format::kickoff_label(target.kickoff),
+                target.event_id
+            );
+        }
+        return Ok(());
+    }
+
+    let client = OddsApiClient::new(api_key_from(&config)?);
+    let report = closing::run(&mut conn, &config, &mut Utc::now, &mut |path, params| {
+        client.get(path, params)
+    })?;
+    for done in &report.captured {
+        println!(
+            "Clôture relevée : {} ({}){}",
+            done.target.event_id,
+            format::kickoff_label(done.target.kickoff),
+            if done.has_pinnacle {
+                ""
+            } else {
+                " — Pinnacle sans cote : inutilisable"
+            }
+        );
+    }
+    for failure in &report.failures {
+        eprintln!(
+            "Clôture manquée : {} — {}",
+            failure.target.event_id, failure.reason
+        );
+    }
+    if !report.failures.is_empty() {
+        bail!("{} clôture(s) manquée(s)", report.failures.len());
+    }
     Ok(())
 }
 

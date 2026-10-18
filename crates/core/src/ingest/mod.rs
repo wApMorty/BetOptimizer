@@ -3,6 +3,7 @@
 pub mod aliases;
 pub mod budget;
 pub mod client;
+pub mod closing;
 pub mod football_data;
 pub mod odds_api;
 pub mod snapshot;

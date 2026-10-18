@@ -176,8 +176,8 @@ mod archive {
     use super::run_edge;
 
     /// Écrit dans la base du dossier un relevé récent où Pinnacle donne 2,00 à la victoire à domicile et Betclic 2,30 :
-    /// un avantage d'environ 12 % sur cette issue, pour un match dans deux jours.
-    pub fn one_value_match(home: &std::path::Path) {
+    /// un avantage d'environ 12 % sur cette issue, pour un match qui commence dans `kickoff_in_minutes` minutes.
+    pub fn one_value_match(home: &std::path::Path, kickoff_in_minutes: i64) {
         use chrono::{Duration, Utc};
         use edge_core::domain::{Event, Odds, Quota, Quote};
         use edge_core::store::archive::{Endpoint, NewApiCall, record_api_call, record_snapshot};
@@ -210,7 +210,7 @@ mod archive {
         let event = Event {
             id: "match-cli".to_string(),
             sport_key: "soccer_spl".to_string(),
-            commence_time: Utc::now() + Duration::days(2),
+            commence_time: Utc::now() + Duration::minutes(kickoff_in_minutes),
             home_team: "Falkirk".to_string(),
             away_team: "Kilmarnock".to_string(),
             quotes,
@@ -232,7 +232,7 @@ mod archive {
 #[test]
 fn recommend_writes_the_journal_once_and_a_second_run_adds_nothing() {
     let home = tempfile::tempdir().unwrap();
-    archive::one_value_match(home.path());
+    archive::one_value_match(home.path(), 2 * 24 * 60);
 
     let first = run_edge(home.path(), &["recommend"], None);
     let second = run_edge(home.path(), &["recommend"], None);
@@ -259,7 +259,7 @@ fn recommend_writes_the_journal_once_and_a_second_run_adds_nothing() {
 #[test]
 fn recommend_with_notify_but_no_webhook_fails_before_writing_anything() {
     let home = tempfile::tempdir().unwrap();
-    archive::one_value_match(home.path());
+    archive::one_value_match(home.path(), 2 * 24 * 60);
 
     let refused = run_edge(home.path(), &["recommend", "--notify"], None);
     let plain = run_edge(home.path(), &["recommend"], None);
@@ -273,7 +273,7 @@ fn recommend_with_notify_but_no_webhook_fails_before_writing_anything() {
 #[test]
 fn value_shows_the_pick_without_writing_to_the_journal() {
     let home = tempfile::tempdir().unwrap();
-    archive::one_value_match(home.path());
+    archive::one_value_match(home.path(), 2 * 24 * 60);
 
     let shown = run_edge(home.path(), &["value"], None);
     let recommended = run_edge(home.path(), &["recommend"], None);
@@ -282,4 +282,33 @@ fn value_shows_the_pick_without_writing_to_the_journal() {
     assert!(text(&shown.stdout).contains("betclic_fr · domicile à 2,30"));
     assert!(text(&shown.stdout).contains("match match-cli"));
     assert!(text(&recommended.stdout).contains("1 recommandation(s) nouvelle(s)"));
+}
+
+#[test]
+fn closing_with_nothing_to_capture_needs_no_key_and_says_nothing_to_a_journal() {
+    let home = tempfile::tempdir().unwrap();
+    assert!(run_edge(home.path(), &["init"], None).status.success());
+
+    let output = run_edge(home.path(), &["closing"], None);
+
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    // La sortie n'est pas un terminal (elle est capturée) : la commande reste silencieuse, comme sous systemd.
+    assert_eq!(text(&output.stdout), "");
+}
+
+#[test]
+fn closing_dry_run_lists_the_followed_match_starting_soon_without_calling_the_api() {
+    let home = tempfile::tempdir().unwrap();
+    archive::one_value_match(home.path(), 20);
+    assert!(run_edge(home.path(), &["recommend"], None).status.success());
+
+    let dry = run_edge(home.path(), &["closing", "--dry-run"], None);
+    let real = run_edge(home.path(), &["closing"], None);
+
+    assert!(dry.status.success(), "{}", text(&dry.stderr));
+    assert!(text(&dry.stdout).contains("match-cli"));
+    assert!(text(&dry.stdout).contains("Aucun appel n'est effectué"));
+    // Sans clé, l'appel réel échoue clairement, avant tout réseau.
+    assert!(!real.status.success());
+    assert!(text(&real.stderr).contains("EDGE_ODDS_API_KEY"));
 }
