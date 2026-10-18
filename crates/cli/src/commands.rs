@@ -13,6 +13,8 @@ use edge_core::ingest::football_data::quality::{self, SeasonStatus};
 use edge_core::ingest::football_data::{FIRST_SEASON, Season, wanted_files};
 use edge_core::ingest::snapshot::{self, SnapshotReport};
 use edge_core::init::initialize;
+use edge_core::models::data::load_leagues;
+use edge_core::models::tuning;
 use edge_core::paths::Paths;
 use edge_core::report::market_report;
 use edge_core::report::render::render_market_report;
@@ -251,6 +253,73 @@ pub fn market_report(paths: &Paths, out: Option<&std::path::Path>) -> Result<()>
             "non"
         }
     );
+    Ok(())
+}
+
+/// `edge model tune` : régle les hyperparamètres sur la validation 2024/25 et fige la meilleure configuration.
+pub fn model_tune(paths: &Paths) -> Result<()> {
+    let mut conn = open_database(paths)?;
+    let leagues = load_leagues(&conn)?;
+    let grid = tuning::candidate_grid();
+    let window = tuning::validation_window();
+    println!(
+        "{} configurations, walk-forward hebdomadaire sur {} → {} (reprenable : une configuration déjà calculée est relue).",
+        grid.len(),
+        window.first,
+        window.last
+    );
+
+    let outcome = tuning::tune(
+        &mut conn,
+        &leagues,
+        &grid,
+        window,
+        Utc::now(),
+        &mut |index, total, result| {
+            println!(
+                "[{index}/{total}] {} : log loss {:.5} sur {} matchs",
+                result.config.version(),
+                result.log_loss,
+                result.games
+            );
+        },
+    )?;
+
+    for (label, best) in [
+        ("Poisson", &outcome.best_poisson),
+        ("Dixon-Coles", &outcome.best_dixon_coles),
+    ] {
+        println!(
+            "Meilleur {label} : ξ = {}, κ = {}, mélange tirs = {} → log loss {:.5} ({} matchs)",
+            best.config.decay, best.config.ridge, best.config.blend, best.log_loss, best.games
+        );
+    }
+    let sessions = edge_core::store::predictions::tuning_session_count(&conn)?;
+    println!(
+        "Sessions de réglage enregistrées : {sessions} (chaque réglage supplémentaire est une occasion de s'adapter au hasard)."
+    );
+    Ok(())
+}
+
+/// `edge model evaluate` : évalue les configurations figées sur le test (2025/26 puis 2026/27 en avant).
+pub fn model_evaluate(paths: &Paths) -> Result<()> {
+    let mut conn = open_database(paths)?;
+    let leagues = load_leagues(&conn)?;
+    let last = leagues
+        .iter()
+        .flat_map(|league| league.games.iter().map(|game| game.date))
+        .max()
+        .context("aucun match en base : lance `edge fd fetch` puis `edge fd import`")?;
+    let window = tuning::test_window(last);
+    println!("Test : {} → {}", window.first, window.last);
+    for run in tuning::evaluate(&mut conn, &leagues, window, Utc::now())? {
+        println!(
+            "{} : {} matchs prédits (exécution {})",
+            run.config.version(),
+            run.games,
+            run.run_id
+        );
+    }
     Ok(())
 }
 

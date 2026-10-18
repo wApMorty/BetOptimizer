@@ -100,8 +100,13 @@ pub fn load_predictions(conn: &Connection, run_id: i64) -> Result<Vec<Prediction
 }
 
 /// Une session de réglage : la meilleure configuration d'un modèle, figée avant le test.
+///
+/// `label` identifie ce qui est figé : `poisson`, `dixon_coles` (mélange de tirs libre) ou `dixon_coles_goals`
+/// (Dixon-Coles à buts seuls, la variante témoin pour mesurer ce que les tirs apportent).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TuningRecord {
+    /// Étiquette de la configuration figée.
+    pub label: String,
     /// Instant du réglage.
     pub created_at: DateTime<Utc>,
     /// Période de validation utilisée.
@@ -125,7 +130,7 @@ pub fn insert_tuning(conn: &Connection, record: &TuningRecord) -> Result<()> {
             date_text(record.window.first),
             date_text(record.window.last),
             record.configs_tried as i64,
-            record.config.model_name(),
+            record.label,
             record.config.decay,
             record.config.ridge,
             record.config.blend,
@@ -135,18 +140,19 @@ pub fn insert_tuning(conn: &Connection, record: &TuningRecord) -> Result<()> {
     Ok(())
 }
 
-/// Dernier réglage figé d'un modèle (`poisson` ou `dixon_coles`).
-pub fn latest_tuning(conn: &Connection, model: &str) -> Result<Option<TuningRecord>> {
+/// Dernier réglage figé sous une étiquette (`poisson`, `dixon_coles`, `dixon_coles_goals`).
+pub fn latest_tuning(conn: &Connection, label: &str) -> Result<Option<TuningRecord>> {
     let record = conn
         .query_row(
             "SELECT created_at, window_start, window_end, configs_tried, decay, ridge, blend, validation_log_loss
                FROM tuning_session WHERE model = ?1 ORDER BY id DESC LIMIT 1",
-            [model],
+            [label],
             |row| {
                 let created: String = row.get(0)?;
                 let (start, end): (String, String) = (row.get(1)?, row.get(2)?);
-                let kind = if model == "poisson" { ModelKind::Poisson } else { ModelKind::DixonColes };
+                let kind = if label == "poisson" { ModelKind::Poisson } else { ModelKind::DixonColes };
                 Ok(TuningRecord {
+                    label: label.to_string(),
                     created_at: created.parse().unwrap_or_default(),
                     window: Window {
                         first: NaiveDate::parse_from_str(&start, "%Y-%m-%d").unwrap_or_default(),
@@ -273,6 +279,7 @@ mod tests {
         insert_tuning(
             &conn,
             &TuningRecord {
+                label: "dixon_coles".to_string(),
                 created_at: Utc::now(),
                 window: window(),
                 configs_tried: 64,
@@ -303,6 +310,7 @@ mod tests {
         let conn = database();
         assert_eq!(latest_tuning(&conn, "dixon_coles").unwrap(), None);
         let first = TuningRecord {
+            label: "dixon_coles".to_string(),
             created_at: "2026-10-18T10:00:00Z".parse().unwrap(),
             window: window(),
             configs_tried: 64,

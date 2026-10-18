@@ -36,6 +36,11 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Modèles de prévision des scores (Poisson, Dixon-Coles).
+    Model {
+        #[command(subcommand)]
+        command: ModelCommand,
+    },
     /// Analyses du marché des paris (retrait de marge, calibration).
     Market {
         #[command(subcommand)]
@@ -46,6 +51,14 @@ enum Command {
         #[command(subcommand)]
         command: FdCommand,
     },
+}
+
+#[derive(Subcommand)]
+enum ModelCommand {
+    /// Régle les hyperparamètres sur la validation 2024/25 et fige la meilleure configuration de chaque modèle.
+    Tune,
+    /// Évalue les configurations figées sur le test (2025/26 puis 2026/27 en avant).
+    Evaluate,
 }
 
 #[derive(Subcommand)]
@@ -86,6 +99,10 @@ fn main() -> Result<()> {
         Command::Init => commands::init(&paths),
         Command::Quota => commands::quota(&paths),
         Command::Snapshot { dry_run } => commands::snapshot(&paths, dry_run),
+        Command::Model { command } => match command {
+            ModelCommand::Tune => commands::model_tune(&paths),
+            ModelCommand::Evaluate => commands::model_evaluate(&paths),
+        },
         Command::Market { command } => match command {
             MarketCommand::Report { out } => commands::market_report(&paths, out.as_deref()),
         },

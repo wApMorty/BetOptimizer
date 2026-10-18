@@ -116,17 +116,27 @@ pub struct TuningOutcome {
     pub results: Vec<ConfigResult>,
     /// Meilleure configuration Poisson.
     pub best_poisson: ConfigResult,
-    /// Meilleure configuration Dixon-Coles.
+    /// Meilleure configuration Dixon-Coles (mélange de tirs libre).
     pub best_dixon_coles: ConfigResult,
+    /// Meilleure configuration Dixon-Coles à buts seuls : la variante témoin qui mesure l'apport des tirs.
+    pub best_goals_only: ConfigResult,
 }
 
 /// Meilleure configuration d'une famille : log loss le plus bas, parmi celles qui prédisent presque autant de
 /// matchs que les autres (un modèle qui s'abstient sur les matchs difficiles ne doit pas gagner par défaut).
 pub fn select_best(results: &[ConfigResult], kind: ModelKind) -> Option<&ConfigResult> {
+    select_best_where(results, |config| config.kind == kind)
+}
+
+/// Comme [`select_best`], restreint aux configurations qui satisfont `keep`.
+pub fn select_best_where(
+    results: &[ConfigResult],
+    keep: impl Fn(&ModelConfig) -> bool,
+) -> Option<&ConfigResult> {
     let most_games = results.iter().map(|r| r.games).max()?;
     results
         .iter()
-        .filter(|r| r.config.kind == kind && (r.games as f64) >= 0.98 * most_games as f64)
+        .filter(|r| keep(&r.config) && (r.games as f64) >= 0.98 * most_games as f64)
         .min_by(|a, b| a.log_loss.total_cmp(&b.log_loss))
 }
 
@@ -172,10 +182,20 @@ pub fn tune(
     };
     let best_poisson = best(ModelKind::Poisson)?;
     let best_dixon_coles = best(ModelKind::DixonColes)?;
-    for chosen in [&best_poisson, &best_dixon_coles] {
+    let best_goals_only = select_best_where(&results, |c| {
+        c.kind == ModelKind::DixonColes && c.blend == 0.0
+    })
+    .cloned()
+    .ok_or_else(|| Error::Data("aucune configuration à buts seuls".to_string()))?;
+    for (label, chosen) in [
+        ("poisson", &best_poisson),
+        ("dixon_coles", &best_dixon_coles),
+        ("dixon_coles_goals", &best_goals_only),
+    ] {
         predictions::insert_tuning(
             conn,
             &TuningRecord {
+                label: label.to_string(),
                 created_at: now,
                 window,
                 configs_tried: grid.len(),
@@ -188,12 +208,15 @@ pub fn tune(
         results,
         best_poisson,
         best_dixon_coles,
+        best_goals_only,
     })
 }
 
 /// Une exécution de test.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TestRun {
+    /// Étiquette de la configuration figée (`poisson`, `dixon_coles`, `dixon_coles_goals`).
+    pub label: &'static str,
     /// Configuration figée.
     pub config: ModelConfig,
     /// Identifiant de l'exécution en base.
@@ -211,8 +234,8 @@ pub fn evaluate(
     now: DateTime<Utc>,
 ) -> Result<Vec<TestRun>> {
     let mut runs = Vec::new();
-    for model in ["poisson", "dixon_coles"] {
-        let frozen = predictions::latest_tuning(conn, model)?.ok_or_else(|| {
+    for label in ["poisson", "dixon_coles", "dixon_coles_goals"] {
+        let frozen = predictions::latest_tuning(conn, label)?.ok_or_else(|| {
             Error::Data("aucun réglage figé : lance d'abord `edge model tune`".to_string())
         })?;
         let config = frozen.config;
@@ -228,6 +251,7 @@ pub fn evaluate(
             }
         };
         runs.push(TestRun {
+            label,
             config,
             run_id,
             games,
@@ -389,7 +413,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM model_run", [], |r| r.get(0))
             .unwrap();
         assert_eq!(runs, 4);
-        // Deux lignes figées (une par famille), chacune notant 4 configurations essayées.
+        // Trois lignes figées (Poisson, Dixon-Coles, Dixon-Coles à buts seuls), chacune notant 4 configurations.
         let frozen: Vec<(String, i64)> = conn
             .prepare("SELECT model, configs_tried FROM tuning_session ORDER BY model")
             .unwrap()
@@ -399,8 +423,14 @@ mod tests {
             .unwrap();
         assert_eq!(
             frozen,
-            vec![("dixon_coles".to_string(), 4), ("poisson".to_string(), 4)]
+            vec![
+                ("dixon_coles".to_string(), 4),
+                ("dixon_coles_goals".to_string(), 4),
+                ("poisson".to_string(), 4)
+            ]
         );
+        // Dans la petite grille, tous les Dixon-Coles sont à buts seuls : le témoin est une configuration à mélange nul.
+        assert_eq!(outcome.best_goals_only.config.blend, 0.0);
         // Le meilleur choisi est bien le plus bas de sa famille.
         let lowest_dc = outcome
             .results
@@ -479,8 +509,10 @@ mod tests {
         let runs = evaluate(&mut conn, &leagues, test, Utc::now()).unwrap();
         let again = evaluate(&mut conn, &leagues, test, Utc::now()).unwrap();
 
-        assert_eq!(runs.len(), 2);
+        assert_eq!(runs.len(), 3);
         assert!(runs.iter().all(|r| r.games > 0));
+        // Deux étiquettes figeant la même configuration partagent la même exécution (aucun calcul en double).
+        assert_eq!(runs[1].run_id, runs[2].run_id);
         assert_eq!(
             runs, again,
             "la seconde évaluation relit les mêmes exécutions"
@@ -488,6 +520,9 @@ mod tests {
         let total: u32 = conn
             .query_row("SELECT COUNT(*) FROM model_run", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(total, 6, "4 réglages + 2 évaluations");
+        assert_eq!(
+            total, 6,
+            "4 réglages + 2 évaluations distinctes (dixon_coles et dixon_coles_goals partagent la leur)"
+        );
     }
 }
