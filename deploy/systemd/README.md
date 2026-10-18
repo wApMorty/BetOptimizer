@@ -6,6 +6,7 @@ Prérequis : lingering activé (`loginctl enable-linger $USER`) et binaire insta
 |---|---|---|---|
 | `edge-snapshot` | 14 h (Paris) | relevé des cotes de 6 ligues (`edge snapshot`) | 6 par jour |
 | `edge-recommend` | 14 h 10 | recommandations du jour et notification Discord (`edge recommend --notify`) | 0 |
+| `edge-nba` | 22 h UTC | cotes de la NBA (vainqueur, handicaps, totaux) et, un jour sur deux, résultats (`edge nba snapshot`) | 3 par jour + 2 tous les deux jours |
 | `edge-closing` | toutes les 10 minutes | clôture de Pinnacle des matchs suivis qui commencent dans 30 minutes (`edge closing`) | 1 par match suivi, 0 sinon |
 
 ```sh
@@ -16,8 +17,21 @@ cargo install --path crates/cli --locked --root ~/.local
 mkdir -p ~/.config/systemd/user
 cp deploy/systemd/edge-*.service deploy/systemd/edge-*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now edge-snapshot.timer edge-recommend.timer edge-closing.timer
+systemctl --user enable --now edge-snapshot.timer edge-recommend.timer edge-closing.timer edge-nba.timer
 ```
+
+## NBA
+
+`edge-nba` archive chaque soir à 22 h UTC (18 h à New York en heure d'été : 1 à 4 h avant les matchs du soir américain, donc des cotes proches
+de la clôture) les cotes de Pinnacle et des opérateurs français sur trois marchés (3 crédits), et un jour sur deux les résultats via `/scores`
+(2 crédits, trois jours en arrière : un appel manqué ne perd rien). Hors saison (juillet à septembre), rien n'est dépensé. Le tennis est
+refusé avant la NBA si le budget manque (`nba_reserve_credits`). Il n'existe aucun historique gratuit : les résultats s'accumulent depuis
+l'ouverture (20 octobre 2026).
+
+- `edge nba snapshot --dry-run` : le coût sans rien appeler.
+- `edge nba report` : rapport HTML, **exploratoire** jusqu'au réglage (descriptif, ne valide rien).
+- `edge nba tune` : une seule fois, **à partir du 1er février 2027** (la validation va du 15 novembre au 1er février) ; gèle le modèle.
+  Le rapport évalue ensuite le test, à partir du 1er février.
 
 ## Tennis
 

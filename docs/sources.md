@@ -643,6 +643,12 @@ Par recoupement avec un résumé de recherche, non vérifié à la source : mult
 (écart négatif si l'outsider gagne), avantage du terrain de 100 points d'Elo constant, `K` de 28 pour la WNBA (la valeur NBA n'est
 pas confirmée). Ces valeurs servent de point de départ ; elles seront réglées sur les données et présentées comme des choix du projet.
 
+**Budget et calendrier retenus (décisions de Paul, 2026-10-19).** Relevé NBA dédié à 22 h UTC (une unité systemd, même coût qu'un relevé de
+14 h), trois marchés (3 crédits par jour), résultats tous les deux jours (2 crédits, `daysFrom=3`, recouvrement d'un jour), tennis refusé
+avant la NBA (`nba_reserve_credits` = 120 retirés de son plafond). Estimation mensuelle : football 180, tennis environ 60, NBA 90 + 30,
+clôtures 15 à 45, soit 375 à 405 sur 450. Premier relevé réel (2026-10-19) : 46 matchs, 378 cotes, 5 crédits. Fenêtres du modèle fixées dans
+le code avant les données : validation du 2026-11-15 au 2027-02-01, test ensuite ; `edge nba tune` est refusé avant le 2027-02-01.
+
 ## 24. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
@@ -676,3 +682,5 @@ pas confirmée). Ces valeurs servent de point de départ ; elles seront réglée
   explique une partie de l'écart sur les Grands Chelems masculins ; couverture de Pinnacle par tennis-data après 2025.
 - Phase 8 : formule exacte de l'Elo NBA de FiveThirtyEight (K, repos, retour à la moyenne) ; part des matchs NBA avec des lignes
   Pinnacle à 24 h et à 2 h du coup d'envoi ; date de début des lignes de handicap et de total chez Pinnacle.
+- Phase 8 : lignes de handicap et de total de Pinnacle sur les matchs lointains (14 matchs sur 46 le 2026-10-19) ; effet du passage à l'heure
+  d'hiver américaine (17 h au lieu de 18 h à New York) sur la proximité des cotes avec la clôture ; traitement des séries éliminatoires.

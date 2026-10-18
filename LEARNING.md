@@ -13,4 +13,4 @@ trois questions pour vérifier la compréhension, trois fichiers à relire en pr
 | 5 | Recommandations quotidiennes (journal, Discord, clôture, CLV réel) | [docs/learning/phase-5.md](docs/learning/phase-5.md) |
 | 6 | Application egui (recommandations, paris, bankroll, CLV) | [docs/learning/phase-6.md](docs/learning/phase-6.md) |
 | 7 | Tennis (Elo par surface, tennis-data, archive en direct) | [docs/learning/phase-7.md](docs/learning/phase-7.md) |
-| 8 | NBA | à venir |
+| 8 | NBA (Elo à marge, archive propre, réglage gelé en février 2027) | [docs/learning/phase-8.md](docs/learning/phase-8.md) |
