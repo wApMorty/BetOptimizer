@@ -1,0 +1,35 @@
+# Configuration d'edge. `edge init` en dépose une copie dans le dossier de configuration de l'utilisateur
+# (~/.config/edge/edge.toml sous Linux), avec les permissions 0600.
+# Toute valeur omise prend la valeur par défaut indiquée ici. Une faute de frappe dans un nom de champ
+# est refusée au chargement (une clé de bookmaker erronée serait facturée sans avertissement par l'API).
+
+# Plafond de crédits The Odds API consommés par période de quota (le quota gratuit est de 500).
+# Le client refuse tout appel qui ferait dépasser ce plafond.
+monthly_credit_cap = 450
+
+# Ligues archivées, au format des clés de The Odds API (GET /v4/sports).
+leagues = [
+    "soccer_epl",
+    "soccer_spain_la_liga",
+    "soccer_germany_bundesliga",
+    "soccer_italy_serie_a",
+    "soccer_france_ligue_one",
+    "soccer_spl",
+]
+
+# Bookmakers interrogés. Jusqu'à 10 bookmakers comptent pour une seule région : 1 crédit par appel.
+bookmakers = [
+    "pinnacle",
+    "winamax_fr",
+    "betclic_fr",
+    "unibet_fr",
+    "pmu_fr",
+    "netbet_fr",
+]
+
+# Marchés interrogés (chaque marché supplémentaire multiplie le coût d'un appel).
+markets = ["h2h"]
+
+# Clé API. Ne jamais la mettre dans git. Si elle est écrite ici, le fichier doit être en permissions 0600.
+# La variable d'environnement EDGE_ODDS_API_KEY a priorité sur cette valeur.
+# odds_api_key = "..."
