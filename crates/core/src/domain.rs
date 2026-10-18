@@ -2,6 +2,37 @@
 
 use chrono::{DateTime, NaiveDate, Utc};
 
+/// Montant en euros, positif ou nul. Newtype : un montant ne se confond pas avec une probabilité ou une cote.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Euros(f64);
+
+impl Euros {
+    /// Pas des mises : les opérateurs acceptent des mises au dixième d'euro.
+    pub const STEP: f64 = 0.10;
+
+    /// Crée un montant. Renvoie `None` s'il est négatif ou non fini.
+    pub fn new(amount: f64) -> Option<Euros> {
+        (amount.is_finite() && amount >= 0.0).then_some(Euros(amount))
+    }
+
+    /// Arrondit un montant **à la baisse** au dixième d'euro (jamais plus que ce que l'on voulait miser).
+    /// Les mises sont arrondies par défaut pour que la somme des mises ne dépasse jamais la bankroll.
+    pub fn floor_to_step(amount: f64) -> Option<Euros> {
+        if !amount.is_finite() || amount < 0.0 {
+            return None;
+        }
+        // Le petit epsilon évite qu'un 2,30 stocké comme 2,2999999 soit arrondi à 2,20.
+        let tenths = (amount / Euros::STEP + 1e-9).floor();
+        // `÷ 10` plutôt que `× 0,1` : 237 ÷ 10 donne exactement 23,7 ; 237 × 0,1 donne 23,700000000000003.
+        Euros::new(tenths / 10.0)
+    }
+
+    /// Valeur en euros.
+    pub fn get(self) -> f64 {
+        self.0
+    }
+}
+
 /// Cote décimale d'un bookmaker : gain total pour 1 € misé, mise comprise (2,10 → 2,10 € rendus).
 ///
 /// Newtype *validé* : le champ est privé, donc la seule façon d'obtenir une `Odds` est [`Odds::new`],
@@ -317,6 +348,27 @@ pub struct Event {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn euros_reject_negative_and_non_finite_amounts() {
+        assert!(Euros::new(0.0).is_some());
+        assert!(Euros::new(12.5).is_some());
+        for amount in [-0.01, f64::NAN, f64::INFINITY] {
+            assert!(Euros::new(amount).is_none(), "{amount} doit être refusé");
+        }
+    }
+
+    #[test]
+    fn stakes_are_floored_to_the_tenth_of_a_euro() {
+        let floor = |x: f64| Euros::floor_to_step(x).unwrap().get();
+        assert_eq!(floor(2.34), 2.3);
+        assert_eq!(floor(2.39999), 2.3);
+        assert_eq!(floor(2.0), 2.0);
+        assert_eq!(floor(0.09), 0.0);
+        // 2,30 représenté comme 2,2999999… ne doit pas perdre un dixième.
+        assert_eq!(floor(0.1 + 0.2 + 2.0), 2.3);
+        assert!(Euros::floor_to_step(-1.0).is_none());
+    }
 
     #[test]
     fn valid_odds_are_accepted() {
