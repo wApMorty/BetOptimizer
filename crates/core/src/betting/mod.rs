@@ -4,9 +4,11 @@
 //! « ce prix a-t-il de la valeur ? » ([`value`]) et « combien miser ? » ([`kelly`], [`simultaneous`]) ; [`live`]
 //! les applique aux derniers relevés de l'archive et [`recommend`] écrit le résultat dans le journal immuable.
 
+pub mod clv;
 pub mod kelly;
 pub mod live;
 pub mod recommend;
+pub mod settle;
 pub mod simultaneous;
 pub mod value;
 

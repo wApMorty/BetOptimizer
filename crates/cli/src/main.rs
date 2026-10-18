@@ -63,6 +63,13 @@ enum Command {
         #[arg(long)]
         notify: bool,
     },
+    /// Mes paris réels : enregistrement, liste et règlement.
+    Bet {
+        #[command(subcommand)]
+        command: BetCommand,
+    },
+    /// CLV réel des recommandations et des paris (cote obtenue contre clôture de Pinnacle).
+    Clv,
     /// Backtest des règles de sélection de paris (seuils gelés, Kelly, CLV).
     Backtest {
         #[command(subcommand)]
@@ -82,6 +89,43 @@ enum Command {
     Fd {
         #[command(subcommand)]
         command: FdCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum BetCommand {
+    /// Enregistre un pari placé : `--rec <n°>` suit une recommandation, `--event <id>` est un pari hors modèle.
+    #[command(group(clap::ArgGroup::new("target").required(true).args(["rec", "event"])))]
+    Log {
+        /// Numéro de la recommandation suivie (cote et mise par défaut : les siennes).
+        #[arg(long, value_name = "N", conflicts_with_all = ["event", "outcome"])]
+        rec: Option<i64>,
+        /// Identifiant du match, pour un pari hors modèle (affiché par `edge value`).
+        #[arg(long, value_name = "ID", requires_all = ["bookmaker", "outcome", "odds", "stake"])]
+        event: Option<String>,
+        /// Bookmaker où le pari est placé (`betclic_fr`…).
+        #[arg(long)]
+        bookmaker: Option<String>,
+        /// Issue jouée : H (domicile), D (nul) ou A (extérieur).
+        #[arg(long, value_name = "H|D|A")]
+        outcome: Option<String>,
+        /// Cote réellement obtenue.
+        #[arg(long)]
+        odds: Option<f64>,
+        /// Mise en euros.
+        #[arg(long)]
+        stake: Option<f64>,
+    },
+    /// Liste les paris enregistrés et la bankroll courante.
+    List,
+    /// Règle les paris ouverts depuis l'historique football-data, ou un pari à la main avec --id et --result.
+    Settle {
+        /// Numéro du pari à régler à la main.
+        #[arg(long, value_name = "N", requires = "result")]
+        id: Option<i64>,
+        /// Résultat saisi à la main : won, lost ou void (match reporté ou annulé : remboursé).
+        #[arg(long, value_name = "won|lost|void", requires = "id")]
+        result: Option<String>,
     },
 }
 
@@ -165,6 +209,31 @@ fn main() -> Result<()> {
                 min_stake,
             },
         ),
+        Command::Bet { command } => match command {
+            BetCommand::Log {
+                rec,
+                event,
+                bookmaker,
+                outcome,
+                odds,
+                stake,
+            } => commands::bet_log(
+                &paths,
+                &commands::BetLogOptions {
+                    rec,
+                    event,
+                    bookmaker,
+                    outcome,
+                    odds,
+                    stake,
+                },
+            ),
+            BetCommand::List => commands::bet_list(&paths),
+            BetCommand::Settle { id, result } => {
+                commands::bet_settle(&paths, id.zip(result.as_deref()))
+            }
+        },
+        Command::Clv => commands::clv_report(&paths),
         Command::Closing { dry_run } => commands::closing(&paths, dry_run),
         Command::Recommend { notify } => commands::recommend(&paths, notify),
         Command::Backtest { command } => match command {

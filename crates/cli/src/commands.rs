@@ -7,9 +7,9 @@ use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use edge_core::backtest::candidates::load_inputs;
 use edge_core::backtest::study;
-use edge_core::betting::{live, recommend};
+use edge_core::betting::{clv, live, recommend, settle};
 use edge_core::config::{API_KEY_ENV, Config, WEBHOOK_ENV};
-use edge_core::domain::{Euros, Outcome};
+use edge_core::domain::{Euros, Odds, Outcome};
 use edge_core::format;
 use edge_core::ingest::aliases::Aliases;
 use edge_core::ingest::client::OddsApiClient;
@@ -32,7 +32,7 @@ use edge_core::report::render::{
     render_backtest_report, render_market_report, render_models_report, render_recommend_report,
 };
 use edge_core::store::archive::last_known_usage;
-use edge_core::store::journal;
+use edge_core::store::journal::{self, NewBet, Settlement, SettlementSource};
 use edge_core::store::{self, Connection, migrate};
 
 /// `edge init` : crée la configuration par défaut et la base.
@@ -636,6 +636,253 @@ pub fn closing(paths: &Paths, dry_run: bool) -> Result<()> {
         bail!("{} clôture(s) manquée(s)", report.failures.len());
     }
     Ok(())
+}
+
+/// Ce que `edge bet log` reçoit de la ligne de commande.
+pub struct BetLogOptions {
+    /// Recommandation suivie.
+    pub rec: Option<i64>,
+    /// Match d'un pari hors modèle.
+    pub event: Option<String>,
+    /// Bookmaker (hors modèle).
+    pub bookmaker: Option<String>,
+    /// Issue `H`, `D` ou `A` (hors modèle).
+    pub outcome: Option<String>,
+    /// Cote obtenue (par défaut : celle de la recommandation).
+    pub odds: Option<f64>,
+    /// Mise (par défaut : la mise recommandée).
+    pub stake: Option<f64>,
+}
+
+/// `edge bet log` : enregistre un pari réellement placé, suivant une recommandation ou hors modèle.
+pub fn bet_log(paths: &Paths, options: &BetLogOptions) -> Result<()> {
+    let conn = open_database(paths)?;
+    let now = Utc::now();
+    let new = match (options.rec, &options.event) {
+        (Some(id), _) => {
+            let rec = journal::recommendation(&conn, id)?
+                .with_context(|| format!("recommandation n° {id} introuvable"))?
+                .record;
+            if journal::bets(&conn)?
+                .iter()
+                .any(|b| b.bet.recommendation_id == Some(id))
+            {
+                bail!("un pari est déjà enregistré pour la recommandation n° {id}");
+            }
+            let odds = options.odds.unwrap_or(rec.odds.get());
+            // Sous la cote minimale, le pari ne correspond plus à la recommandation : il est hors modèle.
+            if odds < rec.minimal_odds {
+                bail!(
+                    "la cote {} est sous la cote minimale {} : ce pari ne suit plus la recommandation. Enregistre-le comme pari hors modèle avec --event {}",
+                    format::decimal(odds, 2),
+                    format::decimal(rec.minimal_odds, 2),
+                    rec.event_id
+                );
+            }
+            let stake = options
+                .stake
+                .or(rec.stake.map(Euros::get))
+                .context("la recommandation n'a pas de mise suggérée : précise --stake")?;
+            NewBet {
+                recommendation_id: Some(id),
+                event_id: rec.event_id,
+                sport_key: rec.sport_key,
+                home_team: rec.home_team,
+                away_team: rec.away_team,
+                kickoff: rec.kickoff,
+                bookmaker: options.bookmaker.clone().unwrap_or(rec.bookmaker),
+                outcome: rec.outcome,
+                odds: Odds::new(odds).context("la cote doit être supérieure à 1")?,
+                stake: positive_stake(stake)?,
+            }
+        }
+        (None, Some(event_id)) => {
+            let event = journal::archived_event(&conn, event_id)?.with_context(|| {
+                format!("match {event_id} introuvable dans l'archive (identifiant donné par `edge value`)")
+            })?;
+            let code = options
+                .outcome
+                .as_deref()
+                .context("--outcome est requis (H, D ou A)")?;
+            let outcome = Outcome::from_code(code).context("--outcome doit valoir H, D ou A")?;
+            NewBet {
+                recommendation_id: None,
+                event_id: event_id.clone(),
+                sport_key: event.sport_key,
+                home_team: event.home_team,
+                away_team: event.away_team,
+                kickoff: event.kickoff,
+                bookmaker: options
+                    .bookmaker
+                    .clone()
+                    .context("--bookmaker est requis")?,
+                outcome,
+                odds: Odds::new(options.odds.context("--odds est requis")?)
+                    .context("la cote doit être supérieure à 1")?,
+                stake: positive_stake(options.stake.context("--stake est requis")?)?,
+            }
+        }
+        (None, None) => bail!("précise --rec <n°> ou --event <identifiant>"),
+    };
+    let off_model = new.recommendation_id.is_none();
+    let id = journal::insert_bet(&conn, &new, now)?;
+    println!(
+        "Pari n° {id} enregistré{} : {} – {}, {} {} à {}, mise {} €.",
+        if off_model { " (hors modèle)" } else { "" },
+        new.home_team,
+        new.away_team,
+        new.bookmaker,
+        format::outcome_label(new.outcome),
+        format::decimal(new.odds.get(), 2),
+        format::decimal(new.stake.get(), 1)
+    );
+    Ok(())
+}
+
+fn positive_stake(amount: f64) -> Result<Euros> {
+    Euros::new(amount)
+        .filter(|stake| stake.get() > 0.0)
+        .context("la mise doit être strictement positive")
+}
+
+/// `edge bet list` : les paris enregistrés avec leur état.
+pub fn bet_list(paths: &Paths) -> Result<()> {
+    let conn = open_database(paths)?;
+    let bets = journal::bets(&conn)?;
+    if bets.is_empty() {
+        println!(
+            "Aucun pari enregistré. `edge bet log --rec <n°>` enregistre un pari suivant une recommandation."
+        );
+        return Ok(());
+    }
+    for stored in &bets {
+        let b = &stored.bet;
+        let state = match &stored.result {
+            None => "ouvert".to_string(),
+            Some(r) => match r.settlement {
+                Settlement::Won => format!("gagné {} €", format::signed(r.profit, 2)),
+                Settlement::Lost => format!("perdu {} €", format::signed(r.profit, 2)),
+                Settlement::Void => "remboursé".to_string(),
+            },
+        };
+        println!(
+            "n° {:<4} {}  {} – {}  {} {} à {} · mise {} €  [{}{}]",
+            stored.id,
+            format::kickoff_label(b.kickoff),
+            b.home_team,
+            b.away_team,
+            b.bookmaker,
+            format::outcome_label(b.outcome),
+            format::decimal(b.odds.get(), 2),
+            format::decimal(b.stake.get(), 1),
+            state,
+            b.recommendation_id
+                .map_or(", hors modèle".to_string(), |id| format!(
+                    ", recommandation n° {id}"
+                ))
+        );
+    }
+    let initial = Euros::new(Config::load(&paths.config_file)?.initial_bankroll)
+        .context("initial_bankroll invalide")?;
+    println!(
+        "\nBankroll courante : {} €",
+        format::decimal(journal::current_bankroll(&conn, initial)?.get(), 2)
+    );
+    Ok(())
+}
+
+/// `edge bet settle` : règle les paris ouverts depuis l'historique football-data, ou un pari à la main.
+pub fn bet_settle(paths: &Paths, manual: Option<(i64, &str)>) -> Result<()> {
+    let conn = open_database(paths)?;
+    let now = Utc::now();
+    if let Some((id, result)) = manual {
+        let settlement = match result {
+            "won" => Settlement::Won,
+            "lost" => Settlement::Lost,
+            "void" => Settlement::Void,
+            other => bail!("--result doit valoir won, lost ou void (reçu : {other})"),
+        };
+        let stored = journal::bets(&conn)?
+            .into_iter()
+            .find(|b| b.id == id)
+            .with_context(|| format!("pari n° {id} introuvable"))?;
+        if !journal::insert_result(&conn, &stored, settlement, SettlementSource::Manual, now)? {
+            bail!("le pari n° {id} est déjà réglé : un règlement ne se modifie pas");
+        }
+        println!("Pari n° {id} réglé à la main : {result}.");
+        return Ok(());
+    }
+    let report = settle::settle_open_bets(&conn, &Aliases::bundled()?, now)?;
+    println!(
+        "{} pari(s) réglé(s) depuis l'historique ; {} encore ouvert(s).",
+        report.settled, report.still_open
+    );
+    if report.still_open > 0 {
+        println!(
+            "Pour les paris ouverts : `edge fd fetch` puis `edge fd import` ramènent les résultats récents (football-data les publie avec quelques jours de retard) ; sinon `edge bet settle --id <n°> --result won|lost|void`."
+        );
+    }
+    Ok(())
+}
+
+/// `edge clv` : CLV réel des recommandations et des paris, par groupe et par tranche d'avantage.
+pub fn clv_report(paths: &Paths) -> Result<()> {
+    let conn = open_database(paths)?;
+    let config = Config::load(&paths.config_file)?;
+    let report = clv::report(&conn, &Aliases::bundled()?, config.margin_method)?;
+    println!(
+        "CLV = cote obtenue × probabilité de clôture de Pinnacle sans marge − 1 (intervalle à 95 %).\n"
+    );
+    for group in &report.groups {
+        println!(
+            "{} : {} (clôture connue : {}, réglés : {})",
+            group.label, group.n, group.with_closing, group.settled
+        );
+        if group.n == 0 {
+            continue;
+        }
+        println!(
+            "    CLV {}   rendement à mise fixe {}",
+            ci_text(group.clv),
+            ci_text(group.flat_roi)
+        );
+        if let Some((staked, profit)) = group.money {
+            println!(
+                "    argent réel réglé : misé {} €, gain net {} €",
+                format::decimal(staked, 2),
+                format::signed(profit, 2)
+            );
+        }
+        if group.with_closing < 30 {
+            println!("    (moins de 30 clôtures : indicatif seulement)");
+        }
+    }
+    println!("\nPar tranche d'avantage annoncé (notifiées et journal fantôme) :");
+    for bucket in &report.buckets {
+        println!(
+            "  {:<10} {:>4} · clôture connue {:>4} · avantage moyen {} % · CLV moyen {}",
+            bucket.label,
+            bucket.n,
+            bucket.with_closing,
+            format::signed(bucket.mean_edge * 100.0, 1),
+            bucket.mean_clv.map_or("—".to_string(), |v| format!(
+                "{} %",
+                format::signed(v * 100.0, 2)
+            ))
+        );
+    }
+    Ok(())
+}
+
+fn ci_text(ci: Option<edge_core::eval::bootstrap::MeanCi>) -> String {
+    ci.map_or("—".to_string(), |c| {
+        format!(
+            "{} % [{} ; {}]",
+            format::signed(c.mean * 100.0, 2),
+            format::signed(c.low * 100.0, 1),
+            format::signed(c.high * 100.0, 1)
+        )
+    })
 }
 
 /// `edge recommend` : écrit les recommandations du dernier relevé dans le journal immuable et notifie sur Discord.

@@ -236,6 +236,40 @@ pub fn recommendation(conn: &Connection, id: i64) -> Result<Option<StoredRecomme
     found.transpose()
 }
 
+/// Un match tel que l'archive des cotes l'a vu (dernier relevé où il figure).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchivedEvent {
+    /// Compétition.
+    pub sport_key: String,
+    /// Équipe à domicile, nom brut.
+    pub home_team: String,
+    /// Équipe à l'extérieur, nom brut.
+    pub away_team: String,
+    /// Coup d'envoi (UTC).
+    pub kickoff: DateTime<Utc>,
+}
+
+/// Retrouve un match de l'archive par son identifiant (pour enregistrer un pari hors modèle).
+pub fn archived_event(conn: &Connection, event_id: &str) -> Result<Option<ArchivedEvent>> {
+    let row: Option<(String, String, String, String)> = conn
+        .query_row(
+            "SELECT sport_key, home_team_raw, away_team_raw, commence_time FROM event_seen
+             WHERE event_id = ?1 ORDER BY api_call_id DESC LIMIT 1",
+            [event_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
+    row.map(|(sport_key, home_team, away_team, kickoff)| {
+        Ok(ArchivedEvent {
+            sport_key,
+            home_team,
+            away_team,
+            kickoff: parse_timestamp(&kickoff)?,
+        })
+    })
+    .transpose()
+}
+
 /// Un pari réellement placé.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewBet {
@@ -686,6 +720,22 @@ mod tests {
         assert_eq!(all[0].bet.recommendation_id, Some(rec));
         assert_eq!(all[1].bet.recommendation_id, None);
         assert_eq!(flags, vec![0, 1]);
+    }
+
+    #[test]
+    fn an_archived_event_is_found_by_its_id_in_its_latest_snapshot() {
+        let conn = database();
+        conn.execute_batch(
+            "INSERT INTO event_seen (api_call_id, event_id, sport_key, commence_time, home_team_raw, away_team_raw)
+             VALUES (1, 'm1', 'soccer_epl', '2026-10-24T14:00:00Z', 'Arsenal', 'Chelsea')",
+        )
+        .unwrap();
+
+        let found = archived_event(&conn, "m1").unwrap().unwrap();
+
+        assert_eq!(found.home_team, "Arsenal");
+        assert_eq!(found.kickoff, at("2026-10-24T14:00:00Z"));
+        assert!(archived_event(&conn, "absent").unwrap().is_none());
     }
 
     #[test]

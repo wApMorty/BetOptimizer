@@ -312,3 +312,126 @@ fn closing_dry_run_lists_the_followed_match_starting_soon_without_calling_the_ap
     assert!(!real.status.success());
     assert!(text(&real.stderr).contains("EDGE_ODDS_API_KEY"));
 }
+
+#[test]
+fn a_followed_bet_updates_the_bankroll_and_cannot_be_logged_twice() {
+    let home = tempfile::tempdir().unwrap();
+    archive::one_value_match(home.path(), 2 * 24 * 60);
+    assert!(run_edge(home.path(), &["recommend"], None).status.success());
+
+    let logged = run_edge(home.path(), &["bet", "log", "--rec", "1"], None);
+    let again = run_edge(home.path(), &["bet", "log", "--rec", "1"], None);
+    let list = run_edge(home.path(), &["bet", "list"], None);
+
+    assert!(logged.status.success(), "{}", text(&logged.stderr));
+    assert!(text(&logged.stdout).contains("Pari n° 1 enregistré"));
+    assert!(!again.status.success());
+    assert!(text(&again.stderr).contains("déjà enregistré"));
+    let listing = text(&list.stdout);
+    assert!(listing.contains("ouvert"), "{listing}");
+    assert!(listing.contains("recommandation n° 1"), "{listing}");
+    // Kelly d'un pari seul (marge retirée par la méthode « power » de la configuration par défaut) : 99,0 € ;
+    // la mise ouverte est déjà sortie de la bankroll de 1 000 €.
+    assert!(listing.contains("mise 99,0 €"), "{listing}");
+    assert!(
+        listing.contains("Bankroll courante : 901,00 €"),
+        "{listing}"
+    );
+}
+
+#[test]
+fn a_bet_below_the_minimal_odds_is_refused_as_a_followed_bet_and_goes_off_model() {
+    let home = tempfile::tempdir().unwrap();
+    archive::one_value_match(home.path(), 2 * 24 * 60);
+    assert!(run_edge(home.path(), &["recommend"], None).status.success());
+
+    let refused = run_edge(
+        home.path(),
+        &["bet", "log", "--rec", "1", "--odds", "1.9"],
+        None,
+    );
+    let off_model = run_edge(
+        home.path(),
+        &[
+            "bet",
+            "log",
+            "--event",
+            "match-cli",
+            "--bookmaker",
+            "winamax_fr",
+            "--outcome",
+            "D",
+            "--odds",
+            "3.4",
+            "--stake",
+            "5",
+        ],
+        None,
+    );
+
+    assert!(!refused.status.success());
+    assert!(text(&refused.stderr).contains("cote minimale"));
+    assert!(off_model.status.success(), "{}", text(&off_model.stderr));
+    assert!(text(&off_model.stdout).contains("(hors modèle)"));
+}
+
+#[test]
+fn a_manual_settlement_is_written_once_and_the_automatic_pass_leaves_unknown_results_open() {
+    let home = tempfile::tempdir().unwrap();
+    archive::one_value_match(home.path(), 2 * 24 * 60);
+    assert!(run_edge(home.path(), &["recommend"], None).status.success());
+    assert!(
+        run_edge(home.path(), &["bet", "log", "--rec", "1"], None)
+            .status
+            .success()
+    );
+
+    let automatic = run_edge(home.path(), &["bet", "settle"], None);
+    let manual = run_edge(
+        home.path(),
+        &["bet", "settle", "--id", "1", "--result", "won"],
+        None,
+    );
+    let twice = run_edge(
+        home.path(),
+        &["bet", "settle", "--id", "1", "--result", "lost"],
+        None,
+    );
+    let list = run_edge(home.path(), &["bet", "list"], None);
+
+    assert!(
+        text(&automatic.stdout)
+            .contains("0 pari(s) réglé(s) depuis l'historique ; 1 encore ouvert(s)")
+    );
+    assert!(manual.status.success(), "{}", text(&manual.stderr));
+    assert!(!twice.status.success());
+    assert!(text(&twice.stderr).contains("déjà réglé"));
+    assert!(text(&list.stdout).contains("gagné +"));
+}
+
+#[test]
+fn bet_log_needs_a_target() {
+    let home = tempfile::tempdir().unwrap();
+
+    let output = run_edge(home.path(), &["bet", "log"], None);
+
+    assert!(!output.status.success());
+}
+
+#[test]
+fn clv_on_a_fresh_journal_prints_the_empty_groups() {
+    let home = tempfile::tempdir().unwrap();
+    archive::one_value_match(home.path(), 2 * 24 * 60);
+    assert!(run_edge(home.path(), &["recommend"], None).status.success());
+
+    let output = run_edge(home.path(), &["clv"], None);
+
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    let report = text(&output.stdout);
+    assert!(
+        report.contains("Recommandations notifiées : 1 (clôture connue : 0, réglés : 0)"),
+        "{report}"
+    );
+    assert!(report.contains("Mes paris hors modèle : 0"), "{report}");
+    assert!(report.contains("≥ 5 %"));
+}
