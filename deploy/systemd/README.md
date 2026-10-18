@@ -19,6 +19,18 @@ systemctl --user daemon-reload
 systemctl --user enable --now edge-snapshot.timer edge-recommend.timer edge-closing.timer
 ```
 
+## Tennis
+
+Les cotes de tennis sont archivées par le relevé de 14 h (tournois en cours, 1 crédit chacun, 6 au plus ; voir `tennis_archive` et
+`tennis_max_tournaments` dans la configuration). Les résultats et cotes historiques viennent des tableurs de tennis-data.co.uk,
+**téléchargés à la main** (leurs conditions et leur `robots.txt` visent les robots) :
+
+1. Page http://tennis-data.co.uk/data.php : télécharger les fichiers 2013 à aujourd'hui, ATP puis WTA.
+2. Les ranger dans `~/.local/share/edge/tennis-data/atp/` et `~/.local/share/edge/tennis-data/wta/` (même nom `2025.xlsx` pour les
+   deux circuits, d'où deux dossiers). Le fichier de l'année en cours se retélécharge de temps en temps.
+3. `edge tennis import` puis `edge tennis check` ; `edge tennis tune` (une fois : règle l'Elo sur 2022-2023 et le gèle) ;
+   `edge tennis report` (le rapport HTML : l'Elo contre le marché sur le test, à partir de 2024).
+
 ## Application (`edge-gui`)
 
 ```sh
