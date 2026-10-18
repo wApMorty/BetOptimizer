@@ -582,7 +582,41 @@ par jour en moyenne, soit 60 crédits par mois, pour un total attendu de 255 à 
 Le football passe avant le tennis : si le budget manque, le tennis est refusé. Les lectures de recommandation, de clôture et de
 saisie hors modèle sont restreintes au football (clé `soccer_…`) : le 1X2 suppose un nul.
 
-## 22. Reste à vérifier
+## 22. Phase 7 — mesures sur les fichiers réels (`edge tennis …`, 2026-10-18)
+
+**Import.** 28 tableurs (ATP et WTA, 2013 à 2026) : 68 251 matchs écrits, 15 lignes rejetées (ATP 2022, le Masters Cup de novembre
+n'a pas de colonne « Best of ») ; de 0 à 28 paires de cotes écartées par fichier (cote ≤ 1 ou une seule des deux).
+**Pinnacle (`PS`)** est présent sur 98 à 99 % des matchs de 2013 à 2024, 95 % en 2025, mais seulement **3 à 4 % en 2026** : comme
+football-data, tennis-data a perdu Pinnacle cette année. Le test (à partir de 2024) est donc, pour la comparaison au marché,
+essentiellement 2024 et 2025.
+
+**Contrôle qualité.** 40 paires de cotes aberrantes (marge hors de [1,00 ; 1,30], surtout la moyenne `Avg` et quelques Pinnacle de
+juillet 2019) : signalées, écartées de la comparaison, jamais corrigées. **Dates approximatives** : 1 244 couples (joueur, date) où un
+joueur apparaît deux fois le même jour dans le même tournoi (demi-finale et finale datées du même jour après une pluie) ; l'Elo
+rejoue donc par vague (date, tour du tournoi). 14 paires de tours sur 19 159 ont le tour avancé daté avant le tour précédent.
+**Homonymes** : un seul nom apparaît à la même date dans deux tournois (WTA, Babos T., 2018-01-04). Le premier détecteur (même
+date, tout tournoi confondu) donnait 430 noms, tous des dates approximatives : il a été corrigé avant tout réglage.
+
+**Réglage de l'Elo (une seule session, 45 configurations, validation 2022-2023, 8 420 matchs).** Retenu : `K = 150/(n+5)^0,4`, poids de
+surface 0,25, log loss 0,6266. Cinq meilleures : (150 ; 0,4 ; 0,25) 0,6266, (150 ; 0,4 ; 0,5) 0,6272, (150 ; 0,3 ; 0,25) 0,6280,
+(150 ; 0,3 ; 0,5) 0,6281, (250 ; 0,5 ; 0,25) 0,6282. **Le meilleur `k_base` est le plus petit de la grille** (150) : un `K` plus petit
+n'a pas été essayé, pour ne pas multiplier les sessions. Le mélange des surfaces compte peu (0,25 contre 0,5 : 0,0006).
+
+**Test (à partir du 2024-01-01).** 14 923 matchs, dont 12 624 terminés avec deux joueurs de 10 matchs d'expérience au moins, dont 8 620
+avec une cote Pinnacle plausible (comparaison au marché, 1 cote aberrante écartée).
+
+| | Log loss | Brier |
+|---|---|---|
+| Elo par surface (gelé) | 0,6240 | 0,2178 |
+| Pinnacle sans marge | 0,5947 | 0,2052 |
+| Écart Elo − marché | **+0,0293 [0,0242 ; 0,0344]** | +0,0126 [0,0104 ; 0,0147] |
+
+Par tranche (écart de log loss, positif = l'Elo est moins bon) : dur +0,0266, terre +0,0340, gazon +0,0329 ; ATP +0,0340, WTA +0,0244 ;
+meilleur des 3 +0,0271, **meilleur des 5 +0,0512** [0,0333 ; 0,0686] (809 matchs : l'Elo ignore le format, où le favori gagne plus
+souvent). Toutes les tranches ont un intervalle entièrement au-dessus de zéro. **Test d'information : le poids optimal de l'Elo dans le
+mélange avec le marché est 0** (choisi sur la validation) : l'Elo ne contient rien que Pinnacle ignore. Même conclusion qu'en football.
+
+## 23. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
   (non vérifié). La garde ne l'utilise pas ; `edge snapshot` signale toute baisse de `x-requests-used`.
@@ -611,3 +645,5 @@ saisie hors modèle sont restreintes au football (clé `soccer_…`) : le 1X2 su
   couverture de Pinnacle en tennis (9 matchs sur 12 sur le seul tournoi mesuré), tournois couverts par The Odds API sur une année.
 - Phase 7 : la forme de `K` n'a pas de source vérifiée ; coût réel du relevé de tennis sur une semaine de Grand Chelem (nombre de
   clés actives) ; conversion meilleur des 3 / meilleur des 5 (non faite).
+- Phase 7 : réglage de l'Elo en bordure de grille (`k_base` minimal) ; conversion meilleur des 3 → meilleur des 5, dont l'absence
+  explique une partie de l'écart sur les Grands Chelems masculins ; couverture de Pinnacle par tennis-data après 2025.

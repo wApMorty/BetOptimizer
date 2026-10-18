@@ -58,9 +58,9 @@
 </div>
 
 <h2>1. Protocole</h2>
-<p>Un Elo général et un Elo par surface, mélangés avec un poids <strong>{{ frozen.surface_weight|num(2) }}</strong> pour la surface ; <code>K(n) = {{ frozen.k_base|num(0) }} / (n + 5)^{{ frozen.k_shape|num(1) }}</code> avec <code>n</code> le nombre de matchs déjà joués. Chaque jour, les prévisions précèdent les mises à jour : aucune fuite du futur. Les forfaits sont ignorés ; les abandons sont prévus mais ne modifient pas les classements.</p>
+<p>Un Elo général et un Elo par surface, mélangés avec un poids <strong>{{ frozen.surface_weight|num(2) }}</strong> pour la surface ; <code>K(n) = {{ frozen.k_base|num(0) }} / (n + 5)^{{ frozen.k_shape|num(1) }}</code> avec <code>n</code> le nombre de matchs déjà joués. Les matchs sont rejoués par vague (une date et un tour de tournoi) : les prévisions d'une vague précèdent ses mises à jour, aucune fuite du futur. Les forfaits sont ignorés ; les abandons sont prévus mais ne modifient pas les classements.</p>
 <p>Configuration choisie sur la validation (2022-2023, {{ frozen.validation_matches }} matchs, log loss {{ frozen.validation_log_loss|num(4) }}) parmi <strong>{{ frozen.configs_tried }} configurations</strong>, en {{ frozen.sessions }} session(s) de réglage, puis gelée avant la lecture du test.</p>
-<p>Le test compte {{ test_matches }} matchs à partir du {{ test_start }} ; {{ test_scored }} sont terminés avec deux joueurs installés (au moins 10 matchs vus) ; {{ test_with_market }} ont une cote Pinnacle plausible et servent à la comparaison{% if test_odds_rejected %} ({{ test_odds_rejected }} écartés pour cote aberrante){% endif %}.</p>
+<p>Le test compte {{ test_matches }} matchs à partir du {{ test_start }} ; {{ test_scored }} sont terminés avec deux joueurs installés (au moins 10 matchs vus) ; {{ test_with_market }} ont une cote Pinnacle plausible et servent à la comparaison{% if test_odds_rejected %} (écartés pour cote aberrante : {{ test_odds_rejected }}){% endif %}.</p>
 
 <h2>2. Résultats sur le test</h2>
 <div class="card scroll"><table>

@@ -63,6 +63,10 @@ personnes (`ingest/tennis/quality.rs:158`). Le détecteur est exact pour ce cas,
 prix final : l'invariant 4 l'interdit, et le CLV n'a plus de référence distincte. L'archive en direct (`snapshot.rs:170`) sépare enfin
 le prix d'avant-match de la clôture : elle seule pourra juger un avantage.
 
+**Résultat mesuré (2026-10-18, `docs/sources.md` §22).** Sur 8 620 matchs du test (2024 à 2026, Pinnacle plausible), l'Elo réglé sur
+2022-2023 a un log loss de 0,6240 contre 0,5947 pour le marché : écart +0,0293 [0,0242 ; 0,0344], entièrement positif. Le poids optimal de
+l'Elo dans un mélange avec le marché est 0. Le plus grand écart est au meilleur des 5 (+0,0512), que l'Elo ne distingue pas.
+
 ## 3. Trois questions pour vérifier que tu as compris
 
 1. Deux matchs ont lieu le même jour : Alpha bat Bravo le matin, Alpha rejoue le soir (cas fictif). Pourquoi la prévision du second match
