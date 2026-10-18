@@ -53,7 +53,7 @@ Un `f64` n'est pas `Ord` (à cause de NaN) ; `a.total_cmp(&b)` donne un ordre to
 Possibles depuis Rust 1.88 en édition 2024 : on teste deux conditions de forme dans un même `if`, sans imbrication.
 
 **Utilitaires de test partagés** — `crates/core/src/models/mod.rs:22`.
-`#[cfg(test)] pub(crate) mod testing` ne existe que pour les tests : ligues simulées déterministes à paramètres connus,
+`#[cfg(test)] pub(crate) mod testing` n'existe que pour les tests : ligues simulées déterministes à paramètres connus,
 réutilisées par les tests du walk-forward, du réglage et du rapport.
 
 ## 2. Concepts statistiques
