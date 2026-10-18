@@ -517,3 +517,32 @@ fn tennis_tune_and_report_say_what_is_missing() {
     assert!(!no_freeze.status.success());
     assert!(text(&no_freeze.stderr).contains("edge tennis tune"));
 }
+
+#[test]
+fn nba_snapshot_dry_run_shows_the_cost_and_needs_no_key() {
+    let home = tempfile::tempdir().unwrap();
+
+    let output = run_edge(home.path(), &["nba", "snapshot", "--dry-run"], None);
+
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    let stdout = text(&output.stdout);
+    assert!(stdout.contains("Aucun appel n'est effectué"), "{stdout}");
+    assert!(
+        stdout.contains("3 marché(s) (h2h, spreads, totals) × 6 bookmaker(s) = 3 crédit(s)"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("Résultats : dus au prochain relevé"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn nba_snapshot_without_a_key_fails_clearly() {
+    let home = tempfile::tempdir().unwrap();
+
+    let output = run_edge(home.path(), &["nba", "snapshot"], None);
+
+    assert!(!output.status.success());
+    assert!(text(&output.stderr).contains("EDGE_ODDS_API_KEY"));
+}

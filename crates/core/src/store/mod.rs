@@ -5,6 +5,7 @@ pub mod backtests;
 pub mod history;
 pub mod journal;
 pub mod migrate;
+pub mod nba;
 pub mod predictions;
 pub mod tennis;
 

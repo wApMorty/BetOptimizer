@@ -65,6 +65,11 @@ enum Command {
         #[arg(long)]
         notify: bool,
     },
+    /// NBA : archive des cotes et des résultats.
+    Nba {
+        #[command(subcommand)]
+        command: NbaCommand,
+    },
     /// Tennis : données de tennis-data, Elo par surface, comparaison au marché.
     Tennis {
         #[command(subcommand)]
@@ -96,6 +101,16 @@ enum Command {
     Fd {
         #[command(subcommand)]
         command: FdCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum NbaCommand {
+    /// Archive les cotes du soir (vainqueur, handicaps, totaux) et, tous les deux jours, les résultats.
+    Snapshot {
+        /// Affiche le coût prévu sans appeler l'API.
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -232,6 +247,9 @@ fn main() -> Result<()> {
                 min_stake,
             },
         ),
+        Command::Nba { command } => match command {
+            NbaCommand::Snapshot { dry_run } => commands::nba_snapshot(&paths, dry_run),
+        },
         Command::Tennis { command } => match command {
             TennisCommand::Import => commands::tennis_import(&paths),
             TennisCommand::Check => commands::tennis_check(&paths),

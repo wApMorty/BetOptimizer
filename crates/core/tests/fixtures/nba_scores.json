@@ -1,0 +1,44 @@
+[
+  {
+    "id": "26b036ff107f3c658258eaf4a6f26228",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2026-10-20T23:00:00Z",
+    "completed": true,
+    "home_team": "Detroit Pistons",
+    "away_team": "Boston Celtics",
+    "scores": [
+      {
+        "name": "Detroit Pistons",
+        "score": "112"
+      },
+      {
+        "name": "Boston Celtics",
+        "score": "105"
+      }
+    ],
+    "last_update": "2026-10-21T02:05:11Z"
+  },
+  {
+    "id": "2b042ddad3d3c6c6fe5b7005dc26c775",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2026-10-20T23:00:00Z",
+    "completed": false,
+    "home_team": "New York Knicks",
+    "away_team": "Philadelphia 76ers",
+    "scores": null,
+    "last_update": null
+  },
+  {
+    "id": "bccd283de56915e29af1788beb0abfc9",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2026-10-21T01:30:00Z",
+    "completed": false,
+    "home_team": "San Antonio Spurs",
+    "away_team": "Oklahoma City Thunder",
+    "scores": null,
+    "last_update": null
+  }
+]

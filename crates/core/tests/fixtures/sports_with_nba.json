@@ -1,0 +1,34 @@
+[
+  {
+    "key": "basketball_nba",
+    "group": "Basketball",
+    "title": "NBA",
+    "description": "US Basketball",
+    "active": true,
+    "has_outrights": false
+  },
+  {
+    "key": "basketball_nba_championship_winner",
+    "group": "Basketball",
+    "title": "NBA Championship Winner",
+    "description": "Championship Winner 2026/2027",
+    "active": true,
+    "has_outrights": true
+  },
+  {
+    "key": "soccer_epl",
+    "group": "Soccer",
+    "title": "EPL",
+    "description": "English Premier League",
+    "active": true,
+    "has_outrights": false
+  },
+  {
+    "key": "tennis_wta_ningbo_open",
+    "group": "Tennis",
+    "title": "WTA Ningbo Open",
+    "description": "Women's Singles",
+    "active": true,
+    "has_outrights": false
+  }
+]

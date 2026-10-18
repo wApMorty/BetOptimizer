@@ -1,0 +1,11 @@
+[Unit]
+Description=Cotes et résultats de la NBA (edge)
+Documentation=file://%h/Documents/Workspace/BetOptimizer/docs/sources.md
+
+[Service]
+Type=oneshot
+# Comme le relevé de 14 h : attendre le réseau (au plus cinq minutes) avant de dépenser des crédits.
+ExecStartPre=/usr/bin/sh -c 'for i in $(seq 1 30); do getent hosts api.the-odds-api.com >/dev/null && exit 0; sleep 10; done; exit 1'
+# Pas de Restart= : relancer dépenserait les crédits une seconde fois.
+ExecStart=%h/.local/bin/edge nba snapshot
+TimeoutStartSec=300

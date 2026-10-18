@@ -13,13 +13,13 @@ use edge_core::domain::{Euros, Outcome};
 use edge_core::format;
 use edge_core::ingest::aliases::Aliases;
 use edge_core::ingest::client::OddsApiClient;
-use edge_core::ingest::closing;
 use edge_core::ingest::football_data::fetch::{FileClient, fetch_all};
 use edge_core::ingest::football_data::import::{import_files, load_files};
 use edge_core::ingest::football_data::quality::{self, SeasonStatus};
 use edge_core::ingest::football_data::{FIRST_SEASON, Season, wanted_files};
 use edge_core::ingest::snapshot::{self, SnapshotReport};
 use edge_core::ingest::tennis::{import as tennis_import_files, quality as tennis_quality};
+use edge_core::ingest::{closing, nba};
 use edge_core::init::initialize;
 use edge_core::models::data::load_leagues;
 use edge_core::models::elo_tuning;
@@ -1025,6 +1025,77 @@ pub fn tennis_report(paths: &Paths, out: Option<&std::path::Path>) -> Result<()>
     }
     std::fs::write(&target, html).with_context(|| format!("écriture de {}", target.display()))?;
     println!("Rapport écrit : {}", target.display());
+    Ok(())
+}
+
+/// `edge nba snapshot` : cotes du soir et résultats de la NBA (lancé par le timer de 22 h UTC).
+pub fn nba_snapshot(paths: &Paths, dry_run: bool) -> Result<()> {
+    let config = Config::load(&paths.config_file)?;
+    if !config.nba_archive {
+        bail!("l'archive NBA est désactivée (nba_archive = false dans la configuration)");
+    }
+    let mut conn = open_database(paths)?;
+    if dry_run {
+        println!("Aucun appel n'est effectué (--dry-run).");
+        println!(
+            "Cotes : {} marché(s) ({}) × {} bookmaker(s) = {} crédit(s) par relevé, si la NBA est en saison.",
+            config.nba_markets.len(),
+            config.nba_markets.join(", "),
+            config.bookmakers.len(),
+            nba::odds_cost(&config)
+        );
+        match nba::next_scores_call(&conn, Utc::now())? {
+            None => println!(
+                "Résultats : dus au prochain relevé ({} crédits).",
+                nba::SCORES_COST
+            ),
+            Some(due) => println!(
+                "Résultats : prochain appel à partir de {} ({} crédits).",
+                format::kickoff_label(due),
+                nba::SCORES_COST
+            ),
+        }
+        return Ok(());
+    }
+    let client = OddsApiClient::new(api_key_from(&config)?);
+    let report = nba::run(&mut conn, &config, &mut Utc::now, &mut |path, params| {
+        client.get(path, params)
+    })?;
+    if !report.in_season {
+        println!("La NBA n'est pas en saison : aucun crédit dépensé.");
+        return Ok(());
+    }
+    match (&report.odds, &report.odds_failure) {
+        (Some(odds), _) => println!(
+            "Cotes : {} match(s), {} cote(s) archivée(s) ({} déjà commencés ignorés)",
+            odds.stored.events, odds.stored.quotes, odds.already_started
+        ),
+        (None, Some(reason)) => eprintln!("Cotes non archivées : {reason}"),
+        (None, None) => {}
+    }
+    let scores = &report.scores;
+    if scores.fetched {
+        println!(
+            "Résultats : {} match(s) terminé(s) écrit(s), {} à venir ou en cours{}",
+            scores.stored,
+            scores.not_finished,
+            if scores.malformed > 0 {
+                format!(", {} sans score lisible (non écrits)", scores.malformed)
+            } else {
+                String::new()
+            }
+        );
+    }
+    if let Some(reason) = &scores.skipped {
+        println!("Résultats non demandés : {reason}");
+    }
+    println!(
+        "Crédits utilisés : {} → {} (plafond {})",
+        report.used_before, report.used_after, config.monthly_credit_cap
+    );
+    if report.odds_failure.is_some() {
+        bail!("les cotes de la NBA n'ont pas été archivées");
+    }
     Ok(())
 }
 

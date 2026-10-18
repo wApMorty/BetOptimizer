@@ -36,6 +36,13 @@ markets = ["h2h"]
 tennis_archive = true
 tennis_max_tournaments = 6
 
+# NBA : saison d'octobre à juin. `edge nba snapshot` (timer du soir, vers 22 h UTC) archive les cotes de ces marchés
+# (vainqueur, handicaps, totaux : 1 crédit chacun, Pinnacle seul les cote tous) et récupère les résultats (2 crédits tous les
+# deux jours). Le tennis est refusé avant la NBA : `nba_reserve_credits` crédits lui sont réservés sur le plafond.
+nba_archive = true
+nba_markets = ["h2h", "spreads", "totals"]
+nba_reserve_credits = 120
+
 # Méthode de retrait de la marge des cotes : "multiplicative", "power" ou "shin".
 # "power" a le log loss le plus bas sur 19 138 matchs Pinnacle (rapport `edge market report`) ; les trois
 # méthodes sont presque équivalentes pour une marge de 2,6 % et diffèrent davantage pour les marges élevées.

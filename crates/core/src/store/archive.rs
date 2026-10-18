@@ -16,6 +16,9 @@ pub enum Endpoint {
     Sports,
     /// `GET /v4/sports/{clé}/odds` : les cotes d'une compétition.
     Odds,
+    /// `GET /v4/sports/{clé}/scores` : les résultats récents. La contrainte de la table `api_call` (migration 1, immuable)
+    /// ne connaît ni `scores` ni de quoi la modifier : ces appels portent le libellé `events`.
+    Events,
 }
 
 impl Endpoint {
@@ -23,6 +26,7 @@ impl Endpoint {
         match self {
             Endpoint::Sports => "sports",
             Endpoint::Odds => "odds",
+            Endpoint::Events => "events",
         }
     }
 }

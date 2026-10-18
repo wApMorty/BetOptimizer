@@ -120,6 +120,12 @@ pub struct Config {
     pub tennis_archive: bool,
     /// Nombre maximal de tournois de tennis archivés par relevé (garde de coût pendant les semaines chargées).
     pub tennis_max_tournaments: u32,
+    /// Archiver les cotes et les résultats de la NBA (`edge nba snapshot`, relevé du soir).
+    pub nba_archive: bool,
+    /// Marchés archivés pour la NBA : `h2h` (vainqueur), `spreads` (handicaps), `totals` (plus/moins). 1 crédit chacun.
+    pub nba_markets: Vec<String>,
+    /// Crédits mis de côté pour la NBA : le tennis est refusé dès que `crédits utilisés + coût` dépasserait `plafond − réserve`.
+    pub nba_reserve_credits: u32,
     /// Fraction de Kelly appliquée aux mises suggérées (1 = Kelly complet, choix du projet ; 0,5 = demi-Kelly).
     pub kelly_fraction: f64,
     /// Mise minimale, en euros : un pari plus petit n'est pas suggéré.
@@ -156,6 +162,9 @@ impl Default for Config {
             odds_api_key: None,
             tennis_archive: true,
             tennis_max_tournaments: 6,
+            nba_archive: true,
+            nba_markets: owned(&["h2h", "spreads", "totals"]),
+            nba_reserve_credits: 120,
             initial_bankroll: 1000.0,
             kelly_fraction: 1.0,
             min_stake: 1.0,
@@ -219,6 +228,7 @@ impl Config {
             ("leagues", &self.leagues),
             ("bookmakers", &self.bookmakers),
             ("markets", &self.markets),
+            ("nba_markets", &self.nba_markets),
         ];
         for (field, names) in lists {
             if names.is_empty() {

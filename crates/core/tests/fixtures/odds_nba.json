@@ -1,0 +1,650 @@
+[
+  {
+    "id": "26b036ff107f3c658258eaf4a6f26228",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2026-10-20T19:00:00Z",
+    "home_team": "Detroit Pistons",
+    "away_team": "Boston Celtics",
+    "bookmakers": [
+      {
+        "key": "pmu_fr",
+        "title": "PMU (FR)",
+        "last_update": "2026-10-18T21:40:50Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.81
+              },
+              {
+                "name": "Detroit Pistons",
+                "price": 1.83
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.68,
+                "point": 221.5
+              },
+              {
+                "name": "Under",
+                "price": 1.75,
+                "point": 221.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "unibet_fr",
+        "title": "Unibet (FR)",
+        "last_update": "2026-10-18T21:41:08Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:41:07Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.88
+              },
+              {
+                "name": "Detroit Pistons",
+                "price": 1.79
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "betclic_fr",
+        "title": "Betclic (FR)",
+        "last_update": "2026-10-18T21:40:47Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:40:47Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.9
+              },
+              {
+                "name": "Detroit Pistons",
+                "price": 1.91
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "winamax_fr",
+        "title": "Winamax (FR)",
+        "last_update": "2026-10-18T21:40:51Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:40:51Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.86
+              },
+              {
+                "name": "Detroit Pistons",
+                "price": 1.88
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "netbet_fr",
+        "title": "NetBet",
+        "last_update": "2026-10-18T21:40:50Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.83
+              },
+              {
+                "name": "Detroit Pistons",
+                "price": 1.83
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.75,
+                "point": -1.5
+              },
+              {
+                "name": "Detroit Pistons",
+                "price": 1.62,
+                "point": 1.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.65,
+                "point": 221.5
+              },
+              {
+                "name": "Under",
+                "price": 1.73,
+                "point": 221.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2026-10-18T21:41:44Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:41:44Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.93
+              },
+              {
+                "name": "Detroit Pistons",
+                "price": 1.95
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-10-18T21:41:44Z",
+            "outcomes": [
+              {
+                "name": "Boston Celtics",
+                "price": 1.9,
+                "point": 1.0
+              },
+              {
+                "name": "Detroit Pistons",
+                "price": 1.99,
+                "point": -1.0
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-10-18T21:41:44Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.86,
+                "point": 221.5
+              },
+              {
+                "name": "Under",
+                "price": 2.01,
+                "point": 221.5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "2b042ddad3d3c6c6fe5b7005dc26c775",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2026-10-20T23:00:00Z",
+    "home_team": "New York Knicks",
+    "away_team": "Philadelphia 76ers",
+    "bookmakers": [
+      {
+        "key": "pmu_fr",
+        "title": "PMU (FR)",
+        "last_update": "2026-10-18T21:40:50Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "New York Knicks",
+                "price": 1.45
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 2.4
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.71,
+                "point": 232.5
+              },
+              {
+                "name": "Under",
+                "price": 1.73,
+                "point": 232.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "unibet_fr",
+        "title": "Unibet (FR)",
+        "last_update": "2026-10-18T21:41:08Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:41:07Z",
+            "outcomes": [
+              {
+                "name": "New York Knicks",
+                "price": 1.48
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 2.35
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "betclic_fr",
+        "title": "Betclic (FR)",
+        "last_update": "2026-10-18T21:40:47Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:40:47Z",
+            "outcomes": [
+              {
+                "name": "New York Knicks",
+                "price": 1.51
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 2.52
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "winamax_fr",
+        "title": "Winamax (FR)",
+        "last_update": "2026-10-18T21:40:51Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:40:51Z",
+            "outcomes": [
+              {
+                "name": "New York Knicks",
+                "price": 1.52
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 2.45
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "netbet_fr",
+        "title": "NetBet",
+        "last_update": "2026-10-18T21:40:50Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "New York Knicks",
+                "price": 1.45
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 2.45
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "New York Knicks",
+                "price": 1.65,
+                "point": -4.5
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 1.73,
+                "point": 4.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.71,
+                "point": 232.5
+              },
+              {
+                "name": "Under",
+                "price": 1.68,
+                "point": 232.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2026-10-18T21:41:44Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:41:44Z",
+            "outcomes": [
+              {
+                "name": "New York Knicks",
+                "price": 1.55
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 2.59
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-10-18T21:41:44Z",
+            "outcomes": [
+              {
+                "name": "New York Knicks",
+                "price": 1.99,
+                "point": -5.0
+              },
+              {
+                "name": "Philadelphia 76ers",
+                "price": 1.9,
+                "point": 5.0
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-10-18T21:41:44Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.88,
+                "point": 231.5
+              },
+              {
+                "name": "Under",
+                "price": 1.99,
+                "point": 231.5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "bccd283de56915e29af1788beb0abfc9",
+    "sport_key": "basketball_nba",
+    "sport_title": "NBA",
+    "commence_time": "2026-10-21T01:30:00Z",
+    "home_team": "San Antonio Spurs",
+    "away_team": "Oklahoma City Thunder",
+    "bookmakers": [
+      {
+        "key": "pmu_fr",
+        "title": "PMU (FR)",
+        "last_update": "2026-10-18T21:40:50Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "Oklahoma City Thunder",
+                "price": 1.97
+              },
+              {
+                "name": "San Antonio Spurs",
+                "price": 1.68
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.73,
+                "point": 231.5
+              },
+              {
+                "name": "Under",
+                "price": 1.71,
+                "point": 231.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "unibet_fr",
+        "title": "Unibet (FR)",
+        "last_update": "2026-10-18T21:41:08Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:41:07Z",
+            "outcomes": [
+              {
+                "name": "Oklahoma City Thunder",
+                "price": 2.0
+              },
+              {
+                "name": "San Antonio Spurs",
+                "price": 1.67
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "betclic_fr",
+        "title": "Betclic (FR)",
+        "last_update": "2026-10-18T21:40:47Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:40:47Z",
+            "outcomes": [
+              {
+                "name": "Oklahoma City Thunder",
+                "price": 2.12
+              },
+              {
+                "name": "San Antonio Spurs",
+                "price": 1.7
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "winamax_fr",
+        "title": "Winamax (FR)",
+        "last_update": "2026-10-18T21:40:51Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:40:51Z",
+            "outcomes": [
+              {
+                "name": "Oklahoma City Thunder",
+                "price": 2.1
+              },
+              {
+                "name": "San Antonio Spurs",
+                "price": 1.68
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "netbet_fr",
+        "title": "NetBet",
+        "last_update": "2026-10-18T21:40:50Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "Oklahoma City Thunder",
+                "price": 2.05
+              },
+              {
+                "name": "San Antonio Spurs",
+                "price": 1.65
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "Oklahoma City Thunder",
+                "price": 1.68,
+                "point": 2.5
+              },
+              {
+                "name": "San Antonio Spurs",
+                "price": 1.68,
+                "point": -2.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-10-18T21:40:50Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.68,
+                "point": 231.5
+              },
+              {
+                "name": "Under",
+                "price": 1.68,
+                "point": 231.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2026-10-18T21:41:44Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T21:41:44Z",
+            "outcomes": [
+              {
+                "name": "Oklahoma City Thunder",
+                "price": 2.2
+              },
+              {
+                "name": "San Antonio Spurs",
+                "price": 1.74
+              }
+            ]
+          },
+          {
+            "key": "spreads",
+            "last_update": "2026-10-18T21:41:44Z",
+            "outcomes": [
+              {
+                "name": "Oklahoma City Thunder",
+                "price": 1.96,
+                "point": 2.5
+              },
+              {
+                "name": "San Antonio Spurs",
+                "price": 1.93,
+                "point": -2.5
+              }
+            ]
+          },
+          {
+            "key": "totals",
+            "last_update": "2026-10-18T21:41:44Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "price": 1.87,
+                "point": 231.0
+              },
+              {
+                "name": "Under",
+                "price": 2.01,
+                "point": 231.0
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

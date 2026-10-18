@@ -86,7 +86,7 @@ pub struct SnapshotReport {
 
 /// Issue d'une ligue. Les erreurs de base de données ne passent pas par ici : elles interrompent tout
 /// le relevé (`Err`). Une panne de l'API ne concerne qu'une ligue : on la note et on passe à la suivante.
-enum Outcome {
+pub(crate) enum Outcome {
     Stored(LeagueReport),
     Failed(LeagueFailure),
 }
@@ -127,7 +127,15 @@ pub fn run(
     }
 
     for sport_key in &sport_keys {
-        if let Err(refusal) = budget::check(Some(used), cost, config.monthly_credit_cap) {
+        // Le tennis est refusé avant la NBA : une réserve de crédits lui est retirée du plafond.
+        let cap = if config.nba_archive && sport_key.starts_with(TENNIS_PREFIX) {
+            config
+                .monthly_credit_cap
+                .saturating_sub(config.nba_reserve_credits)
+        } else {
+            config.monthly_credit_cap
+        };
+        if let Err(refusal) = budget::check(Some(used), cost, cap) {
             tracing::warn!(ligue = %sport_key, "{refusal}");
             failures.push(LeagueFailure {
                 sport_key: sport_key.clone(),
@@ -193,7 +201,7 @@ pub fn read_quota(conn: &Connection, now: Clock, fetch: Fetch) -> Result<Quota> 
 }
 
 /// Comme [`read_quota`], et renvoie aussi le corps de la réponse (la liste des sports).
-fn read_sports(conn: &Connection, now: Clock, fetch: Fetch) -> Result<(Quota, String)> {
+pub(crate) fn read_sports(conn: &Connection, now: Clock, fetch: Fetch) -> Result<(Quota, String)> {
     let response = fetch(SPORTS_PATH, "")?;
     archive::record_api_call(
         conn,
@@ -213,7 +221,7 @@ fn read_sports(conn: &Connection, now: Clock, fetch: Fetch) -> Result<(Quota, St
     Ok((response.quota, response.body))
 }
 
-fn snapshot_league(
+pub(crate) fn snapshot_league(
     conn: &mut Connection,
     config: &Config,
     sport_key: &str,
@@ -410,6 +418,27 @@ mod tests {
         assert_eq!(report.failures.len(), 1);
         assert_eq!(report.failures[0].sport_key, "tennis_wta_ningbo_open");
         assert!(!paths.contains(&"/sports/tennis_wta_ningbo_open/odds".to_string()));
+    }
+
+    #[test]
+    fn tennis_leaves_the_nba_reserve_untouched_while_football_may_use_it() {
+        // Plafond 125, réserve NBA 120 : le tennis n'a droit qu'aux 5 premiers crédits (8 sont déjà utilisés),
+        // le football peut aller jusqu'à 125.
+        let mut tight = config(&["soccer_epl"], 125);
+        tight.nba_reserve_credits = 120;
+        let (report, paths) = run_with_sports(SPORTS_WITH_TENNIS, &tight);
+
+        assert_eq!(report.leagues.len(), 1);
+        assert_eq!(report.leagues[0].sport_key, "soccer_epl");
+        assert_eq!(report.failures.len(), 1);
+        assert_eq!(report.failures[0].sport_key, "tennis_wta_ningbo_open");
+        assert!(!paths.contains(&"/sports/tennis_wta_ningbo_open/odds".to_string()));
+
+        // Sans archive NBA, rien n'est réservé : le tennis repasse.
+        let mut no_nba = tight.clone();
+        no_nba.nba_archive = false;
+        let (report, _) = run_with_sports(SPORTS_WITH_TENNIS, &no_nba);
+        assert!(report.failures.is_empty());
     }
 
     #[test]

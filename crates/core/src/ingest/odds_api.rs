@@ -244,6 +244,106 @@ pub fn active_tennis_keys(sports_body: &str) -> Result<Vec<String>> {
     Ok(keys)
 }
 
+/// Chemin des résultats d'une compétition (la barre finale est celle de la documentation).
+pub fn scores_path(sport_key: &str) -> String {
+    format!("/sports/{sport_key}/scores/")
+}
+
+/// Paramètres des résultats : les `days` derniers jours (de 1 à 3, le maximum de l'API). Coût : 2 crédits.
+pub fn scores_params(days: u8) -> String {
+    format!("daysFrom={days}&dateFormat=iso")
+}
+
+/// Un match terminé, avec son score final.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FinishedGame {
+    /// Identifiant du match (le même que dans `/odds`).
+    pub event_id: String,
+    /// Coup d'envoi.
+    pub commence_time: DateTime<Utc>,
+    /// Équipe à domicile.
+    pub home_team: String,
+    /// Équipe à l'extérieur.
+    pub away_team: String,
+    /// Points de l'équipe à domicile.
+    pub home_score: u16,
+    /// Points de l'équipe à l'extérieur.
+    pub away_score: u16,
+}
+
+/// Résultat de la lecture d'une réponse `/scores`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedScores {
+    /// Matchs terminés dont les deux scores sont lisibles.
+    pub finished: Vec<FinishedGame>,
+    /// Matchs à venir ou en cours (pas de score final).
+    pub not_finished: usize,
+    /// Matchs déclarés terminés mais dont un score manque ou est illisible : signalés, jamais devinés.
+    pub malformed: usize,
+}
+
+#[derive(Deserialize)]
+struct RawScoredGame {
+    id: String,
+    commence_time: DateTime<Utc>,
+    completed: bool,
+    home_team: String,
+    away_team: String,
+    scores: Option<Vec<RawTeamScore>>,
+}
+
+#[derive(Deserialize)]
+struct RawTeamScore {
+    name: String,
+    score: String,
+}
+
+/// Lit le corps d'une réponse `/scores` réussie.
+///
+/// Les scores sont des textes (`"112"`) attachés à un **nom d'équipe** : on les rapproche des équipes du match par le nom exact.
+pub fn parse_scores(body: &str) -> Result<ParsedScores> {
+    let raw: Vec<RawScoredGame> = serde_json::from_str(body)?;
+    let mut parsed = ParsedScores {
+        finished: Vec::new(),
+        not_finished: 0,
+        malformed: 0,
+    };
+    for game in raw {
+        if !game.completed {
+            parsed.not_finished += 1;
+            continue;
+        }
+        let score_of = |team: &str| -> Option<u16> {
+            game.scores
+                .as_ref()?
+                .iter()
+                .find(|s| s.name == team)?
+                .score
+                .trim()
+                .parse()
+                .ok()
+        };
+        match (score_of(&game.home_team), score_of(&game.away_team)) {
+            (Some(home_score), Some(away_score)) => parsed.finished.push(FinishedGame {
+                event_id: game.id,
+                commence_time: game.commence_time,
+                home_team: game.home_team,
+                away_team: game.away_team,
+                home_score,
+                away_score,
+            }),
+            _ => parsed.malformed += 1,
+        }
+    }
+    Ok(parsed)
+}
+
+/// Une compétition est-elle active (en saison) selon la réponse gratuite de `/sports` ?
+pub fn sport_is_active(sports_body: &str, sport_key: &str) -> Result<bool> {
+    let sports: Vec<RawSport> = serde_json::from_str(sports_body)?;
+    Ok(sports.iter().any(|s| s.key == sport_key && s.active))
+}
+
 #[derive(Deserialize)]
 struct RawApiError {
     message: String,
@@ -495,6 +595,58 @@ mod tests {
         let inactive = r#"[{"key":"tennis_atp_x","active":false},{"key":"tennis_atp_y_winner","active":true,"has_outrights":true}]"#;
         assert!(active_tennis_keys(inactive).unwrap().is_empty());
         assert!(active_tennis_keys("pas du json").is_err());
+    }
+
+    #[test]
+    fn finished_games_are_read_with_their_scores_matched_by_team_name() {
+        // Réponse réelle de `/scores` (2026-10-19, matchs à venir : `scores: null`) dont le premier match a été complété
+        // à la main d'après la documentation (`"scores": [{"name": …, "score": "112"}, …]`).
+        let body = include_str!("../../tests/fixtures/nba_scores.json");
+
+        let parsed = parse_scores(body).unwrap();
+
+        assert_eq!(parsed.finished.len(), 1);
+        assert_eq!(parsed.not_finished, 2);
+        assert_eq!(parsed.malformed, 0);
+        let game = &parsed.finished[0];
+        assert_eq!(
+            (game.home_team.as_str(), game.away_team.as_str()),
+            ("Detroit Pistons", "Boston Celtics")
+        );
+        assert_eq!((game.home_score, game.away_score), (112, 105));
+    }
+
+    #[test]
+    fn a_completed_game_with_a_missing_or_garbled_score_is_counted_not_guessed() {
+        let body = r#"[
+          {"id":"a","commence_time":"2026-10-20T23:00:00Z","completed":true,"home_team":"A","away_team":"B","scores":null},
+          {"id":"b","commence_time":"2026-10-20T23:00:00Z","completed":true,"home_team":"A","away_team":"B",
+           "scores":[{"name":"A","score":"100"},{"name":"Autre","score":"90"}]},
+          {"id":"c","commence_time":"2026-10-20T23:00:00Z","completed":true,"home_team":"A","away_team":"B",
+           "scores":[{"name":"A","score":"cent"},{"name":"B","score":"90"}]}]"#;
+
+        let parsed = parse_scores(body).unwrap();
+
+        assert!(parsed.finished.is_empty());
+        assert_eq!(parsed.malformed, 3);
+    }
+
+    #[test]
+    fn a_sport_is_active_only_when_listed_as_such() {
+        let body = include_str!("../../tests/fixtures/sports_with_tennis.json");
+
+        assert!(sport_is_active(body, "soccer_epl").unwrap());
+        assert!(
+            !sport_is_active(body, "basketball_nba").unwrap(),
+            "absent de cette liste réduite"
+        );
+        assert!(!sport_is_active("[]", "basketball_nba").unwrap());
+        assert!(sport_is_active("pas du json", "x").is_err());
+        assert_eq!(
+            scores_path("basketball_nba"),
+            "/sports/basketball_nba/scores/"
+        );
+        assert_eq!(scores_params(3), "daysFrom=3&dateFormat=iso");
     }
 
     #[test]

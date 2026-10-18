@@ -1,0 +1,12 @@
+[Unit]
+Description=Cotes de la NBA chaque soir à 22 h UTC
+
+[Timer]
+# 22 h UTC = 18 h à New York (heure d'été) : 1 à 4 h avant les matchs du soir américain, donc des cotes proches de la clôture.
+# Après le passage à l'heure d'hiver américaine (début novembre), c'est 17 h : les cotes sont un peu plus éloignées.
+OnCalendar=*-*-* 22:00:00 UTC
+# Une soirée manquée ne se rattrape pas (les cotes ne sont plus celles d'avant le match) ; les résultats, eux, ont du recouvrement.
+Persistent=false
+
+[Install]
+WantedBy=timers.target
