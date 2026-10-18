@@ -4,4 +4,5 @@
 //! « ce prix a-t-il de la valeur ? » ([`value`]) et « combien miser ? » ([`kelly`], [`simultaneous`]).
 
 pub mod kelly;
+pub mod simultaneous;
 pub mod value;
