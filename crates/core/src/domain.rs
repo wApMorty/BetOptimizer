@@ -27,6 +27,122 @@ impl Odds {
     }
 }
 
+/// Probabilité : nombre de l'intervalle [0, 1].
+///
+/// Newtype distinct de [`Odds`] : le compilateur interdit de passer une cote là où l'on attend une
+/// probabilité (confusion classique : 2,0 est une cote, 0,5 est la probabilité correspondante).
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Probability(f64);
+
+impl Probability {
+    /// Crée une probabilité. Renvoie `None` hors de [0, 1] ou pour `NaN`.
+    pub fn new(value: f64) -> Option<Probability> {
+        // `contains` renvoie `false` pour NaN : il est donc refusé sans test supplémentaire.
+        if (0.0..=1.0).contains(&value) {
+            Some(Probability(value))
+        } else {
+            None
+        }
+    }
+
+    /// Valeur numérique.
+    pub fn get(self) -> f64 {
+        self.0
+    }
+}
+
+/// Issue d'un match de football, dans l'ordre ordinal victoire domicile < nul < victoire extérieur.
+/// Cet ordre sert au RPS (voir `eval`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// Victoire de l'équipe à domicile.
+    Home,
+    /// Match nul.
+    Draw,
+    /// Victoire de l'équipe à l'extérieur.
+    Away,
+}
+
+impl Outcome {
+    /// Les trois issues, dans l'ordre ordinal.
+    pub const ALL: [Outcome; 3] = [Outcome::Home, Outcome::Draw, Outcome::Away];
+
+    /// Position de l'issue (0, 1, 2) dans [`Outcome::ALL`].
+    pub fn index(self) -> usize {
+        match self {
+            Outcome::Home => 0,
+            Outcome::Draw => 1,
+            Outcome::Away => 2,
+        }
+    }
+}
+
+/// Les trois cotes d'un marché 1X2 d'un même bookmaker.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Odds1x2 {
+    /// Victoire à domicile.
+    pub home: Odds,
+    /// Match nul.
+    pub draw: Odds,
+    /// Victoire à l'extérieur.
+    pub away: Odds,
+}
+
+impl Odds1x2 {
+    /// Cote de l'issue donnée.
+    pub fn get(&self, outcome: Outcome) -> Odds {
+        match outcome {
+            Outcome::Home => self.home,
+            Outcome::Draw => self.draw,
+            Outcome::Away => self.away,
+        }
+    }
+
+    /// Somme des probabilités implicites `1/cote`. Elle dépasse 1 de la marge du bookmaker.
+    pub fn implied_sum(&self) -> f64 {
+        1.0 / self.home.get() + 1.0 / self.draw.get() + 1.0 / self.away.get()
+    }
+}
+
+/// Probabilités d'un 1X2 : trois probabilités dont la somme vaut 1.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Probs1x2 {
+    home: Probability,
+    draw: Probability,
+    away: Probability,
+}
+
+impl Probs1x2 {
+    /// Écart toléré entre la somme des trois probabilités et 1 (erreurs d'arrondi des calculs).
+    const SUM_TOLERANCE: f64 = 1e-9;
+
+    /// Crée un 1X2. Renvoie `None` si une valeur n'est pas une probabilité ou si la somme n'est pas 1.
+    pub fn new(home: f64, draw: f64, away: f64) -> Option<Probs1x2> {
+        if (home + draw + away - 1.0).abs() > Self::SUM_TOLERANCE {
+            return None;
+        }
+        Some(Probs1x2 {
+            home: Probability::new(home)?,
+            draw: Probability::new(draw)?,
+            away: Probability::new(away)?,
+        })
+    }
+
+    /// Probabilité de l'issue donnée.
+    pub fn get(&self, outcome: Outcome) -> Probability {
+        match outcome {
+            Outcome::Home => self.home,
+            Outcome::Draw => self.draw,
+            Outcome::Away => self.away,
+        }
+    }
+
+    /// Les trois probabilités sous forme de nombres, dans l'ordre [`Outcome::ALL`].
+    pub fn to_array(&self) -> [f64; 3] {
+        [self.home.get(), self.draw.get(), self.away.get()]
+    }
+}
+
 /// Compteurs de crédits lus dans les en-têtes d'une réponse de l'API.
 ///
 /// Chaque champ est un `Option` : les réponses 401 (clé invalide) n'ont aucun de ces en-têtes.
@@ -107,6 +223,42 @@ mod tests {
         for value in [1.0, 0.99, 0.0, -2.0, f64::NAN, f64::INFINITY] {
             assert!(Odds::new(value).is_none(), "{value} doit être refusée");
         }
+    }
+
+    #[test]
+    fn probability_accepts_only_the_unit_interval() {
+        assert!(Probability::new(0.0).is_some());
+        assert!(Probability::new(1.0).is_some());
+        for value in [-0.01, 1.01, f64::NAN, f64::INFINITY] {
+            assert!(
+                Probability::new(value).is_none(),
+                "{value} doit être refusée"
+            );
+        }
+    }
+
+    #[test]
+    fn probs_1x2_must_sum_to_one() {
+        assert!(Probs1x2::new(0.5, 0.3, 0.2).is_some());
+        assert!(Probs1x2::new(0.5, 0.3, 0.3).is_none());
+        assert!(Probs1x2::new(1.2, -0.1, -0.1).is_none());
+    }
+
+    #[test]
+    fn implied_sum_exceeds_one_by_the_margin() {
+        let odds = Odds1x2 {
+            home: Odds::new(2.0).unwrap(),
+            draw: Odds::new(4.0).unwrap(),
+            away: Odds::new(4.0).unwrap(),
+        };
+        assert!((odds.implied_sum() - 1.0).abs() < 1e-12);
+        assert_eq!(odds.get(Outcome::Draw).get(), 4.0);
+    }
+
+    #[test]
+    fn outcome_indices_follow_the_ordinal_order() {
+        let indices: Vec<usize> = Outcome::ALL.iter().map(|o| o.index()).collect();
+        assert_eq!(indices, [0, 1, 2]);
     }
 
     #[test]

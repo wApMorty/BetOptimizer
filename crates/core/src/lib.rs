@@ -8,5 +8,6 @@ pub mod domain;
 pub mod error;
 pub mod ingest;
 pub mod init;
+pub mod market;
 pub mod paths;
 pub mod store;
