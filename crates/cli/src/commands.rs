@@ -17,7 +17,8 @@ use edge_core::models::data::load_leagues;
 use edge_core::models::tuning;
 use edge_core::paths::Paths;
 use edge_core::report::market_report;
-use edge_core::report::render::render_market_report;
+use edge_core::report::models_report;
+use edge_core::report::render::{render_market_report, render_models_report};
 use edge_core::store::archive::last_known_usage;
 use edge_core::store::{self, Connection, migrate};
 
@@ -320,6 +321,40 @@ pub fn model_evaluate(paths: &Paths) -> Result<()> {
             run.run_id
         );
     }
+    Ok(())
+}
+
+/// `edge model report` : rapport HTML des modèles contre le marché sur le test.
+pub fn model_report(paths: &Paths, out: Option<&std::path::Path>) -> Result<()> {
+    let conn = open_database(paths)?;
+    let config = Config::load(&paths.config_file)?;
+    let leagues = load_leagues(&conn)?;
+    let last = leagues
+        .iter()
+        .flat_map(|league| league.games.iter().map(|game| game.date))
+        .max()
+        .context("aucun match en base : lance `edge fd fetch` puis `edge fd import`")?;
+    let today = Utc::now().date_naive();
+
+    println!("Calcul en cours (bootstrap par blocs, quelques secondes)…");
+    let report = models_report::build(
+        &conn,
+        &leagues,
+        config.margin_method,
+        last,
+        &today.format("%Y-%m-%d").to_string(),
+    )?;
+    let html = render_models_report(&report)?;
+
+    let target = match out {
+        Some(path) => path.to_path_buf(),
+        None => paths.reports_dir.join("models.html"),
+    };
+    if let Some(dir) = target.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("création de {}", dir.display()))?;
+    }
+    std::fs::write(&target, html).with_context(|| format!("écriture de {}", target.display()))?;
+    println!("Rapport écrit : {}", target.display());
     Ok(())
 }
 

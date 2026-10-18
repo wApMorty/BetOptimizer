@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Les modèles face au marché — edge</title>
+<style>
+  :root { --bg:#fafaf8; --fg:#1d1d1b; --muted:#6b6b66; --card:#ffffff; --line:#e3e2dc; --accent:#1f5eaa; --good:#1a7f4b; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ececea; --muted:#a3a39d; --card:#201f1e; --line:#34332f; --accent:#7fb2ee; --good:#59c58a; --bad:#f08b83; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.6rem; margin: .4em 0 .1em; }
+  h2 { font-size: 1.25rem; margin: 2em 0 .4em; padding-top: .6em; border-top: 1px solid var(--line); }
+  h3 { font-size: 1rem; margin: 1.2em 0 .3em; }
+  p, li { max-width: 70ch; }
+  .meta, .note { color: var(--muted); font-size: .9rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  .ci { color: var(--muted); }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .ns { color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .grid svg, .charts svg { width: 100%; height: auto; background: #fff; border-radius: 8px; border: 1px solid var(--line); }
+  details > summary { cursor: pointer; color: var(--accent); margin: .4em 0; }
+</style>
+</head>
+<body>
+<main>
+
+{% macro ci(c, d=4) %}{{ c.mean|num(d) }} <span class="ci">[{{ c.low|num(d) }} ; {{ c.high|num(d) }}]</span>{% endmacro %}
+{# Différence de score avec la référence : positif = moins bon que la référence (rouge si significatif), négatif = meilleur (vert si significatif). #}
+{% macro dci(c, d=4) %}<span class="{{ 'bad' if c.low > 0 else ('good' if c.high < 0 else 'ns') }}">{{ c.mean|num(d) }} [{{ c.low|num(d) }} ; {{ c.high|num(d) }}]</span>{% endmacro %}
+
+<h1>Les modèles face au marché</h1>
+<p class="meta">Généré le {{ generated_on }} · Poisson et Dixon-Coles, ajustés chaque semaine sur le passé (walk-forward) · test du {{ test[0] }} au {{ test[1] }} ({{ test_games }} matchs).</p>
+
+<div class="card">
+  <strong>En bref.</strong>
+  {% set dc = comparison[2] %}
+  <ul>
+    <li>Sur les {{ dc.n }} matchs du test, le Dixon-Coles a un log loss de {{ dc.log_loss.mean|num(4) }}, contre {{ comparison[0].log_loss.mean|num(4) }} pour la moyenne du marché à la clôture :
+      écart {{ dci(dc.log_loss_vs_reference, 4) }}.
+      {% if dc.log_loss_vs_reference.low > 0 %}<span class="bad">Le modèle est significativement moins bon que le marché.</span>
+      {% elif dc.log_loss_vs_reference.high < 0 %}<span class="good">Le modèle est significativement meilleur que le marché.</span>
+      {% else %}<span class="ns">L'écart n'est pas distinguable du bruit.</span>{% endif %}</li>
+    <li>Test d'information : en combinant la clôture du marché et le modèle (poids du modèle {{ blend_weight_close|num(2) }}, réglé sur la validation), l'écart avec la clôture seule est {{ dci(blend_close[1].log_loss_vs_reference, 4) }}
+      {% if blend_close[1].log_loss_vs_reference.high < 0 %}<span class="good">: le modèle apporte une information que la clôture ne contient pas.</span>
+      {% else %}<span class="ns">: le modèle n'apporte pas d'information démontrable en plus de la clôture.</span>{% endif %}</li>
+    <li>Un score <em>plus bas</em> est meilleur. Les intervalles entre crochets sont à 95 %, par bootstrap de blocs (une ligue et une semaine).</li>
+    <li>Méthode de retrait de marge du marché : voir le rapport « marché ». Configurations essayées : {{ configs_tried }}, en {{ tuning_sessions }} session(s) de réglage.</li>
+  </ul>
+</div>
+
+<h2>1. Protocole</h2>
+<p>Découpage walk-forward : entraînement 2016/17–2023/24, <strong>validation</strong> du {{ validation[0] }} au {{ validation[1] }} (choix des hyperparamètres), <strong>test</strong> du {{ test[0] }} au {{ test[1] }} (évalué une seule fois, avec les configurations gelées avant). Chaque semaine, le modèle est réajusté sur les matchs strictement antérieurs au lundi.</p>
+<div class="card scroll"><table>
+  <tr><th>Configuration gelée</th><th>ξ (par jour)</th><th>Demi-vie</th><th>κ (ridge)</th><th>Mélange de tirs</th><th>Log loss de validation</th></tr>
+  {% for f in frozen %}
+  <tr><td>{{ f.label }}</td><td>{{ f.decay|num(4) }}</td><td>{{ f.half_life_days|num(0) }} j</td><td>{{ f.ridge|num(1) }}</td><td>{{ f.blend|num(1) }}</td><td>{{ f.validation_log_loss|num(5) }}</td></tr>
+  {% endfor %}
+</table></div>
+<p class="note">ξ : un match vieux de t jours pèse exp(−ξ·t). κ : force de la régularisation vers l'équipe moyenne (utile aux promus). Mélange de tirs : part des « buts attendus » estimés à partir des tirs (0 = buts seuls). Les valeurs de la grille aux bords (ξ = 0,004 et κ = 0,5 sont les extrémités) indiquent que l'optimum pourrait se trouver au-delà ; la grille n'a pas été étendue après coup pour ne pas multiplier les réglages.</p>
+
+<h3>Validation : les meilleures configurations</h3>
+<div class="card scroll"><table>
+  <tr><th>Modèle</th><th>ξ</th><th>κ</th><th>Mélange</th><th>Log loss</th></tr>
+  {% for g in grid[:10] %}
+  <tr><td>{{ g.model }}</td><td>{{ g.decay|num(4) }}</td><td>{{ g.ridge|num(1) }}</td><td>{{ g.blend|num(1) }}</td><td>{{ g.log_loss|num(5) }}</td></tr>
+  {% endfor %}
+</table></div>
+<h3>Ce que les tirs apportent (validation)</h3>
+<div class="card scroll"><table>
+  <tr><th>Mélange de tirs</th><th>Meilleur log loss de validation (Dixon-Coles)</th></tr>
+  {% for b in blend_effect %}<tr><td>{{ b[0]|num(1) }}</td><td>{{ b[1]|num(5) }}</td></tr>{% endfor %}
+</table></div>
+
+<h2>2. Test : 1X2, modèles contre marché</h2>
+<p>Mêmes {{ comparison[0].n }} matchs pour tous. Référence : moyenne du marché à la clôture. Dernière colonnes : différence de score avec la référence (<span class="bad">rouge</span> = significativement moins bon, <span class="good">vert</span> = significativement meilleur, <span class="ns">gris</span> = indiscernable).</p>
+<div class="card scroll"><table>
+  <tr><th>Pronostiqueur</th><th>Log loss</th><th>Brier</th><th>RPS</th><th>Δ log loss</th><th>Δ RPS</th></tr>
+  {% for r in comparison %}
+  <tr><td>{{ r.label }}</td><td>{{ ci(r.log_loss) }}</td><td>{{ ci(r.brier) }}</td><td>{{ ci(r.rps) }}</td>
+    <td>{% if r.log_loss_vs_reference %}{{ dci(r.log_loss_vs_reference, 4) }}{% else %}référence{% endif %}</td>
+    <td>{% if r.rps_vs_reference %}{{ dci(r.rps_vs_reference, 4) }}{% else %}référence{% endif %}</td></tr>
+  {% endfor %}
+</table></div>
+{% if comparison_pinnacle %}
+<h3>Contre Pinnacle (matchs où sa clôture existe : {{ pinnacle_games }})</h3>
+<div class="card scroll"><table>
+  <tr><th>Pronostiqueur</th><th>Log loss</th><th>RPS</th><th>Δ log loss vs Pinnacle</th><th>Δ RPS vs Pinnacle</th></tr>
+  {% for r in comparison_pinnacle %}
+  <tr><td>{{ r.label }}</td><td>{{ ci(r.log_loss) }}</td><td>{{ ci(r.rps) }}</td>
+    <td>{% if r.log_loss_vs_reference %}{{ dci(r.log_loss_vs_reference, 4) }}{% else %}référence{% endif %}</td>
+    <td>{% if r.rps_vs_reference %}{{ dci(r.rps_vs_reference, 4) }}{% else %}référence{% endif %}</td></tr>
+  {% endfor %}
+</table></div>
+{% endif %}
+
+<h3>Par ligue (Dixon-Coles moins moyenne du marché, clôture)</h3>
+<div class="card scroll"><table>
+  <tr><th>Ligue</th><th>Matchs</th><th>Δ log loss</th></tr>
+  {% for l in by_league %}
+  <tr><td>{{ l.name }}</td><td>{{ l.games }}</td><td>{{ dci(l.log_loss_vs_market, 4) }}</td></tr>
+  {% endfor %}
+</table></div>
+
+<h2>3. Plus/moins de 2,5 buts et « les deux équipes marquent »</h2>
+<p>Plus/moins : comparé à la moyenne du marché (clôture), cotes de football-data depuis 2019/20, marge retirée par la même méthode. « Les deux marquent » : football-data n'a aucune cote, on juge donc seulement la calibration et le gain sur la fréquence passée.</p>
+<div class="card scroll"><table>
+  <tr><th>Plus de 2,5 buts</th><th>Matchs</th><th>Log loss</th><th>Brier</th><th>Δ log loss vs marché</th></tr>
+  {% for r in totals %}
+  <tr><td>{{ r.label }}</td><td>{{ r.n }}</td><td>{{ ci(r.log_loss) }}</td><td>{{ ci(r.brier) }}</td>
+    <td>{% if r.log_loss_vs_reference %}{{ dci(r.log_loss_vs_reference, 4) }}{% else %}référence{% endif %}</td></tr>
+  {% endfor %}
+</table></div>
+<div class="card scroll"><table>
+  <tr><th>Les deux équipes marquent</th><th>Matchs</th><th>Log loss</th><th>Brier</th><th>Δ log loss vs fréquence passée</th></tr>
+  {% for r in btts %}
+  <tr><td>{{ r.label }}</td><td>{{ r.n }}</td><td>{{ ci(r.log_loss) }}</td><td>{{ ci(r.brier) }}</td>
+    <td>{% if r.log_loss_vs_reference %}{{ dci(r.log_loss_vs_reference, 4) }}{% else %}référence{% endif %}</td></tr>
+  {% endfor %}
+</table></div>
+
+<h2>4. Calibration du Dixon-Coles</h2>
+<p>Un modèle calibré suit la diagonale. Traits verticaux : intervalles de Wilson à 95 % (classes d'au moins 30 prévisions).</p>
+<div class="grid"><div>{{ calibration_svg|safe }}<p class="note">1X2</p></div><div>{{ btts_calibration_svg|safe }}<p class="note">Les deux équipes marquent</p></div></div>
+
+<h2>5. Forces d'équipe actuelles (Dixon-Coles gelé)</h2>
+<p>Échelle logarithmique, 0 = équipe moyenne de la ligue. <em>Attaque</em> : plus c'est haut, plus l'équipe marque. <em>Défense</em> : plus c'est haut, plus elle encaisse. <em>Force nette</em> = attaque − défense. Les équipes qui n'ont joué aucun match dans la ligue avant leur promotion sont ramenées à 0 par la régularisation.</p>
+{% for l in ratings %}
+<details><summary>{{ l.name }} ({{ l.teams|length }} équipes)</summary>
+<div class="scroll"><table>
+  <tr><th>Équipe</th><th>Attaque</th><th>Défense</th><th>Force nette</th></tr>
+  {% for t in l.teams %}<tr><td>{{ t.name }}</td><td>{{ t.attack|num(2) }}</td><td>{{ t.defence|num(2) }}</td><td><strong>{{ t.net|num(2) }}</strong></td></tr>{% endfor %}
+</table></div></details>
+{% endfor %}
+
+<h2>6. Le proxy de buts attendus à partir des tirs</h2>
+<p>Coefficients estimés sur les matchs d'avant 2026/27 puis comparés, hors échantillon, aux xG publiés par football-data pour 2026/27 (source non documentée). Corrélation proche de 1 = le proxy suit bien ces xG ; rapport proche de 1 = même niveau moyen.</p>
+<div class="card scroll"><table>
+  <tr><th>Ligue</th><th>Buts / tir cadré</th><th>Buts / tir non cadré</th><th>Équipes-matchs</th><th>Corrélation</th><th>Rapport proxy / xG</th></tr>
+  {% for p in proxy %}
+  <tr><td>{{ p.league }}</td><td>{{ p.on_target|num(3) }}</td><td>{{ p.off_target|num(3) }}</td><td>{{ p.pairs }}</td>
+    <td>{% if p.correlation is none %}—{% else %}{{ p.correlation|num(2) }}{% endif %}</td><td>{% if p.ratio is none %}—{% else %}{{ p.ratio|num(2) }}{% endif %}</td></tr>
+  {% endfor %}
+</table></div>
+
+<h2>7. Le modèle apporte-t-il une information que le marché n'a pas ?</h2>
+<p>Comparer un modèle seul au marché est sévère : le marché contient déjà presque tout ce que le modèle sait. La question utile est ailleurs : <em>en combinant les deux</em>, fait-on mieux que le marché seul ? On mélange par moyenne géométrique des probabilités, p ∝ p<sub>marché</sub><sup>1−w</sup> · p<sub>modèle</sub><sup>w</sup>, avec un seul poids <em>w</em> réglé sur la validation 2024/25 (pas de 0,05) puis évalué sur le test. Si <em>w</em> vaut 0, le modèle n'apporte rien.</p>
+<h3>Clôture + modèle (poids du modèle : {{ blend_weight_close|num(2) }})</h3>
+<div class="card scroll"><table>
+  <tr><th>Pronostiqueur</th><th>Log loss</th><th>RPS</th><th>Δ log loss vs clôture seule</th><th>Δ RPS</th></tr>
+  {% for r in blend_close %}
+  <tr><td>{{ r.label }}</td><td>{{ ci(r.log_loss) }}</td><td>{{ ci(r.rps) }}</td>
+    <td>{% if r.log_loss_vs_reference %}{{ dci(r.log_loss_vs_reference, 4) }}{% else %}référence{% endif %}</td>
+    <td>{% if r.rps_vs_reference %}{{ dci(r.rps_vs_reference, 4) }}{% else %}référence{% endif %}</td></tr>
+  {% endfor %}
+</table></div>
+<h3>Avant-match + modèle (poids du modèle : {{ blend_weight_pre|num(2) }}) : ce que l'on peut vraiment faire le vendredi</h3>
+<p class="note">Au moment de parier on ne connaît que les cotes d'avant-match. Le modèle permet-il de se rapprocher de la clôture, qui est la cible du CLV ?</p>
+<div class="card scroll"><table>
+  <tr><th>Pronostiqueur</th><th>Log loss</th><th>RPS</th><th>Δ log loss vs avant-match seul</th><th>Δ RPS</th></tr>
+  {% for r in blend_pre %}
+  <tr><td>{{ r.label }}</td><td>{{ ci(r.log_loss) }}</td><td>{{ ci(r.rps) }}</td>
+    <td>{% if r.log_loss_vs_reference %}{{ dci(r.log_loss_vs_reference, 4) }}{% else %}référence{% endif %}</td>
+    <td>{% if r.rps_vs_reference %}{{ dci(r.rps_vs_reference, 4) }}{% else %}référence{% endif %}</td></tr>
+  {% endfor %}
+</table></div>
+
+<h2>Limites</h2>
+<ul>
+  <li>Le marché est ici l'<em>adversaire</em> : ce rapport mesure à quelle distance des cotes se situent les modèles, il ne promet aucun avantage.</li>
+  <li>Le meilleur réglage est en bordure de grille ; les écarts entre les meilleures configurations (quelques millièmes de log loss) sont du même ordre que le bruit de validation.</li>
+  <li>{{ rho_clamped }} prédictions du test ont dû voir leur ρ ramené dans le domaine où le facteur τ reste positif.</li>
+  <li>Les xG publiés n'existent que pour 2026/27 : le proxy ne peut être comparé qu'à ce petit échantillon.</li>
+  <li>Cotes de bookmakers étrangers ; la décote réelle chez Winamax ou Betclic se mesurera sur notre propre archive.</li>
+</ul>
+
+</main>
+</body>
+</html>

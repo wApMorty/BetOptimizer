@@ -220,7 +220,7 @@ pub fn run_league(
 }
 
 /// Coefficients buts/tirs estimés sur les matchs strictement antérieurs à `as_of`.
-fn fit_proxy(league: &LeagueData, as_of: NaiveDate) -> Option<XgProxy> {
+pub(crate) fn fit_proxy(league: &LeagueData, as_of: NaiveDate) -> Option<XgProxy> {
     let mut observations = Vec::new();
     for game in league.games.iter().filter(|g| g.date < as_of) {
         if let Some([(shots_home, on_home), (shots_away, on_away)]) = game.shots {

@@ -106,3 +106,35 @@ fn a_cached_csv_goes_through_import_check_and_report() {
     assert!(html.contains("Le marché comme pronostiqueur"));
     assert!(html.contains("<svg"));
 }
+
+#[test]
+fn model_evaluate_without_a_frozen_tuning_points_to_model_tune() {
+    let home = tempfile::tempdir().unwrap();
+    let cache = home.path().join("football-data");
+    std::fs::create_dir_all(&cache).unwrap();
+    std::fs::write(
+        cache.join("E0_2526.csv"),
+        include_bytes!("../../core/tests/fixtures/fd/E0_2526_sample.csv"),
+    )
+    .unwrap();
+    assert!(
+        run_edge(home.path(), &["fd", "import"], None)
+            .status
+            .success()
+    );
+
+    let output = run_edge(home.path(), &["model", "evaluate"], None);
+
+    assert!(!output.status.success());
+    assert!(text(&output.stderr).contains("edge model tune"));
+}
+
+#[test]
+fn model_report_on_an_empty_database_explains_what_to_do() {
+    let home = tempfile::tempdir().unwrap();
+
+    let output = run_edge(home.path(), &["model", "report"], None);
+
+    assert!(!output.status.success());
+    assert!(text(&output.stderr).contains("edge fd fetch"));
+}

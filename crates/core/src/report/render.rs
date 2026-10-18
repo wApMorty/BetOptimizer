@@ -5,10 +5,14 @@
 
 use minijinja::{Environment, Value};
 
+use serde::Serialize;
+
 use super::market_report::MarketReport;
+use super::models_report::ModelsReport;
 use crate::error::{Error, Result};
 
-const TEMPLATE: &str = include_str!("templates/market.html");
+const MARKET_TEMPLATE: &str = include_str!("templates/market.html");
+const MODELS_TEMPLATE: &str = include_str!("templates/models.html");
 
 /// Nombre au format français (virgule décimale), `digits` décimales.
 fn number(value: f64, digits: Option<usize>) -> String {
@@ -26,20 +30,35 @@ fn percent(value: f64, digits: Option<usize>) -> String {
     format!("{} %", number(value * 100.0, Some(digits.unwrap_or(1))))
 }
 
-/// Génère le HTML du rapport.
+/// Génère le HTML du rapport « marché ».
 pub fn render_market_report(report: &MarketReport) -> Result<String> {
+    render_template("market.html", MARKET_TEMPLATE, report)
+}
+
+/// Génère le HTML du rapport « modèles ».
+pub fn render_models_report(report: &ModelsReport) -> Result<String> {
+    render_template("models.html", MODELS_TEMPLATE, report)
+}
+
+/// Rend un gabarit avec les filtres `num` et `pct`.
+///
+/// Le nom se termine par `.html` : l'échappement automatique est actif (les graphiques SVG sont
+/// explicitement marqués `|safe` dans les gabarits).
+fn render_template<T: Serialize>(
+    name: &'static str,
+    source: &'static str,
+    data: &T,
+) -> Result<String> {
     let mut env = Environment::new();
-    // Le nom se termine par `.html` : l'échappement automatique est actif (les graphiques SVG sont
-    // explicitement marqués `|safe` dans le gabarit).
-    env.add_template("market.html", TEMPLATE)
+    env.add_template(name, source)
         .map_err(|e| Error::Data(format!("gabarit du rapport : {e}")))?;
     env.add_filter("num", number);
     env.add_filter("pct", percent);
     let template = env
-        .get_template("market.html")
+        .get_template(name)
         .map_err(|e| Error::Data(format!("gabarit du rapport : {e}")))?;
     template
-        .render(Value::from_serialize(report))
+        .render(Value::from_serialize(data))
         .map_err(|e| Error::Data(format!("rendu du rapport : {e}")))
 }
 

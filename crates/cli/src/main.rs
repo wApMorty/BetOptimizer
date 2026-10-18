@@ -59,6 +59,12 @@ enum ModelCommand {
     Tune,
     /// Évalue les configurations figées sur le test (2025/26 puis 2026/27 en avant).
     Evaluate,
+    /// Génère le rapport HTML : modèles contre marché sur le test, calibration, forces d'équipe.
+    Report {
+        /// Fichier de sortie (par défaut : dossier des rapports de l'application).
+        #[arg(long, value_name = "FICHIER")]
+        out: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -102,6 +108,7 @@ fn main() -> Result<()> {
         Command::Model { command } => match command {
             ModelCommand::Tune => commands::model_tune(&paths),
             ModelCommand::Evaluate => commands::model_evaluate(&paths),
+            ModelCommand::Report { out } => commands::model_report(&paths, out.as_deref()),
         },
         Command::Market { command } => match command {
             MarketCommand::Report { out } => commands::market_report(&paths, out.as_deref()),

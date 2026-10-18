@@ -47,6 +47,11 @@ pub fn truth() -> FittedModel {
 /// Ligue simulée : `seasons` saisons de 56 matchs (aller-retour à 8 équipes), 4 matchs par semaine, un samedi.
 /// Les tirs sont fabriqués à partir des buts (cadrés ≈ 3 × buts + bruit, tirs = 2 × cadrés + 3).
 pub fn simulated_league(seasons: usize, seed: u64) -> LeagueData {
+    simulated_league_from(NaiveDate::from_ymd_opt(2020, 8, 1).unwrap(), seasons, seed)
+}
+
+/// Comme [`simulated_league`], avec une date de départ choisie.
+pub fn simulated_league_from(start: NaiveDate, seasons: usize, seed: u64) -> LeagueData {
     let truth = truth();
     let mut rng = Lcg(seed);
     let mut games = Vec::new();
@@ -60,8 +65,7 @@ pub fn simulated_league(seasons: usize, seed: u64) -> LeagueData {
             let j = (rng.next() * (i + 1) as f64) as usize;
             fixtures.swap(i, j.min(i));
         }
-        let season_start =
-            NaiveDate::from_ymd_opt(2020, 8, 1).unwrap() + Days::new(season as u64 * 365);
+        let season_start = start + Days::new(season as u64 * 365);
         for (index, (home, away)) in fixtures.into_iter().enumerate() {
             let week = (index / 4) as u64;
             let date = season_start + Days::new(week * 7);

@@ -80,6 +80,43 @@ pub fn load(conn: &Connection, bookmaker: &str, moment: Moment) -> Result<Vec<Ma
     Ok(games)
 }
 
+/// Cotes plus/moins 2,5 buts d'un bookmaker pour un match.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TotalsGame {
+    /// Identifiant du match en base.
+    pub game_id: i64,
+    /// Cote « plus de 2,5 buts ».
+    pub over: Odds,
+    /// Cote « moins de 2,5 buts ».
+    pub under: Odds,
+}
+
+/// Charge les cotes plus/moins 2,5 buts d'un bookmaker à un moment donné.
+pub fn load_totals(conn: &Connection, bookmaker: &str, moment: Moment) -> Result<Vec<TotalsGame>> {
+    let mut statement = conn.prepare(
+        "SELECT game_id, over, under FROM game_totals_odds WHERE bookmaker = ?1 AND moment = ?2 AND line = 2.5 ORDER BY game_id",
+    )?;
+    let rows = statement.query_map([bookmaker, moment.as_str()], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, f64>(1)?,
+            row.get::<_, f64>(2)?,
+        ))
+    })?;
+    let mut games = Vec::new();
+    for row in rows {
+        let (game_id, over, under) = row?;
+        if let (Some(over), Some(under)) = (Odds::new(over), Odds::new(under)) {
+            games.push(TotalsGame {
+                game_id,
+                over,
+                under,
+            });
+        }
+    }
+    Ok(games)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
