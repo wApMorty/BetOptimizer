@@ -21,8 +21,11 @@ use super::{FittedModel, TrainingGame};
 use crate::error::{Error, Result};
 
 /// Borne de `|ρ|` : `ρ = RHO_MAX · tanh(φ)` où `φ` est le paramètre réellement optimisé (sans contrainte).
-/// Les valeurs ajustées sont de l'ordre de −0,1 : la borne n'est jamais atteinte en pratique.
-const RHO_MAX: f64 = 0.5;
+///
+/// Les valeurs publiées sont de l'ordre de −0,03 à −0,2. Au-delà de −0,3, `τ(0,1) = 1 + λρ` devient négatif dès
+/// qu'une équipe attend plus de 3,3 buts : la borne protège un ajustement sur petit échantillon (où `ρ` peut
+/// dériver, observé en simulation : −0,39 pour une vérité à −0,12) d'un modèle qui n'est plus une loi de probabilité.
+pub(crate) const RHO_MAX: f64 = 0.25;
 
 /// Plancher de `τ` dans le logarithme (même principe que `penaltyblog`) : évite `ln(τ ≤ 0)`.
 const TAU_FLOOR: f64 = 1e-10;

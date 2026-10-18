@@ -8,7 +8,7 @@
 use serde::Deserialize;
 
 use super::dixon_coles::DixonColes;
-use super::likelihood::LikelihoodProblem;
+use super::likelihood::{LikelihoodProblem, RHO_MAX};
 use super::{MatchModel, TrainingGame};
 
 #[derive(Deserialize)]
@@ -68,17 +68,21 @@ fn dixon_coles_matches_penaltyblog_on_a_simulated_league() {
 
     // 1. Notre optimum est au moins aussi bon (en vraisemblance) que celui de penaltyblog : le problème est
     //    le même, et c'est le critère qui départage deux optimiseurs. Les paramètres de penaltyblog sont
-    //    replacés dans notre paramétrage (base 0, ρ via φ = atanh(ρ / 0,5)).
+    //    replacés dans notre paramétrage (base 0, ρ via φ = atanh(ρ / RHO_MAX)).
     let problem = LikelihoodProblem::new(8, &games, 1e-9, true);
     let mut theirs = reference.attack.clone();
     theirs.extend(&reference.defence);
-    theirs.extend([0.0, reference.home_advantage, (reference.rho / 0.5).atanh()]);
+    theirs.extend([
+        0.0,
+        reference.home_advantage,
+        (reference.rho / RHO_MAX).atanh(),
+    ]);
     let mut ours = fitted.attack.clone();
     ours.extend(&fitted.defence);
     ours.extend([
         fitted.intercept,
         fitted.home_advantage,
-        (fitted.rho / 0.5).atanh(),
+        (fitted.rho / RHO_MAX).atanh(),
     ]);
     let (our_cost, _) = problem.evaluate(&ours);
     let (their_cost, _) = problem.evaluate(&theirs);

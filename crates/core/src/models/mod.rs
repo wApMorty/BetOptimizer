@@ -12,10 +12,13 @@ pub mod dixon_coles;
 pub mod grid;
 pub mod likelihood;
 pub mod poisson;
+pub mod walk_forward;
 pub mod xg_proxy;
 
 #[cfg(test)]
 mod reference;
+#[cfg(test)]
+pub(crate) mod testing;
 
 use crate::error::Result;
 use grid::ScoreGrid;
@@ -65,8 +68,22 @@ impl FittedModel {
 
     /// Grille de scores du match, `None` si les paramètres ne donnent pas une loi de probabilité valide.
     pub fn grid(&self, home: usize, away: usize) -> Option<ScoreGrid> {
+        self.grid_checked(home, away).map(|(grid, _)| grid)
+    }
+
+    /// Comme [`FittedModel::grid`], et indique si `ρ` a dû être ramené dans le domaine faisable du match.
+    ///
+    /// Le facteur `τ` doit rester positif : `1 + λρ > 0`, `1 + μρ > 0` et `1 − λμρ > 0`, soit
+    /// `ρ > −1/max(λ, μ)` (pour `ρ < 0`) et `ρ < 1/(λμ)` (pour `ρ > 0`). Un `ρ` ajusté sur un petit échantillon
+    /// peut sortir de ce domaine pour un match très déséquilibré : on le ramène à 90 % de la borne (donc
+    /// `τ ≥ 0,1`) et on le signale, plutôt que de renvoyer une loi de probabilité invalide.
+    pub fn grid_checked(&self, home: usize, away: usize) -> Option<(ScoreGrid, bool)> {
         let (home_mean, away_mean) = self.expectancies(home, away);
-        ScoreGrid::dixon_coles(home_mean, away_mean, self.rho)
+        let lower = -0.9 / home_mean.max(away_mean);
+        let upper = 0.9 / (home_mean * away_mean);
+        let rho = self.rho.clamp(lower, upper.max(lower));
+        let clamped = rho != self.rho;
+        ScoreGrid::dixon_coles(home_mean, away_mean, rho).map(|grid| (grid, clamped))
     }
 }
 
@@ -75,7 +92,7 @@ impl FittedModel {
 /// Deux implémentations réelles : [`poisson::Poisson`] (buts indépendants) et [`dixon_coles::DixonColes`]
 /// (corrélation des scores faibles). Le trait existe parce que le moteur de walk-forward doit pouvoir lancer
 /// l'un ou l'autre sans changer de code.
-pub trait MatchModel {
+pub trait MatchModel: Sync {
     /// Nom court du modèle (stocké avec les prédictions).
     fn name(&self) -> &'static str;
 
@@ -89,4 +106,47 @@ pub trait MatchModel {
         games: &[TrainingGame],
         start: Option<&FittedModel>,
     ) -> Result<FittedModel>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn model(rho: f64) -> FittedModel {
+        FittedModel {
+            attack: vec![0.5, -0.5],
+            defence: vec![0.0, 0.0],
+            intercept: 0.4,
+            home_advantage: 0.3,
+            rho,
+        }
+    }
+
+    #[test]
+    fn a_rho_inside_the_feasible_domain_is_left_alone() {
+        let (grid, clamped) = model(-0.1).grid_checked(0, 1).unwrap();
+        assert!(!clamped);
+        assert!(grid.home_draw_away().is_some());
+    }
+
+    #[test]
+    fn a_rho_outside_the_feasible_domain_is_clamped_flagged_and_still_a_valid_distribution() {
+        // Équipe 0 à domicile contre l'équipe 1 : λ = e^(0,4 + 0,3 + 0,5) ≈ 3,3 ; ρ = −0,4 rendrait τ(0,1) négatif.
+        let extreme = model(-0.4);
+        let (home_mean, _) = extreme.expectancies(0, 1);
+        assert!(
+            1.0 + home_mean * extreme.rho < 0.0,
+            "le cas de test doit être hors domaine"
+        );
+
+        let (grid, clamped) = extreme.grid_checked(0, 1).unwrap();
+
+        assert!(clamped);
+        let total: f64 = (0..=10)
+            .flat_map(|x| (0..=10).map(move |y| (x, y)))
+            .map(|(x, y)| grid.probability(x, y))
+            .sum();
+        assert!((total - 1.0).abs() < 1e-12);
+        assert!((0..=10).all(|x| (0..=10).all(|y| grid.probability(x, y) >= 0.0)));
+    }
 }
