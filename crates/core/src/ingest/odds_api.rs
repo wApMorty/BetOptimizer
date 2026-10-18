@@ -220,6 +220,31 @@ pub fn bookmakers_without_quotes<'a>(requested: &'a [String], events: &[Event]) 
 }
 
 #[derive(Deserialize)]
+struct RawSport {
+    key: String,
+    active: bool,
+    #[serde(default)]
+    has_outrights: bool,
+}
+
+/// Préfixe des clés de tennis de The Odds API : une clé **par tournoi**, présente seulement pendant le tournoi.
+pub const TENNIS_PREFIX: &str = "tennis_";
+
+/// Clés des tournois de tennis en cours, lues dans la réponse (gratuite) de `/sports`, triées par nom.
+///
+/// Les marchés « vainqueur du tournoi » (`has_outrights`) n'ont pas de marché 1 contre 1 : ils sont écartés.
+pub fn active_tennis_keys(sports_body: &str) -> Result<Vec<String>> {
+    let sports: Vec<RawSport> = serde_json::from_str(sports_body)?;
+    let mut keys: Vec<String> = sports
+        .into_iter()
+        .filter(|s| s.active && !s.has_outrights && s.key.starts_with(TENNIS_PREFIX))
+        .map(|s| s.key)
+        .collect();
+    keys.sort();
+    Ok(keys)
+}
+
+#[derive(Deserialize)]
 struct RawApiError {
     message: String,
     error_code: Option<String>,
@@ -455,6 +480,21 @@ mod tests {
             .collect();
         assert_eq!(pinnacle.len(), 3);
         assert!(pinnacle.iter().any(|q| q.outcome == "Draw"));
+    }
+
+    #[test]
+    fn only_active_tennis_tournaments_are_listed_from_the_sports_response() {
+        // Réponse réelle de `GET /v4/sports` du 2026-10-18, réduite à quelques sports.
+        let body = include_str!("../../tests/fixtures/sports_with_tennis.json");
+
+        assert_eq!(
+            active_tennis_keys(body).unwrap(),
+            vec!["tennis_wta_ningbo_open".to_string()]
+        );
+        assert!(active_tennis_keys("[]").unwrap().is_empty());
+        let inactive = r#"[{"key":"tennis_atp_x","active":false},{"key":"tennis_atp_y_winner","active":true,"has_outrights":true}]"#;
+        assert!(active_tennis_keys(inactive).unwrap().is_empty());
+        assert!(active_tennis_keys("pas du json").is_err());
     }
 
     #[test]

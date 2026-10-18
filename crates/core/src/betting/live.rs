@@ -28,6 +28,10 @@ pub const SHARP_BOOKMAKER: &str = "pinnacle";
 /// Le timer prend un relevé par jour ; 30 h tolère un retard sans laisser passer un relevé manqué.
 pub const MAX_SNAPSHOT_AGE_HOURS: i64 = 30;
 
+/// Condition SQL qui ne garde que le football : le 1X2 suppose un nul, que le tennis n'a pas. Les tournois de tennis sont
+/// archivés (pour juger plus tard un avantage), mais ni lus ni recommandés ici. `\_` : le tiret bas, joker de `LIKE`, est littéral.
+pub(crate) const FOOTBALL_ONLY: &str = "e.sport_key LIKE 'soccer\\_%' ESCAPE '\\'";
+
 /// Marge totale plausible d'un 1X2 (somme des probabilités implicites) ; hors de cet intervalle, le prix est signalé
 /// et ignoré, jamais corrigé (CLAUDE.md, « cotes aberrantes »).
 const IMPLIED_SUM_RANGE: (f64, f64) = (1.0, 1.30);
@@ -100,13 +104,13 @@ pub fn scan(
     now: DateTime<Utc>,
 ) -> Result<Scan> {
     let oldest_snapshot = now - Duration::hours(MAX_SNAPSHOT_AGE_HOURS);
-    let mut events = conn.prepare(
+    let mut events = conn.prepare(&format!(
         "SELECT e.event_id, e.api_call_id, e.sport_key, e.commence_time, e.home_team_raw, e.away_team_raw
          FROM event_seen e JOIN api_call a ON a.id = e.api_call_id
-         WHERE e.commence_time > ?1 AND a.called_at >= ?2
+         WHERE e.commence_time > ?1 AND a.called_at >= ?2 AND {FOOTBALL_ONLY}
            AND e.api_call_id = (SELECT MAX(api_call_id) FROM event_seen WHERE event_id = e.event_id)
-         ORDER BY e.commence_time, e.event_id",
-    )?;
+         ORDER BY e.commence_time, e.event_id"
+    ))?;
     let mut quotes = conn.prepare(
         "SELECT bookmaker_key, outcome_raw, price, quote_updated_at FROM quote
          WHERE api_call_id = ?1 AND event_id = ?2 AND market_key = 'h2h'",
@@ -238,6 +242,24 @@ fn plausible(odds: &Odds1x2) -> bool {
 mod tests {
     use super::*;
     use crate::betting::testing::{NOW, PINNACLE, at, database, event, store};
+
+    #[test]
+    fn tennis_events_in_the_archive_are_neither_read_nor_counted_as_football_without_reference() {
+        let mut conn = database();
+        let mut tennis = crate::betting::testing::event_named(
+            "tennis-1",
+            "2026-10-24T14:00:00Z",
+            &[PINNACLE, ("winamax_fr", 2.3, 3.2, 3.4)],
+        );
+        tennis.sport_key = "tennis_wta_ningbo_open".into();
+        store(&mut conn, "2026-10-18T14:00:00Z", &[tennis]);
+
+        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, at(NOW)).unwrap();
+
+        assert_eq!(scan.events, 0);
+        assert_eq!(scan.without_reference, 0);
+        assert!(scan.opportunities.is_empty());
+    }
 
     #[test]
     fn a_price_above_the_fair_odds_is_found_and_the_minimal_odds_follow() {

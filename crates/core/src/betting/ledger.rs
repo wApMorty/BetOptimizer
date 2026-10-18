@@ -6,6 +6,7 @@
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 
+use super::live::FOOTBALL_ONLY;
 use crate::domain::{Euros, Odds, Outcome};
 use crate::error::{Error, Result};
 use crate::store::journal::{self, NewBet};
@@ -136,13 +137,13 @@ pub struct UpcomingEvent {
 
 /// Les matchs dont le coup d'envoi est dans le futur, vus dans le relevé le plus récent de chacun, du plus proche au plus lointain.
 pub fn upcoming_events(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<UpcomingEvent>> {
-    let mut statement = conn.prepare(
+    let mut statement = conn.prepare(&format!(
         "SELECT e.event_id, e.sport_key, e.home_team_raw, e.away_team_raw, e.commence_time
          FROM event_seen e
-         WHERE e.commence_time > ?1
+         WHERE e.commence_time > ?1 AND {FOOTBALL_ONLY}
            AND e.api_call_id = (SELECT MAX(api_call_id) FROM event_seen WHERE event_id = e.event_id)
-         ORDER BY e.commence_time, e.event_id",
-    )?;
+         ORDER BY e.commence_time, e.event_id"
+    ))?;
     let rows = statement.query_map([journal::timestamp(now)], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -316,6 +317,20 @@ mod tests {
         assert!(
             message(off_model_bet(&conn, "match-1", "  ", Outcome::Draw, 3.4, 5.0).unwrap_err())
                 .contains("bookmaker")
+        );
+    }
+
+    #[test]
+    fn tennis_matches_are_not_offered_for_off_model_bets() {
+        let mut conn = database();
+        let mut tennis = event_named("tennis-1", "2026-10-24T14:00:00Z", &[PINNACLE]);
+        tennis.sport_key = "tennis_atp_us_open".into();
+        store(&mut conn, "2026-10-18T10:00:00Z", &[tennis]);
+
+        assert!(
+            upcoming_events(&conn, at("2026-10-18T15:00:00Z"))
+                .unwrap()
+                .is_empty()
         );
     }
 

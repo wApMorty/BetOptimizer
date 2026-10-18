@@ -1,0 +1,42 @@
+[
+  {
+    "key": "americanfootball_nfl",
+    "group": "American Football",
+    "title": "NFL",
+    "description": "US Football",
+    "active": true,
+    "has_outrights": false
+  },
+  {
+    "key": "soccer_epl",
+    "group": "Soccer",
+    "title": "EPL",
+    "description": "English Premier League",
+    "active": true,
+    "has_outrights": false
+  },
+  {
+    "key": "soccer_italy_serie_a",
+    "group": "Soccer",
+    "title": "Serie A - Italy",
+    "description": "Italian Soccer",
+    "active": true,
+    "has_outrights": false
+  },
+  {
+    "key": "soccer_spl",
+    "group": "Soccer",
+    "title": "Premiership - Scotland",
+    "description": "Scottish Premiership",
+    "active": true,
+    "has_outrights": false
+  },
+  {
+    "key": "tennis_wta_ningbo_open",
+    "group": "Tennis",
+    "title": "WTA Ningbo Open",
+    "description": "Women's Singles",
+    "active": true,
+    "has_outrights": false
+  }
+]

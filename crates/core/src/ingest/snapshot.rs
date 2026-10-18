@@ -9,7 +9,8 @@ use rusqlite::Connection;
 use super::budget;
 use super::client::HttpResponse;
 use super::odds_api::{
-    SPORTS_PATH, api_error, bookmakers_without_quotes, odds_params, odds_path, parse_odds,
+    SPORTS_PATH, TENNIS_PREFIX, active_tennis_keys, api_error, bookmakers_without_quotes,
+    odds_params, odds_path, parse_odds,
 };
 use crate::config::Config;
 use crate::domain::Quota;
@@ -90,11 +91,12 @@ enum Outcome {
     Failed(LeagueFailure),
 }
 
-/// Effectue le relevé de toutes les ligues configurées.
+/// Effectue le relevé de toutes les ligues configurées, puis des tournois de tennis en cours.
 ///
-/// 1. lit le quota réel par un appel gratuit à `/sports` ;
+/// 1. lit le quota réel par un appel gratuit à `/sports` (qui liste aussi les tournois de tennis actifs) ;
 /// 2. pour chaque ligue : la garde de budget autorise ou refuse, puis `/odds` est appelé, le corps brut
-///    est journalisé *avant* toute interprétation, et les matchs à venir sont archivés.
+///    est journalisé *avant* toute interprétation, et les matchs à venir sont archivés. Le football passe avant
+///    le tennis : si le budget manque, c'est le tennis qui est refusé.
 pub fn run(
     conn: &mut Connection,
     config: &Config,
@@ -102,9 +104,8 @@ pub fn run(
     fetch: Fetch,
 ) -> Result<SnapshotReport> {
     let previous_used = archive::last_known_usage(conn)?;
-    let used_before = read_quota(conn, now, fetch)?
-        .used
-        .ok_or(Error::QuotaUnknown)?;
+    let (quota, sports_body) = read_sports(conn, now, fetch)?;
+    let used_before = quota.used.ok_or(Error::QuotaUnknown)?;
     let quota_reset = budget::reset_detected(previous_used, used_before);
     if quota_reset {
         tracing::info!(
@@ -120,7 +121,12 @@ pub fn run(
     let mut leagues = Vec::new();
     let mut failures = Vec::new();
 
-    for sport_key in &config.leagues {
+    let mut sport_keys = config.leagues.clone();
+    if config.tennis_archive {
+        sport_keys.extend(tennis_keys_to_archive(config, &sports_body));
+    }
+
+    for sport_key in &sport_keys {
         if let Err(refusal) = budget::check(Some(used), cost, config.monthly_credit_cap) {
             tracing::warn!(ligue = %sport_key, "{refusal}");
             failures.push(LeagueFailure {
@@ -158,8 +164,36 @@ pub fn run(
     })
 }
 
+/// Tournois de tennis à archiver : ceux que `/sports` dit actifs, au plus `tennis_max_tournaments`.
+///
+/// Une réponse illisible ne bloque pas le football : on le signale et on n'archive pas le tennis ce jour-là.
+fn tennis_keys_to_archive(config: &Config, sports_body: &str) -> Vec<String> {
+    let mut keys = match active_tennis_keys(sports_body) {
+        Ok(keys) => keys,
+        Err(error) => {
+            tracing::warn!(%error, "liste des sports illisible : pas de tennis dans ce relevé");
+            return Vec::new();
+        }
+    };
+    let cap = usize::try_from(config.tennis_max_tournaments).unwrap_or(usize::MAX);
+    if keys.len() > cap {
+        tracing::warn!(
+            actifs = keys.len(),
+            archives = cap,
+            "plus de tournois de tennis actifs que le plafond : les derniers par ordre alphabétique sont ignorés"
+        );
+        keys.truncate(cap);
+    }
+    keys
+}
+
 /// Lit le quota par l'appel gratuit à `/sports` et journalise l'appel (`edge quota`, début de chaque relevé).
 pub fn read_quota(conn: &Connection, now: Clock, fetch: Fetch) -> Result<Quota> {
+    read_sports(conn, now, fetch).map(|(quota, _)| quota)
+}
+
+/// Comme [`read_quota`], et renvoie aussi le corps de la réponse (la liste des sports).
+fn read_sports(conn: &Connection, now: Clock, fetch: Fetch) -> Result<(Quota, String)> {
     let response = fetch(SPORTS_PATH, "")?;
     archive::record_api_call(
         conn,
@@ -176,7 +210,7 @@ pub fn read_quota(conn: &Connection, now: Clock, fetch: Fetch) -> Result<Quota> 
     if response.status != 200 {
         return Err(api_error(response.status, &response.body));
     }
-    Ok(response.quota)
+    Ok((response.quota, response.body))
 }
 
 fn snapshot_league(
@@ -225,11 +259,15 @@ fn snapshot_league(
     };
 
     let stored = archive::record_snapshot(conn, api_call_id, &parsed.events)?;
-    let missing_bookmakers: Vec<String> =
+    // Betclic, NetBet et d'autres ne cotent pas le tennis : les signaler chaque jour n'apprendrait rien.
+    let missing_bookmakers: Vec<String> = if sport_key.starts_with(TENNIS_PREFIX) {
+        Vec::new()
+    } else {
         bookmakers_without_quotes(&config.bookmakers, &parsed.events)
             .into_iter()
             .map(str::to_string)
-            .collect();
+            .collect()
+    };
     if !missing_bookmakers.is_empty() {
         tracing::warn!(
             ligue = sport_key,
@@ -255,6 +293,8 @@ mod tests {
     const SPL: &str = include_str!("../../tests/fixtures/odds_spl_pinnacle_only.json");
     const SERIE_A: &str = include_str!("../../tests/fixtures/odds_serie_a_started.json");
     const INVALID_MARKET: &str = include_str!("../../tests/fixtures/error_invalid_market.json");
+    const SPORTS_WITH_TENNIS: &str = include_str!("../../tests/fixtures/sports_with_tennis.json");
+    const TENNIS: &str = include_str!("../../tests/fixtures/odds_tennis_wta_ningbo.json");
 
     fn database() -> Connection {
         let mut conn = Connection::open_in_memory().unwrap();
@@ -293,6 +333,7 @@ mod tests {
             "/sports/soccer_epl/odds" => EPL,
             "/sports/soccer_spl/odds" => SPL,
             "/sports/soccer_italy_serie_a/odds" => SERIE_A,
+            "/sports/tennis_wta_ningbo_open/odds" => TENNIS,
             other => panic!("chemin inattendu dans le test : {other}"),
         }
     }
@@ -302,6 +343,73 @@ mod tests {
             row.get(0)
         })
         .unwrap()
+    }
+
+    /// Lance un relevé d'une ligue de football avec la réponse de `/sports` donnée ; renvoie le bilan et les chemins appelés.
+    fn run_with_sports(sports_body: &str, config: &Config) -> (SnapshotReport, Vec<String>) {
+        let mut conn = database();
+        let mut used = 8;
+        let mut paths = Vec::new();
+        let mut fetch = |path: &str, _params: &str| {
+            paths.push(path.to_string());
+            if path == SPORTS_PATH {
+                return Ok(response(200, 0, used, sports_body));
+            }
+            used += 1;
+            Ok(response(200, 1, used, fixture_for(path)))
+        };
+        let report = run(&mut conn, config, &mut clock(), &mut fetch).unwrap();
+        (report, paths)
+    }
+
+    #[test]
+    fn active_tennis_tournaments_are_archived_after_the_football_leagues() {
+        let (report, paths) = run_with_sports(SPORTS_WITH_TENNIS, &config(&["soccer_epl"], 450));
+
+        assert_eq!(
+            paths,
+            vec![
+                "/sports",
+                "/sports/soccer_epl/odds",
+                "/sports/tennis_wta_ningbo_open/odds"
+            ]
+        );
+        assert!(report.failures.is_empty());
+        let tennis = &report.leagues[1];
+        assert_eq!(tennis.sport_key, "tennis_wta_ningbo_open");
+        assert_eq!(tennis.stored.events, 12);
+        // Betclic ne cote pas le tennis : on ne le signale pas chaque jour.
+        assert!(tennis.missing_bookmakers.is_empty());
+        assert_eq!(report.used_after, 10);
+    }
+
+    #[test]
+    fn tennis_can_be_switched_off_or_capped_and_an_unreadable_sports_list_spares_football() {
+        let mut off = config(&["soccer_epl"], 450);
+        off.tennis_archive = false;
+        let (_, paths) = run_with_sports(SPORTS_WITH_TENNIS, &off);
+        assert_eq!(paths, vec!["/sports", "/sports/soccer_epl/odds"]);
+
+        let mut capped = config(&["soccer_epl"], 450);
+        capped.tennis_max_tournaments = 0;
+        let (_, paths) = run_with_sports(SPORTS_WITH_TENNIS, &capped);
+        assert_eq!(paths, vec!["/sports", "/sports/soccer_epl/odds"]);
+
+        let (report, paths) = run_with_sports("pas du json", &config(&["soccer_epl"], 450));
+        assert_eq!(paths, vec!["/sports", "/sports/soccer_epl/odds"]);
+        assert!(report.failures.is_empty());
+    }
+
+    #[test]
+    fn when_the_budget_runs_short_it_is_tennis_that_is_refused_not_football() {
+        // Plafond 9 avec 8 crédits déjà utilisés : une seule ligue passe, la première (le football).
+        let (report, paths) = run_with_sports(SPORTS_WITH_TENNIS, &config(&["soccer_epl"], 9));
+
+        assert_eq!(report.leagues.len(), 1);
+        assert_eq!(report.leagues[0].sport_key, "soccer_epl");
+        assert_eq!(report.failures.len(), 1);
+        assert_eq!(report.failures[0].sport_key, "tennis_wta_ningbo_open");
+        assert!(!paths.contains(&"/sports/tennis_wta_ningbo_open/odds".to_string()));
     }
 
     #[test]

@@ -1204,6 +1204,12 @@ fn print_plan(paths: &Paths, config: &Config) -> Result<()> {
     for league in &plan.leagues {
         println!("  - {league}");
     }
+    if config.tennis_archive {
+        println!(
+            "  + les tournois de tennis en cours, découverts au moment du relevé (gratuit) : {} crédit(s) chacun, {} au plus",
+            plan.cost_per_call, config.tennis_max_tournaments
+        );
+    }
     let conn = open_database(paths)?;
     let cap = config.monthly_credit_cap;
     match last_known_usage(&conn)? {

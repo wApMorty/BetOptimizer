@@ -116,6 +116,10 @@ pub struct Config {
     pub odds_api_key: Option<ApiKey>,
     /// Bankroll de départ, en euros. La bankroll courante en déduit les gains et les mises de tes paris enregistrés.
     pub initial_bankroll: f64,
+    /// Archiver aussi les cotes des tournois de tennis en cours (clés découvertes par `/sports`, 1 crédit par tournoi).
+    pub tennis_archive: bool,
+    /// Nombre maximal de tournois de tennis archivés par relevé (garde de coût pendant les semaines chargées).
+    pub tennis_max_tournaments: u32,
     /// Fraction de Kelly appliquée aux mises suggérées (1 = Kelly complet, choix du projet ; 0,5 = demi-Kelly).
     pub kelly_fraction: f64,
     /// Mise minimale, en euros : un pari plus petit n'est pas suggéré.
@@ -150,6 +154,8 @@ impl Default for Config {
             markets: owned(&["h2h"]),
             margin_method: MarginMethod::Power,
             odds_api_key: None,
+            tennis_archive: true,
+            tennis_max_tournaments: 6,
             initial_bankroll: 1000.0,
             kelly_fraction: 1.0,
             min_stake: 1.0,
