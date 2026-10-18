@@ -12,6 +12,7 @@ pub mod dixon_coles;
 pub mod grid;
 pub mod likelihood;
 pub mod poisson;
+pub mod tuning;
 pub mod walk_forward;
 pub mod xg_proxy;
 

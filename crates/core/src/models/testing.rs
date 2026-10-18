@@ -94,3 +94,36 @@ pub fn simulated_league(seasons: usize, seed: u64) -> LeagueData {
         games,
     }
 }
+
+/// Insère une ligue simulée en base (équipes, matchs), pour les tests qui passent par le journal des prédictions.
+pub fn insert_league(conn: &rusqlite::Connection, league: &LeagueData) {
+    for (index, name) in league.teams.iter().enumerate() {
+        conn.execute(
+            "INSERT INTO team (id, name) VALUES (?1, ?2)",
+            rusqlite::params![index as i64 + 1, name],
+        )
+        .unwrap();
+    }
+    for game in &league.games {
+        let result = match game.goals_home.cmp(&game.goals_away) {
+            std::cmp::Ordering::Greater => "H",
+            std::cmp::Ordering::Equal => "D",
+            std::cmp::Ordering::Less => "A",
+        };
+        conn.execute(
+            "INSERT INTO game (id, div, season, match_date, home_id, away_id, ft_home, ft_away, ft_result)
+             VALUES (?1, ?2, '2024/25', ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                game.game_id,
+                league.div,
+                game.date.format("%Y-%m-%d").to_string(),
+                game.home as i64 + 1,
+                game.away as i64 + 1,
+                game.goals_home,
+                game.goals_away,
+                result
+            ],
+        )
+        .unwrap();
+    }
+}
