@@ -74,6 +74,10 @@ pub enum Error {
         supported: u32,
     },
 
+    /// Saisie refusée (cote sous la cote minimale, mise nulle, recommandation introuvable…) : le message dit quoi corriger.
+    #[error("{0}")]
+    Input(String),
+
     /// Le corps d'une réponse de l'API n'a pas le format attendu.
     #[error("réponse de l'API illisible : {0}")]
     ResponseFormat(#[from] serde_json::Error),

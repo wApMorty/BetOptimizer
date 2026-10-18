@@ -7,9 +7,9 @@ use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use edge_core::backtest::candidates::load_inputs;
 use edge_core::backtest::study;
-use edge_core::betting::{clv, live, recommend, settle};
+use edge_core::betting::{clv, ledger, live, recommend, settle};
 use edge_core::config::{API_KEY_ENV, Config, WEBHOOK_ENV};
-use edge_core::domain::{Euros, Odds, Outcome};
+use edge_core::domain::{Euros, Outcome};
 use edge_core::format;
 use edge_core::ingest::aliases::Aliases;
 use edge_core::ingest::client::OddsApiClient;
@@ -32,8 +32,8 @@ use edge_core::report::render::{
     render_backtest_report, render_market_report, render_models_report, render_recommend_report,
 };
 use edge_core::store::archive::last_known_usage;
-use edge_core::store::journal::{self, NewBet, Settlement, SettlementSource};
-use edge_core::store::{self, Connection, migrate};
+use edge_core::store::journal::{self, Settlement, SettlementSource};
+use edge_core::store::{self, Connection};
 
 /// `edge init` : crée la configuration par défaut et la base.
 pub fn init(paths: &Paths) -> Result<()> {
@@ -657,75 +657,38 @@ pub struct BetLogOptions {
 /// `edge bet log` : enregistre un pari réellement placé, suivant une recommandation ou hors modèle.
 pub fn bet_log(paths: &Paths, options: &BetLogOptions) -> Result<()> {
     let conn = open_database(paths)?;
-    let now = Utc::now();
     let new = match (options.rec, &options.event) {
-        (Some(id), _) => {
-            let rec = journal::recommendation(&conn, id)?
-                .with_context(|| format!("recommandation n° {id} introuvable"))?
-                .record;
-            if journal::bets(&conn)?
-                .iter()
-                .any(|b| b.bet.recommendation_id == Some(id))
-            {
-                bail!("un pari est déjà enregistré pour la recommandation n° {id}");
-            }
-            let odds = options.odds.unwrap_or(rec.odds.get());
-            // Sous la cote minimale, le pari ne correspond plus à la recommandation : il est hors modèle.
-            if odds < rec.minimal_odds {
-                bail!(
-                    "la cote {} est sous la cote minimale {} : ce pari ne suit plus la recommandation. Enregistre-le comme pari hors modèle avec --event {}",
-                    format::decimal(odds, 2),
-                    format::decimal(rec.minimal_odds, 2),
-                    rec.event_id
-                );
-            }
-            let stake = options
-                .stake
-                .or(rec.stake.map(Euros::get))
-                .context("la recommandation n'a pas de mise suggérée : précise --stake")?;
-            NewBet {
-                recommendation_id: Some(id),
-                event_id: rec.event_id,
-                sport_key: rec.sport_key,
-                home_team: rec.home_team,
-                away_team: rec.away_team,
-                kickoff: rec.kickoff,
-                bookmaker: options.bookmaker.clone().unwrap_or(rec.bookmaker),
-                outcome: rec.outcome,
-                odds: Odds::new(odds).context("la cote doit être supérieure à 1")?,
-                stake: positive_stake(stake)?,
-            }
-        }
+        (Some(id), _) => ledger::followed_bet(
+            &conn,
+            id,
+            &ledger::FollowedInput {
+                odds: options.odds,
+                stake: options.stake,
+                bookmaker: options.bookmaker.clone(),
+            },
+        )?,
         (None, Some(event_id)) => {
-            let event = journal::archived_event(&conn, event_id)?.with_context(|| {
-                format!("match {event_id} introuvable dans l'archive (identifiant donné par `edge value`)")
-            })?;
             let code = options
                 .outcome
                 .as_deref()
                 .context("--outcome est requis (H, D ou A)")?;
             let outcome = Outcome::from_code(code).context("--outcome doit valoir H, D ou A")?;
-            NewBet {
-                recommendation_id: None,
-                event_id: event_id.clone(),
-                sport_key: event.sport_key,
-                home_team: event.home_team,
-                away_team: event.away_team,
-                kickoff: event.kickoff,
-                bookmaker: options
+            ledger::off_model_bet(
+                &conn,
+                event_id,
+                options
                     .bookmaker
-                    .clone()
+                    .as_deref()
                     .context("--bookmaker est requis")?,
                 outcome,
-                odds: Odds::new(options.odds.context("--odds est requis")?)
-                    .context("la cote doit être supérieure à 1")?,
-                stake: positive_stake(options.stake.context("--stake est requis")?)?,
-            }
+                options.odds.context("--odds est requis")?,
+                options.stake.context("--stake est requis")?,
+            )?
         }
         (None, None) => bail!("précise --rec <n°> ou --event <identifiant>"),
     };
     let off_model = new.recommendation_id.is_none();
-    let id = journal::insert_bet(&conn, &new, now)?;
+    let id = ledger::record(&conn, &new, Utc::now())?;
     println!(
         "Pari n° {id} enregistré{} : {} – {}, {} {} à {}, mise {} €.",
         if off_model { " (hors modèle)" } else { "" },
@@ -737,12 +700,6 @@ pub fn bet_log(paths: &Paths, options: &BetLogOptions) -> Result<()> {
         format::decimal(new.stake.get(), 1)
     );
     Ok(())
-}
-
-fn positive_stake(amount: f64) -> Result<Euros> {
-    Euros::new(amount)
-        .filter(|stake| stake.get() > 0.0)
-        .context("la mise doit être strictement positive")
 }
 
 /// `edge bet list` : les paris enregistrés avec leur état.
@@ -1113,8 +1070,5 @@ fn api_key_from(config: &Config) -> Result<edge_core::config::ApiKey> {
 
 /// Ouvre la base et la met à jour : un relevé planifié ne doit pas échouer sur un schéma en retard.
 fn open_database(paths: &Paths) -> Result<Connection> {
-    let mut conn =
-        store::open(&paths.db_file).context("base inaccessible : lance d'abord `edge init`")?;
-    migrate::migrate(&mut conn)?;
-    Ok(conn)
+    store::open_migrated(&paths.db_file).context("base inaccessible : lance d'abord `edge init`")
 }

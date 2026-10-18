@@ -31,6 +31,13 @@ pub fn open(path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
+/// Ouvre la base et applique les migrations manquantes : le point d'entrée de la CLI et de l'application.
+pub fn open_migrated(path: &Path) -> Result<Connection> {
+    let mut conn = open(path)?;
+    migrate::migrate(&mut conn)?;
+    Ok(conn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
