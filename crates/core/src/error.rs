@@ -127,6 +127,10 @@ pub enum Error {
         names: Vec<String>,
     },
 
+    /// L'optimiseur n'a pas pu ajuster le modèle (problème mal posé, erreur numérique).
+    #[error("ajustement du modèle impossible : {0}")]
+    Optimizer(String),
+
     /// Le fichier de configuration contient un secret mais d'autres utilisateurs peuvent le lire.
     #[error(
         "permissions trop ouvertes sur {path} ({mode:o}) : il contient un secret, exécute `chmod 600 {path}`"
