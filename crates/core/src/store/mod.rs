@@ -6,6 +6,7 @@ pub mod history;
 pub mod journal;
 pub mod migrate;
 pub mod predictions;
+pub mod tennis;
 
 use std::path::Path;
 

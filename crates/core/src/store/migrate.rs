@@ -17,6 +17,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0005_totals_odds.sql"),
     include_str!("migrations/0006_backtest.sql"),
     include_str!("migrations/0007_recommendations.sql"),
+    include_str!("migrations/0008_tennis.sql"),
 ];
 
 /// Version du schéma attendue par ce programme (le nombre de migrations connues).

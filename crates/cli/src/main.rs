@@ -65,6 +65,11 @@ enum Command {
         #[arg(long)]
         notify: bool,
     },
+    /// Tennis : données de tennis-data, Elo par surface, comparaison au marché.
+    Tennis {
+        #[command(subcommand)]
+        command: TennisCommand,
+    },
     /// Mes paris réels : enregistrement, liste et règlement.
     Bet {
         #[command(subcommand)]
@@ -92,6 +97,14 @@ enum Command {
         #[command(subcommand)]
         command: FdCommand,
     },
+}
+
+#[derive(Subcommand)]
+enum TennisCommand {
+    /// Importe les tableurs de tennis-data téléchargés à la main dans `tennis-data/atp` et `tennis-data/wta`.
+    Import,
+    /// Contrôle qualité des données de tennis (signale, ne corrige jamais).
+    Check,
 }
 
 #[derive(Subcommand)]
@@ -211,6 +224,10 @@ fn main() -> Result<()> {
                 min_stake,
             },
         ),
+        Command::Tennis { command } => match command {
+            TennisCommand::Import => commands::tennis_import(&paths),
+            TennisCommand::Check => commands::tennis_check(&paths),
+        },
         Command::Bet { command } => match command {
             BetCommand::Log {
                 rec,

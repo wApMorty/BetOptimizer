@@ -17,6 +17,8 @@ anyhow = "1.0.104"
 argmin = { version = "0.11.0", default-features = false }
 argmin-math = { version = "0.5.1", default-features = false, features = ["primitives", "vec"] }
 approx = "0.5.1"
+# Lecture des tableurs de tennis-data.co.uk (.xlsx, et .xls avant 2013) : leurs seuls formats. Rust pur, licence MIT.
+calamine = "0.36.1"
 chrono = { version = "0.4.45", features = ["serde"] }
 chrono-tz = "0.10.4"
 clap = { version = "4.6.7", features = ["derive"] }

@@ -18,6 +18,8 @@ pub struct Paths {
     pub db_file: PathBuf,
     /// Cache des CSV téléchargés (football-data) : on ne retélécharge pas ce qui ne change plus.
     pub football_data_dir: PathBuf,
+    /// Tableurs de tennis-data.co.uk téléchargés à la main : un sous-dossier `atp` et un `wta`, un fichier par année.
+    pub tennis_data_dir: PathBuf,
     /// Rapports HTML générés.
     pub reports_dir: PathBuf,
 }
@@ -31,6 +33,7 @@ impl Paths {
             config_file: dirs.config_dir().join("edge.toml"),
             db_file: dirs.data_dir().join("edge.db"),
             football_data_dir: dirs.data_dir().join("football-data"),
+            tennis_data_dir: dirs.data_dir().join("tennis-data"),
             reports_dir: dirs.data_dir().join("reports"),
         })
     }
@@ -41,6 +44,7 @@ impl Paths {
             config_file: root.join("edge.toml"),
             db_file: root.join("edge.db"),
             football_data_dir: root.join("football-data"),
+            tennis_data_dir: root.join("tennis-data"),
             reports_dir: root.join("reports"),
         }
     }

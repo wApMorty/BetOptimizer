@@ -445,3 +445,44 @@ fn notify_test_without_a_webhook_says_where_to_put_it() {
     assert!(!output.status.success());
     assert!(text(&output.stderr).contains("EDGE_DISCORD_WEBHOOK"));
 }
+
+#[test]
+fn tennis_import_without_files_says_where_to_put_them() {
+    let home = tempfile::tempdir().unwrap();
+
+    let output = run_edge(home.path(), &["tennis", "import"], None);
+
+    assert!(!output.status.success());
+    let message = text(&output.stderr);
+    assert!(message.contains("tennis-data.co.uk/data.php"), "{message}");
+    assert!(message.contains("atp/"), "{message}");
+}
+
+#[test]
+fn tennis_files_are_imported_once_checked_and_reimported_without_duplicates() {
+    let home = tempfile::tempdir().unwrap();
+    let atp = home.path().join("tennis-data").join("atp");
+    std::fs::create_dir_all(&atp).unwrap();
+    std::fs::write(
+        atp.join("2024.xlsx"),
+        include_bytes!("../../core/tests/fixtures/tennis/mini_atp_2024.xlsx"),
+    )
+    .unwrap();
+
+    let first = run_edge(home.path(), &["tennis", "import"], None);
+    let second = run_edge(home.path(), &["tennis", "import"], None);
+    let check = run_edge(home.path(), &["tennis", "check"], None);
+
+    assert!(first.status.success(), "{}", text(&first.stderr));
+    let first_out = text(&first.stdout);
+    assert!(
+        first_out.contains("ATP 2024 : 6 match(s), 2 ligne(s) rejetée(s)"),
+        "{first_out}"
+    );
+    assert!(first_out.contains("surface inconnue"), "{first_out}");
+    assert!(text(&second.stdout).contains("6 match(s) écrits ou mis à jour"));
+    let report = text(&check.stdout);
+    assert!(check.status.success(), "{}", text(&check.stderr));
+    assert!(report.contains("ATP"), "{report}");
+    assert!(report.contains("Années sans aucun match"), "{report}");
+}

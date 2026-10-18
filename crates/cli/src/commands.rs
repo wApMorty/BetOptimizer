@@ -19,6 +19,7 @@ use edge_core::ingest::football_data::import::{import_files, load_files};
 use edge_core::ingest::football_data::quality::{self, SeasonStatus};
 use edge_core::ingest::football_data::{FIRST_SEASON, Season, wanted_files};
 use edge_core::ingest::snapshot::{self, SnapshotReport};
+use edge_core::ingest::tennis::{import as tennis_import_files, quality as tennis_quality};
 use edge_core::init::initialize;
 use edge_core::models::data::load_leagues;
 use edge_core::models::tuning;
@@ -840,6 +841,105 @@ fn ci_text(ci: Option<edge_core::eval::bootstrap::MeanCi>) -> String {
             format::signed(c.high * 100.0, 1)
         )
     })
+}
+
+/// `edge tennis import` : lit les tableurs de tennis-data téléchargés à la main et les importe (idempotent).
+pub fn tennis_import(paths: &Paths) -> Result<()> {
+    let (files, ignored) = tennis_import_files::find_files(&paths.tennis_data_dir)?;
+    if files.is_empty() {
+        bail!(
+            "aucun tableur dans {} : télécharge les fichiers de http://tennis-data.co.uk/data.php dans les sous-dossiers atp/ et wta/ (un fichier par année, 2013 à aujourd'hui)",
+            paths.tennis_data_dir.display()
+        );
+    }
+    for path in &ignored {
+        println!("Ignoré (le nom n'est pas une année) : {}", path.display());
+    }
+    let mut conn = open_database(paths)?;
+    let report = tennis_import_files::import_files(&mut conn, &files)?;
+    for file in &report.files {
+        println!(
+            "{} {} : {} match(s), {} ligne(s) rejetée(s), {} paire(s) de cotes écartée(s)",
+            file.tour.as_str().to_uppercase(),
+            file.season,
+            file.matches,
+            file.rejected.len(),
+            file.invalid_odds
+        );
+        for rejected in file.rejected.iter().take(5) {
+            println!("    ligne {} : {}", rejected.row, rejected.reason);
+        }
+        if file.rejected.len() > 5 {
+            println!("    … et {} autre(s)", file.rejected.len() - 5);
+        }
+    }
+    println!(
+        "{} match(s) écrits ou mis à jour, {} ligne(s) rejetée(s). Contrôle : `edge tennis check`.",
+        report.total_matches(),
+        report.total_rejected()
+    );
+    Ok(())
+}
+
+/// `edge tennis check` : contrôle qualité des données de tennis (signale, ne corrige jamais).
+pub fn tennis_check(paths: &Paths) -> Result<()> {
+    let conn = open_database(paths)?;
+    let year =
+        u16::try_from(chrono::Datelike::year(&Utc::now())).unwrap_or(tennis_quality::FIRST_YEAR);
+    let report = tennis_quality::run(&conn, year)?;
+    if report.seasons.is_empty() {
+        bail!("aucun match de tennis en base : lance d'abord `edge tennis import`");
+    }
+    println!("Circuit  Année  Matchs  Terminés  Abandons  Forfaits  Avec Pinnacle  Hors année");
+    for s in &report.seasons {
+        println!(
+            "{:<7}  {:>5}  {:>6}  {:>8}  {:>8}  {:>8}  {:>9} ({:>3} %)  {:>10}",
+            s.tour.as_str().to_uppercase(),
+            s.season,
+            s.matches,
+            s.completed,
+            s.retired,
+            s.walkovers,
+            s.with_pinnacle,
+            100 * s.with_pinnacle / s.matches.max(1),
+            s.out_of_season
+        );
+    }
+    if !report.missing.is_empty() {
+        let list: Vec<String> = report
+            .missing
+            .iter()
+            .map(|(tour, year)| format!("{} {year}", tour.as_str().to_uppercase()))
+            .collect();
+        println!("\nAnnées sans aucun match : {}", list.join(", "));
+    }
+    println!(
+        "\nCotes aberrantes (marge hors de [1,00 ; 1,30]) : {}",
+        report.odds_anomalies.len()
+    );
+    for a in report.odds_anomalies.iter().take(10) {
+        println!(
+            "    {} {} – {} ({}) : {}",
+            a.date,
+            a.winner,
+            a.loser,
+            a.bookmaker,
+            format::decimal(a.implied_sum, 3)
+        );
+    }
+    println!(
+        "Noms joués deux fois le même jour (homonymes probables) : {}",
+        report.homonyms.len()
+    );
+    for h in report.homonyms.iter().take(15) {
+        println!(
+            "    {} {} : {} jour(s)",
+            h.tour.as_str().to_uppercase(),
+            h.name,
+            h.days
+        );
+    }
+    Ok(())
 }
 
 /// `edge notify-test` : envoie un message de test (avec une pièce jointe) pour vérifier le webhook Discord.

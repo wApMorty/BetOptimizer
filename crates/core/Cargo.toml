@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 argmin.workspace = true
 argmin-math.workspace = true
+calamine.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 csv.workspace = true
