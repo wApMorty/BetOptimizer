@@ -164,9 +164,16 @@ Liste officielle des codes : https://the-odds-api.com/liveapi/guides/v4/api-erro
 | approx | 0.5.1 | non déclaré | 2022-01-12 |
 
 - Chaîne Rust minimale : **1.85** (édition 2024 et plusieurs dépendances).
-- `ureq` 3.x : features `rustls` (défaut), `gzip`, `json`… ; la 3.x n'a pas la même API que la 2.x : confirmer sur
-  docs.rs au démarrage de la phase 1 (lecture du corps des réponses 4xx, accès aux en-têtes).
-- `rusqlite` : feature `bundled` présente.
+- `ureq` 3.4.2 — API lue dans les sources le 2026-10-18 (`~/.cargo/registry/src/*/ureq-3.4.2`) :
+  `Agent::config_builder()…build()` puis `Agent::new_with_config(config)` ; `http_status_as_error(false)` (par
+  défaut `true` : un 4xx/5xx devient une erreur sans corps lisible) ; `max_redirects(u32)`, `https_only(bool)`,
+  `timeout_global(Option<Duration>)` ; `agent.get(url).call()` → `Result<http::Response<Body>, ureq::Error>` ;
+  `response.status()`, `response.headers()` (type `http::HeaderMap`, ré-exporté par `ureq::http`) ;
+  `response.body_mut().read_to_string()` (limite par défaut de 10 Mo). Features par défaut : `rustls` (crypto
+  `ring`, compile avec un simple `gcc`) et `gzip`.
+- `ureq::Error::BadUri(String)` recopie l'URI fautive, donc la clé API : toute erreur `ureq` est expurgée avant
+  affichage (`crates/core/src/ingest/client.rs`).
+- `rusqlite` : feature `bundled` présente ; `STRICT` et les triggers fonctionnent avec le SQLite embarqué.
 
 ## 9. Environnement local au 2026-10-18
 
@@ -177,7 +184,7 @@ Liste officielle des codes : https://the-odds-api.com/liveapi/guides/v4/api-erro
   session ; la vérification a lu la valeur dans `.env` sans jamais l'afficher ni l'écrire ailleurs.
 - Compilateur C (`gcc`) présent : suffisant pour `rusqlite` (`bundled`) et `ureq` (rustls).
 
-## 10. Crédits consommés par ces vérifications
+## 10. Crédits consommés
 
 | Appels | Crédits |
 |---|---|
@@ -185,11 +192,43 @@ Liste officielle des codes : https://the-odds-api.com/liveapi/guides/v4/api-erro
 | 6 × `/odds` (une par ligue, `h2h`, 3 bookmakers) | 6 |
 | 1 × `/odds` avec un bookmaker inconnu (non prévu) | 1 |
 | 1 × `/odds` Premiership, `regions=fr` | 1 |
-| **Total** | **8** (reste 492 au dernier en-tête lu) |
+| Premier relevé réel de l'archive (`edge snapshot`, 2026-10-18 12:03 UTC) : 6 × `/odds` | 6 |
+| **Total** | **14** (reste 486 au dernier en-tête lu) |
 
-## 11. Reste à vérifier
+## 11. Premier relevé réel (2026-10-18, 12:03 UTC, 6 bookmakers demandés)
 
-- Date de réinitialisation du quota gratuit (tableau de bord du compte ; sinon détection d'une baisse de `used`).
+Bookmakers demandés : `pinnacle, winamax_fr, betclic_fr, unibet_fr, pmu_fr, netbet_fr` (6 ≤ 10 : 1 crédit par
+appel, confirmé : 6 appels = 6 crédits). Résultat : 85 matchs à venir, 1 284 cotes, 2 matchs déjà commencés ignorés.
+
+| Ligue | Matchs | Remarque |
+|---|---|---|
+| `soccer_epl` | 25 | Pinnacle sur 15 matchs seulement (horizon, voir section 3) |
+| `soccer_spain_la_liga` | 15 (+1 commencé) | |
+| `soccer_germany_bundesliga` | 11 | |
+| `soccer_italy_serie_a` | 15 (+1 commencé) | |
+| `soccer_france_ligue_one` | 14 | |
+| `soccer_spl` | 5 | Pinnacle, Unibet, PMU, NetBet ; ni Winamax ni Betclic |
+
+`netbet_fr` ne couvre que 5 à 9 matchs par ligue (les prochains) ; les autres bookmakers couvrent tous les matchs
+de leur ligue.
+
+**Marge moyenne observée** (somme des probabilités implicites 1/cote d'un 1X2, moins 1 ; premier relevé, 34 à 84
+matchs par bookmaker). Observation sur un seul relevé, pas une conclusion : à refaire quand l'archive sera plus
+épaisse.
+
+| Bookmaker | Marge moyenne | Min – max |
+|---|---|---|
+| `pinnacle` | 4,7 % | 2,7 % – 6,5 % |
+| `pmu_fr` | 8,7 % | 7,8 % – 12,1 % |
+| `betclic_fr` | 9,6 % | 6,8 % – 14,1 % |
+| `netbet_fr` | 10,2 % | 8,5 % – 13,0 % |
+| `unibet_fr` | 11,9 % | 8,1 % – 18,2 % |
+| `winamax_fr` | 14,2 % | 8,7 % – 16,7 % |
+
+## 12. Reste à vérifier
+
+- Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
+  (non vérifié). La garde ne l'utilise pas ; `edge snapshot` signale toute baisse de `x-requests-used`.
 - Colonnes Pinnacle de football-data.co.uk après juillet 2025 (phase 2).
 - Comportement réel de 11 bookmakers ou plus (2 crédits ?) et d'une réponse vide (0 crédit ?).
 - Plage de Pinnacle entre 201 h et 313 h avant le coup d'envoi.
