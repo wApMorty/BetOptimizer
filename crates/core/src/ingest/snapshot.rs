@@ -12,6 +12,7 @@ use super::odds_api::{
     SPORTS_PATH, api_error, bookmakers_without_quotes, odds_params, odds_path, parse_odds,
 };
 use crate::config::Config;
+use crate::domain::Quota;
 use crate::error::{Error, Result};
 use crate::store::archive::{self, Endpoint, NewApiCall, StoredCounts};
 
@@ -101,7 +102,9 @@ pub fn run(
     fetch: Fetch,
 ) -> Result<SnapshotReport> {
     let previous_used = archive::last_known_usage(conn)?;
-    let used_before = refresh_quota(conn, now, fetch)?;
+    let used_before = read_quota(conn, now, fetch)?
+        .used
+        .ok_or(Error::QuotaUnknown)?;
     let quota_reset = budget::reset_detected(previous_used, used_before);
     if quota_reset {
         tracing::info!(
@@ -155,8 +158,8 @@ pub fn run(
     })
 }
 
-/// Lit le quota par l'appel gratuit à `/sports` et le journalise. Sans quota lisible, aucun appel payant.
-fn refresh_quota(conn: &Connection, now: Clock, fetch: Fetch) -> Result<u32> {
+/// Lit le quota par l'appel gratuit à `/sports` et journalise l'appel (`edge quota`, début de chaque relevé).
+pub fn read_quota(conn: &Connection, now: Clock, fetch: Fetch) -> Result<Quota> {
     let response = fetch(SPORTS_PATH, "")?;
     archive::record_api_call(
         conn,
@@ -173,7 +176,7 @@ fn refresh_quota(conn: &Connection, now: Clock, fetch: Fetch) -> Result<u32> {
     if response.status != 200 {
         return Err(api_error(response.status, &response.body));
     }
-    response.quota.used.ok_or(Error::QuotaUnknown)
+    Ok(response.quota)
 }
 
 fn snapshot_league(
@@ -246,7 +249,6 @@ fn snapshot_league(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::Quota;
     use crate::store::migrate;
 
     const EPL: &str = include_str!("../../tests/fixtures/odds_epl.json");

@@ -5,7 +5,8 @@ pub mod migrate;
 
 use std::path::Path;
 
-use rusqlite::Connection;
+/// Connexion SQLite, ré-exportée : la CLI passe par l'API de `core` sans dépendre de `rusqlite`.
+pub use rusqlite::Connection;
 
 use crate::error::{Error, Result};
 

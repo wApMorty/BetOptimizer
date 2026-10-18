@@ -2,24 +2,11 @@
 //!
 //! `CARGO_BIN_EXE_edge` est fourni par Cargo : le chemin du binaire compilé pour ces tests.
 
-use std::process::{Command, Output};
+mod common;
+
+use common::{run_edge, text};
 
 const SECRET: &str = "SECRET-DE-TEST-123";
-
-/// Lance `edge --home <dossier> <args>` sans clé API dans l'environnement, sauf si précisée.
-fn run_edge(home: &std::path::Path, args: &[&str], api_key: Option<&str>) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_edge"));
-    command.arg("--home").arg(home).args(args);
-    command.env_remove("EDGE_ODDS_API_KEY");
-    if let Some(key) = api_key {
-        command.env("EDGE_ODDS_API_KEY", key);
-    }
-    command.output().expect("le binaire edge doit se lancer")
-}
-
-fn text(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).into_owned()
-}
 
 #[test]
 fn init_creates_config_and_database() {

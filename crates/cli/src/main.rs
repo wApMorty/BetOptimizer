@@ -1,14 +1,14 @@
 //! Point d'entrée du binaire `edge`.
 //!
-//! Ce fichier ne fait que lire la ligne de commande, appeler `edge-core` et afficher le résultat :
-//! toute la logique vit dans la bibliothèque.
+//! Ce fichier ne fait que lire la ligne de commande et aiguiller vers [`commands`] ; toute la logique
+//! vit dans la bibliothèque `edge-core`.
+
+mod commands;
 
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use edge_core::config::{API_KEY_ENV, Config};
-use edge_core::init::initialize;
 use edge_core::paths::Paths;
 use tracing_subscriber::EnvFilter;
 
@@ -28,6 +28,14 @@ struct Cli {
 enum Command {
     /// Crée la configuration par défaut et la base de données, puis applique les migrations.
     Init,
+    /// Affiche les crédits consommés (appel gratuit à l'API).
+    Quota,
+    /// Archive les cotes actuelles de toutes les ligues configurées (consomme des crédits).
+    Snapshot {
+        /// Affiche le coût prévu sans appeler l'API.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 /// `anyhow::Result` accepte n'importe quelle erreur : le `?` convertit celles de `edge-core`
@@ -41,7 +49,9 @@ fn main() -> Result<()> {
     };
     // `match` exhaustif : l'ajout d'une sous-commande sans la traiter ici ne compilerait plus.
     match cli.command {
-        Command::Init => run_init(&paths),
+        Command::Init => commands::init(&paths),
+        Command::Quota => commands::quota(&paths),
+        Command::Snapshot { dry_run } => commands::snapshot(&paths, dry_run),
     }
 }
 
@@ -53,33 +63,4 @@ fn init_logging() {
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
         .init();
-}
-
-fn run_init(paths: &Paths) -> Result<()> {
-    let report = initialize(paths)?;
-    let state = if report.config_created {
-        "créée"
-    } else {
-        "déjà présente"
-    };
-    println!("Configuration : {} ({state})", paths.config_file.display());
-    println!(
-        "Base de données : {} (version du schéma : {})",
-        paths.db_file.display(),
-        report.schema_version
-    );
-
-    // Charger la configuration la valide aussi (champ inconnu, permissions trop ouvertes…).
-    let config = Config::load(&paths.config_file)?;
-    // `.ok()` transforme `Result<String, VarError>` en `Option<String>` : variable absente = `None`.
-    let from_env = std::env::var(API_KEY_ENV).ok();
-    // On n'affiche jamais la clé, seulement sa présence.
-    if config.api_key(from_env.as_deref()).is_ok() {
-        println!("Clé API : trouvée");
-    } else {
-        println!(
-            "Clé API : absente (nécessaire dès la phase 1 : définis {API_KEY_ENV} ou odds_api_key)"
-        );
-    }
-    Ok(())
 }
