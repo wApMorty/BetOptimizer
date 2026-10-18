@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
+use serde::Serialize;
 
 use super::candidates::{
     GameInputs, Generator, Period, SOFT_BOOKMAKERS, in_period, model_vs_price, soft_vs_sharp,
@@ -212,7 +213,7 @@ pub fn tune(
 }
 
 /// Statistiques d'une période pour la règle gelée.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PeriodRow {
     /// Période.
     pub period: Period,
@@ -225,7 +226,7 @@ pub struct PeriodRow {
 }
 
 /// Résultat des mises d'une fraction de Kelly.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StakingRow {
     /// Fraction de Kelly.
     pub kelly_fraction: f64,
@@ -238,7 +239,7 @@ pub struct StakingRow {
 }
 
 /// Espérance annoncée contre rendement réalisé, par tranche d'espérance annoncée.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct EvBucket {
     /// Libellé de la tranche.
     pub label: &'static str,
@@ -294,8 +295,48 @@ pub fn ev_buckets(candidates: &[Candidate]) -> Vec<EvBucket> {
         .collect()
 }
 
+/// Verdict sur le test : ce que l'on peut honnêtement conclure d'une règle gelée.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Verdict {
+    /// Moins de 30 paris au test : aucune conclusion possible.
+    NoPower,
+    /// L'intervalle du CLV au test est entièrement négatif : la règle perd face à la clôture du marché.
+    Rejected,
+    /// L'intervalle du CLV au test est entièrement positif.
+    Positive,
+    /// L'intervalle du CLV au test contient 0.
+    Inconclusive,
+}
+
+/// Verdict d'une règle d'après sa ligne « test ».
+pub fn verdict(test: Option<&PeriodRow>) -> Verdict {
+    let Some(row) = test else {
+        return Verdict::NoPower;
+    };
+    match (row.bets, row.clv) {
+        (bets, _) if bets < 30 => Verdict::NoPower,
+        (_, Some(clv)) if clv.high < 0.0 => Verdict::Rejected,
+        (_, Some(clv)) if clv.low > 0.0 => Verdict::Positive,
+        _ => Verdict::Inconclusive,
+    }
+}
+
+/// CLV d'une saison pour le seuil gelé : montre si l'effet est stable d'une saison à l'autre ou concentré sur une seule.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SeasonRow {
+    /// Saison (`2019/20`).
+    pub season: String,
+    /// Paris retenus.
+    pub bets: usize,
+    /// CLV moyen.
+    pub clv: Option<f64>,
+    /// Rendement moyen à mise fixe.
+    pub roi: Option<f64>,
+}
+
 /// Étude d'une source avec son seuil gelé.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SourceStudy {
     /// Source.
     pub label: String,
@@ -307,6 +348,10 @@ pub struct SourceStudy {
     pub frozen_bets: usize,
     /// Une ligne par période (entraînement, validation, test).
     pub periods: Vec<PeriodRow>,
+    /// CLV et rendement saison par saison, sur toute l'histoire, au seuil gelé.
+    pub by_season: Vec<SeasonRow>,
+    /// Ce que l'on peut conclure du test.
+    pub verdict: Verdict,
     /// Les paris du test : annoncé contre réalisé.
     pub calibration: Option<SelectionCalibration>,
     /// Mises du test, une ligne par fraction de Kelly.
@@ -341,6 +386,30 @@ pub fn study_source(
         });
     }
     let test = candidates_in(source, all, &[Period::Test], predictions, &generator);
+    let by_season = {
+        let everything = candidates_in(
+            source,
+            all,
+            &[Period::Train, Period::Validation, Period::Test],
+            predictions,
+            &generator,
+        );
+        let mut seasons: std::collections::BTreeMap<String, Vec<Candidate>> =
+            std::collections::BTreeMap::new();
+        for candidate in everything {
+            let label = crate::ingest::football_data::Season::containing(candidate.date).label();
+            seasons.entry(label).or_default().push(candidate);
+        }
+        seasons
+            .into_iter()
+            .map(|(season, candidates)| SeasonRow {
+                season,
+                bets: candidates.len(),
+                clv: mean_clv(&candidates),
+                roi: mean_flat_roi(&candidates),
+            })
+            .collect::<Vec<_>>()
+    };
 
     let mut staking = Vec::new();
     for fraction in KELLY_FRACTIONS {
@@ -388,17 +457,49 @@ pub fn study_source(
         ));
     }
 
+    let test_verdict = verdict(periods.last());
     Ok(SourceStudy {
         label: source.label(),
         threshold: frozen.threshold,
         frozen_clv: frozen.selection_clv,
         frozen_bets: frozen.selection_bets,
         periods,
+        by_season,
+        verdict: test_verdict,
         calibration: selection_calibration(&test),
         staking,
         ev_buckets: ev_buckets(&all_best),
         price_sensitivity,
     })
+}
+
+/// Probabilités du Dixon-Coles gelé sur les périodes de validation et de test (vide sans réglage ni évaluation du
+/// modèle : la source « modèle » est alors simplement absente).
+pub fn load_model_predictions(conn: &Connection) -> Result<HashMap<i64, Probs1x2>> {
+    use crate::models::tuning::{test_window, validation_window};
+    use crate::models::walk_forward::Prediction;
+    use crate::store::predictions;
+
+    let Some(frozen) = predictions::latest_tuning(conn, "dixon_coles")? else {
+        return Ok(HashMap::new());
+    };
+    let last: Option<String> =
+        conn.query_row("SELECT MAX(match_date) FROM game", [], |row| row.get(0))?;
+    let Some(last) =
+        last.and_then(|text| chrono::NaiveDate::parse_from_str(&text, "%Y-%m-%d").ok())
+    else {
+        return Ok(HashMap::new());
+    };
+    let mut merged: HashMap<i64, Probs1x2> = HashMap::new();
+    for window in [validation_window(), test_window(last)] {
+        if let Some(run_id) = predictions::find_run(conn, &frozen.config, window)? {
+            let rows: Vec<Prediction> = predictions::load_predictions(conn, run_id)?;
+            merged.extend(rows.iter().filter_map(|p| {
+                Probs1x2::new(p.p_home, p.p_draw, p.p_away).map(|q| (p.game_id, q))
+            }));
+        }
+    }
+    Ok(merged)
 }
 
 /// Étudie toutes les sources qui ont un seuil gelé. Refuse de s'exécuter sans aucun gel.
@@ -680,6 +781,25 @@ mod tests {
 
         assert_eq!(first, 3, "une source gelée × trois fractions de Kelly");
         assert_eq!(second, 0, "relancer n'ajoute rien");
+    }
+
+    #[test]
+    fn the_verdict_depends_on_the_test_sample_and_the_clv_interval() {
+        let row = |bets: usize, low: f64, high: f64| PeriodRow {
+            period: Period::Test,
+            bets,
+            clv: Some(MeanCi {
+                mean: (low + high) / 2.0,
+                low,
+                high,
+            }),
+            roi: None,
+        };
+        assert_eq!(verdict(None), Verdict::NoPower);
+        assert_eq!(verdict(Some(&row(8, -0.05, 0.05))), Verdict::NoPower);
+        assert_eq!(verdict(Some(&row(200, -0.08, -0.07))), Verdict::Rejected);
+        assert_eq!(verdict(Some(&row(200, 0.01, 0.03))), Verdict::Positive);
+        assert_eq!(verdict(Some(&row(200, -0.01, 0.03))), Verdict::Inconclusive);
     }
 
     #[test]

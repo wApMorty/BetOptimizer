@@ -36,6 +36,11 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Backtest des règles de sélection de paris (seuils gelés, Kelly, CLV).
+    Backtest {
+        #[command(subcommand)]
+        command: BacktestCommand,
+    },
     /// Modèles de prévision des scores (Poisson, Dixon-Coles).
     Model {
         #[command(subcommand)]
@@ -50,6 +55,20 @@ enum Command {
     Fd {
         #[command(subcommand)]
         command: FdCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum BacktestCommand {
+    /// Règle le seuil d'avantage de chaque source sur l'entraînement et la validation, puis le gèle.
+    Tune,
+    /// Évalue les seuils gelés sur le test et journalise les exécutions.
+    Run,
+    /// Génère le rapport HTML : où est la valeur, et est-elle réelle ?
+    Report {
+        /// Fichier de sortie (par défaut : dossier des rapports de l'application).
+        #[arg(long, value_name = "FICHIER")]
+        out: Option<PathBuf>,
     },
 }
 
@@ -105,6 +124,11 @@ fn main() -> Result<()> {
         Command::Init => commands::init(&paths),
         Command::Quota => commands::quota(&paths),
         Command::Snapshot { dry_run } => commands::snapshot(&paths, dry_run),
+        Command::Backtest { command } => match command {
+            BacktestCommand::Tune => commands::backtest_tune(&paths),
+            BacktestCommand::Run => commands::backtest_run(&paths),
+            BacktestCommand::Report { out } => commands::backtest_report(&paths, out.as_deref()),
+        },
         Command::Model { command } => match command {
             ModelCommand::Tune => commands::model_tune(&paths),
             ModelCommand::Evaluate => commands::model_evaluate(&paths),

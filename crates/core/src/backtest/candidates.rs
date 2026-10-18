@@ -12,6 +12,7 @@ use std::collections::HashMap;
 
 use chrono::{Datelike, NaiveDate};
 use rusqlite::Connection;
+use serde::Serialize;
 
 use super::engine::Candidate;
 use crate::betting::value::best_selection;
@@ -23,7 +24,8 @@ use crate::market::margin::{MarginMethod, remove_margin};
 pub const SOFT_BOOKMAKERS: [&str; 8] = ["B365", "WH", "BW", "IW", "VC", "LB", "BFD", "1XB"];
 
 /// Période d'un match dans le découpage walk-forward du projet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Period {
     /// Avant le 1er juillet 2024 : saisons 2016/17 à 2023/24.
     Train,

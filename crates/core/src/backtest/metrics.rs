@@ -2,6 +2,8 @@
 
 use super::engine::{BacktestResult, Candidate, StakingRule};
 use crate::betting::simultaneous::{Bet, fractions};
+use serde::Serialize;
+
 use crate::domain::Probability;
 use crate::error::Result;
 use crate::eval::bootstrap::{MeanCi, SplitMix64, block_bootstrap_mean};
@@ -10,7 +12,7 @@ const RESAMPLES: usize = 2000;
 const SEED: u64 = 20_261_020;
 
 /// Résumé chiffré d'un backtest.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Summary {
     /// Paris placés.
     pub bets: usize,
@@ -85,7 +87,7 @@ pub fn clv_ci(candidates: &[Candidate]) -> Option<MeanCi> {
 }
 
 /// Les paris retenus gagnent-ils à la fréquence annoncée ? Le diagnostic central d'une règle de sélection.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SelectionCalibration {
     /// Nombre de paris retenus.
     pub n: usize,
@@ -132,7 +134,7 @@ pub enum Scenario {
 }
 
 /// Risque d'une règle de mise, estimé par simulation.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RiskReport {
     /// Part des trajectoires qui passent sous 10 % de la bankroll initiale (« ruine »).
     pub ruin_probability: f64,
@@ -435,5 +437,29 @@ mod tests {
         let result = run(&candidates, &StakingRule::standard(1.0)).unwrap();
         assert!(result.final_bankroll > 1000.0);
         assert!(summarize(&result).max_drawdown < 1e-9);
+    }
+    #[test]
+    fn a_huge_batch_that_loses_everything_never_pushes_the_drawdown_past_the_cap() {
+        // Quarante paris le même jour, à fort avantage annoncé, que la clôture donne presque tous perdants :
+        // la mise totale est plafonnée à 95 %, donc la bankroll ne tombe jamais sous 5 % et le drawdown reste < 1.
+        let batch: Vec<Candidate> = (0..40)
+            .map(|i| {
+                let mut c = candidate(0, 0.55, 2.2, Some(0.01), false);
+                c.game_id = i;
+                c
+            })
+            .collect();
+        let rule = StakingRule::standard(1.0);
+
+        let report = monte_carlo_risk(&batch, &rule, Scenario::CloseFair, 200)
+            .unwrap()
+            .unwrap();
+
+        assert!(
+            report.p95_drawdown <= 0.95 + 1e-9,
+            "{}",
+            report.p95_drawdown
+        );
+        assert!(report.median_final > 0.0);
     }
 }

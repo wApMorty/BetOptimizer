@@ -7,12 +7,14 @@ use minijinja::{Environment, Value};
 
 use serde::Serialize;
 
+use super::backtest_report::BacktestReport;
 use super::market_report::MarketReport;
 use super::models_report::ModelsReport;
 use crate::error::{Error, Result};
 
 const MARKET_TEMPLATE: &str = include_str!("templates/market.html");
 const MODELS_TEMPLATE: &str = include_str!("templates/models.html");
+const BACKTEST_TEMPLATE: &str = include_str!("templates/backtest.html");
 
 /// Nombre au format français (virgule décimale), `digits` décimales.
 fn number(value: f64, digits: Option<usize>) -> String {
@@ -30,6 +32,19 @@ fn percent(value: f64, digits: Option<usize>) -> String {
     format!("{} %", number(value * 100.0, Some(digits.unwrap_or(1))))
 }
 
+/// Fraction au format français en pourcentage **signé** : `0,009` → `+0,9 %`.
+///
+/// Un résultat qui s'arrondit à zéro n'a pas de signe (`0,0 %`), comme dans [`percent`].
+fn signed_percent(value: f64, digits: Option<usize>) -> String {
+    let text = percent(value, digits);
+    let is_zero = !text.chars().any(|c| ('1'..='9').contains(&c));
+    if text.starts_with('-') || is_zero {
+        text
+    } else {
+        format!("+{text}")
+    }
+}
+
 /// Génère le HTML du rapport « marché ».
 pub fn render_market_report(report: &MarketReport) -> Result<String> {
     render_template("market.html", MARKET_TEMPLATE, report)
@@ -38,6 +53,11 @@ pub fn render_market_report(report: &MarketReport) -> Result<String> {
 /// Génère le HTML du rapport « modèles ».
 pub fn render_models_report(report: &ModelsReport) -> Result<String> {
     render_template("models.html", MODELS_TEMPLATE, report)
+}
+
+/// Génère le HTML du rapport « backtest ».
+pub fn render_backtest_report(report: &BacktestReport) -> Result<String> {
+    render_template("backtest.html", BACKTEST_TEMPLATE, report)
 }
 
 /// Rend un gabarit avec les filtres `num` et `pct`.
@@ -54,6 +74,7 @@ fn render_template<T: Serialize>(
         .map_err(|e| Error::Data(format!("gabarit du rapport : {e}")))?;
     env.add_filter("num", number);
     env.add_filter("pct", percent);
+    env.add_filter("spct", signed_percent);
     let template = env
         .get_template(name)
         .map_err(|e| Error::Data(format!("gabarit du rapport : {e}")))?;
@@ -77,5 +98,13 @@ mod tests {
         assert_eq!(percent(-0.0001, None), "0,0 %");
         assert_eq!(number(-0.000_001, Some(5)), "0,00000");
         assert_eq!(number(-0.0123, Some(2)), "-0,01");
+    }
+
+    #[test]
+    fn signed_percentages_carry_a_plus_sign_only_when_positive() {
+        assert_eq!(signed_percent(0.009, Some(1)), "+0,9 %");
+        assert_eq!(signed_percent(-0.0402, Some(2)), "-4,02 %");
+        assert_eq!(signed_percent(0.0, Some(1)), "0,0 %");
+        assert_eq!(signed_percent(-0.0001, Some(1)), "0,0 %");
     }
 }

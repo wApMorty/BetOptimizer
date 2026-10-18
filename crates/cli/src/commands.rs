@@ -4,6 +4,8 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
+use edge_core::backtest::candidates::load_inputs;
+use edge_core::backtest::study;
 use edge_core::config::{API_KEY_ENV, Config};
 use edge_core::ingest::aliases::Aliases;
 use edge_core::ingest::client::OddsApiClient;
@@ -16,9 +18,12 @@ use edge_core::init::initialize;
 use edge_core::models::data::load_leagues;
 use edge_core::models::tuning;
 use edge_core::paths::Paths;
+use edge_core::report::backtest_report;
 use edge_core::report::market_report;
 use edge_core::report::models_report;
-use edge_core::report::render::{render_market_report, render_models_report};
+use edge_core::report::render::{
+    render_backtest_report, render_market_report, render_models_report,
+};
 use edge_core::store::archive::last_known_usage;
 use edge_core::store::{self, Connection, migrate};
 
@@ -349,6 +354,126 @@ pub fn model_report(paths: &Paths, out: Option<&std::path::Path>) -> Result<()> 
     let target = match out {
         Some(path) => path.to_path_buf(),
         None => paths.reports_dir.join("models.html"),
+    };
+    if let Some(dir) = target.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("création de {}", dir.display()))?;
+    }
+    std::fs::write(&target, html).with_context(|| format!("écriture de {}", target.display()))?;
+    println!("Rapport écrit : {}", target.display());
+    Ok(())
+}
+
+/// `edge backtest tune` : règle le seuil d'avantage de chaque source sur l'entraînement et la validation, puis le gèle.
+pub fn backtest_tune(paths: &Paths) -> Result<()> {
+    let conn = open_database(paths)?;
+    let config = Config::load(&paths.config_file)?;
+    let inputs = load_inputs(&conn)?;
+    let predictions = study::load_model_predictions(&conn)?;
+    println!(
+        "{} matchs chargés ; {} prédictions du modèle. Seuils essayés : {:?}. Critère : CLV moyen le plus élevé, {} paris au moins.",
+        inputs.len(),
+        predictions.len(),
+        study::THRESHOLDS,
+        study::MIN_SELECTION_BETS
+    );
+
+    let rows = study::tune(
+        &conn,
+        &inputs,
+        &predictions,
+        config.margin_method,
+        Utc::now(),
+    )?;
+
+    for row in &rows {
+        match row.chosen {
+            Some(threshold) => println!("{} : seuil gelé à {:.0} %", row.source, threshold * 100.0),
+            None => println!(
+                "{} : aucun seuil éligible (moins de {} paris)",
+                row.source,
+                study::MIN_SELECTION_BETS
+            ),
+        }
+        for result in &row.results {
+            println!(
+                "    seuil {:>4.0} % : {:>5} paris, CLV {}, rendement {}",
+                result.threshold * 100.0,
+                result.bets,
+                percent_or_dash(result.clv),
+                percent_or_dash(result.roi)
+            );
+        }
+    }
+    let sessions = edge_core::store::backtests::selection_session_count(&conn)?;
+    println!("Sessions de réglage des seuils enregistrées : {sessions}.");
+    Ok(())
+}
+
+fn percent_or_dash(value: Option<f64>) -> String {
+    value.map_or_else(|| "—".to_string(), |v| format!("{:+.1} %", v * 100.0))
+}
+
+/// `edge backtest run` : évalue les seuils gelés sur le test et journalise les exécutions.
+pub fn backtest_run(paths: &Paths) -> Result<()> {
+    let mut conn = open_database(paths)?;
+    let config = Config::load(&paths.config_file)?;
+    let inputs = load_inputs(&conn)?;
+    let predictions = study::load_model_predictions(&conn)?;
+
+    let studies = study::study_all(&conn, &inputs, &predictions, config.margin_method)?;
+    let stored = study::persist_test_runs(
+        &mut conn,
+        &inputs,
+        &predictions,
+        config.margin_method,
+        Utc::now(),
+    )?;
+
+    for study in &studies {
+        let test = study.periods.last();
+        let (bets, clv) = test.map_or((0, None), |p| (p.bets, p.clv));
+        println!(
+            "{} (seuil {:.0} %) : {} paris au test, CLV {}",
+            study.label,
+            study.threshold * 100.0,
+            bets,
+            clv.map_or("—".to_string(), |c| format!(
+                "{:+.2} % [{:+.2} ; {:+.2}]",
+                c.mean * 100.0,
+                c.low * 100.0,
+                c.high * 100.0
+            ))
+        );
+        for row in &study.staking {
+            println!(
+                "    Kelly ×{}: bankroll finale {:.0} €, drawdown {:.0} %",
+                row.kelly_fraction,
+                row.summary.final_bankroll,
+                row.summary.max_drawdown * 100.0
+            );
+        }
+    }
+    println!("{stored} exécution(s) nouvellement journalisée(s).");
+    Ok(())
+}
+
+/// `edge backtest report` : rapport HTML des règles de sélection (seuils gelés, CLV, Kelly, ruine).
+pub fn backtest_report(paths: &Paths, out: Option<&std::path::Path>) -> Result<()> {
+    let conn = open_database(paths)?;
+    let config = Config::load(&paths.config_file)?;
+    let today = Utc::now().date_naive();
+
+    println!("Calcul en cours (simulations Monte Carlo, quelques secondes)…");
+    let report = backtest_report::build(
+        &conn,
+        config.margin_method,
+        &today.format("%Y-%m-%d").to_string(),
+    )?;
+    let html = render_backtest_report(&report)?;
+
+    let target = match out {
+        Some(path) => path.to_path_buf(),
+        None => paths.reports_dir.join("backtest.html"),
     };
     if let Some(dir) = target.parent() {
         std::fs::create_dir_all(dir).with_context(|| format!("création de {}", dir.display()))?;

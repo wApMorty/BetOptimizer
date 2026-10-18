@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Où est la valeur ? — edge</title>
+<style>
+  :root { --bg:#fafaf8; --fg:#1d1d1b; --muted:#6b6b66; --card:#ffffff; --line:#e3e2dc; --accent:#1f5eaa; --good:#1a7f4b; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ececea; --muted:#a3a39d; --card:#201f1e; --line:#34332f; --accent:#7fb2ee; --good:#59c58a; --bad:#f08b83; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.6rem; margin: .4em 0 .1em; }
+  h2 { font-size: 1.25rem; margin: 2em 0 .4em; padding-top: .6em; border-top: 1px solid var(--line); }
+  h3 { font-size: 1rem; margin: 1.2em 0 .3em; }
+  p, li { max-width: 72ch; }
+  .meta, .note { color: var(--muted); font-size: .9rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  .ci { color: var(--muted); }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .ns { color: var(--muted); }
+  details > summary { cursor: pointer; color: var(--accent); margin: .4em 0; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+
+{% macro clv(c) %}{% if c is none %}—{% else %}<span class="{{ 'good' if c.low > 0 else ('bad' if c.high < 0 else 'ns') }}">{{ c.mean|spct(2) }} <span class="ci">[{{ c.low|spct(1) }} ; {{ c.high|spct(1) }}]</span></span>{% endif %}{% endmacro %}
+{% macro opt(x, d=1) %}{% if x is none %}—{% else %}{{ x|spct(d) }}{% endif %}{% endmacro %}
+{% macro verdict(v) %}{% if v == "rejected" %}<span class="bad">rejetée</span>{% elif v == "positive" %}<span class="good">CLV positif</span>{% elif v == "no_power" %}<span class="ns">test sans puissance</span>{% else %}<span class="ns">indécis</span>{% endif %}{% endmacro %}
+{% macro period_label(p) %}{% if p == "train" %}entraînement{% elif p == "validation" %}validation{% else %}test{% endif %}{% endmacro %}
+
+<h1>Où est la valeur ?</h1>
+<p class="meta">Généré le {{ generated_on }} · recherche de paris à espérance positive : le but n'est pas de parier sur tous les matchs mais de repérer ceux dont le prix est trop haut.</p>
+
+<div class="card">
+  <strong>En bref.</strong>
+  <ul>
+    <li>Une règle de sélection est jugée sur <strong>ce qu'elle retient</strong> : parmi ses paris, la fréquence de victoire annoncée est-elle la fréquence réelle, et le prix obtenu bat-il la clôture du marché (CLV) ? Le <strong>CLV</strong> est la mesure principale : il se prononce avec des centaines de paris, là où le rendement en demande des dizaines de milliers.</li>
+    <li>{{ studies|length }} sources ont un seuil gelé. Verdicts au test — rejetées : {{ studies|selectattr("verdict", "equalto", "rejected")|list|length }} ; CLV significativement positif : {{ studies|selectattr("verdict", "equalto", "positive")|list|length }} ; indécises : {{ studies|selectattr("verdict", "equalto", "inconclusive")|list|length }} ; trop peu de paris pour conclure : {{ studies|selectattr("verdict", "equalto", "no_power")|list|length }}.</li>
+    <li>Le test (saison 2025/26 et suivantes) est <strong>pauvre pour les règles « prix mou contre Pinnacle »</strong> : après janvier 2026, football-data n'a plus Pinnacle ni la plupart des bookmakers, et un seuil d'avantage ne retient qu'une infime part des matchs (colonnes « Paris »). L'absence de verdict n'est pas une preuve d'absence d'avantage.</li>
+  </ul>
+</div>
+
+<h2>1. Protocole</h2>
+<p>Sources : le <em>prix d'avant-match</em> d'un bookmaker contre la cote juste de Pinnacle (retirée de sa marge) <strong>au même relevé</strong> (donc décidable le vendredi ou le mardi), et la probabilité du <em>modèle</em> contre le prix de Bet365. Chaque match donne au plus une sélection : l'issue de plus forte espérance si elle atteint le seuil. La clôture ne sert qu'à mesurer le CLV, jamais à décider.</p>
+<p>Le <strong>seuil d'avantage</strong> ({% for t in thresholds %}{{ t|pct(0) }}{% if not loop.last %}, {% endif %}{% endfor %}) est choisi sur l'entraînement et la validation (CLV moyen le plus élevé, au moins {{ min_selection_bets }} paris), puis <strong>gelé</strong> avant le test. Configurations essayées : {{ configs_tried }}, en {{ sessions }} session(s) de réglage.</p>
+
+{% if not studies %}
+<div class="card"><strong>Aucun seuil gelé.</strong> Lance d'abord <code>edge backtest tune</code> : il choisit un seuil par source sur l'entraînement et la validation, puis le gèle avant tout accès au test.</div>
+{% else %}
+<h2>2. Résultats par source</h2>
+<p>CLV = cote obtenue × probabilité de clôture sans marge − 1. Les chiffres « réglage » sont optimistes par construction : le seuil a été choisi pour les maximiser.</p>
+<div class="card scroll"><table>
+  <tr><th>Source</th><th>Seuil</th><th>CLV au réglage</th>{% for p in studies[0].periods %}<th>CLV {{ period_label(p.period) }}</th><th>Paris</th>{% endfor %}<th>Verdict</th></tr>
+  {% for s in studies %}
+  <tr><td>{{ s.label }}</td><td>{{ s.threshold|pct(0) }}</td><td>{{ opt(s.frozen_clv, 2) }} ({{ s.frozen_bets }})</td>
+    {% for p in s.periods %}<td>{{ clv(p.clv) }}</td><td>{{ p.bets }}</td>{% endfor %}
+    <td>{{ verdict(s.verdict) }}</td></tr>
+  {% endfor %}
+</table></div>
+
+<h2>3. Détail de chaque source</h2>
+{% for s in studies %}
+<details {% if s.verdict != "no_power" %}open{% endif %}><summary>{{ s.label }} — seuil {{ s.threshold|pct(0) }} — {{ verdict(s.verdict) }}</summary>
+
+<h3>Ce que la règle annonce contre ce qui se produit (test)</h3>
+{% if s.calibration %}
+<div class="card scroll"><table>
+  <tr><th>Paris</th><th>Probabilité annoncée</th><th>Fréquence réelle</th><th>Clôture du marché</th><th>Espérance annoncée</th></tr>
+  <tr><td>{{ s.calibration.n }}</td><td>{{ s.calibration.announced|pct }}</td><td>{{ s.calibration.realized|pct }}</td>
+    <td>{% if s.calibration.close_fair is none %}—{% else %}{{ s.calibration.close_fair|pct }}{% endif %}</td><td>{{ s.calibration.announced_edge|spct }}</td></tr>
+</table></div>
+<p class="note">Si la règle voyait juste, la fréquence réelle suivrait la probabilité annoncée. Quand elle suit plutôt la clôture du marché, l'« avantage » annoncé n'était pas réel.</p>
+{% else %}<p class="note">Aucun pari au test.</p>{% endif %}
+
+<h3>Stabilité saison par saison (seuil gelé)</h3>
+<div class="card scroll"><table>
+  <tr><th>Saison</th><th>Paris</th><th>CLV</th><th>Rendement à mise fixe</th></tr>
+  {% for r in s.by_season %}<tr><td>{{ r.season }}</td><td>{{ r.bets }}</td><td>{{ opt(r.clv, 2) }}</td><td>{{ opt(r.roi, 1) }}</td></tr>{% endfor %}
+</table></div>
+
+<h3>Mises au test : Kelly complet, demi-Kelly, quart de Kelly (bankroll de départ 1 000 €)</h3>
+<div class="card scroll"><table>
+  <tr><th>Kelly</th><th>Paris placés</th><th>Misé</th><th>Bankroll finale</th><th>Drawdown max</th><th>Ruine si annoncé juste</th><th>Ruine si la clôture dit vrai</th><th>Drawdown 95e c. (clôture vraie)</th></tr>
+  {% for r in s.staking %}
+  <tr><td>×{{ r.kelly_fraction|num(2) }}</td><td>{{ r.summary.bets }}</td><td>{{ r.summary.staked|num(0) }} €</td><td>{{ r.summary.final_bankroll|num(0) }} €</td><td>{{ r.summary.max_drawdown|pct(0) }}</td>
+    <td>{% if r.risk_if_announced is none %}—{% else %}{{ r.risk_if_announced.ruin_probability|pct(0) }}{% endif %}</td>
+    <td>{% if r.risk_if_close_is_true is none %}—{% else %}{{ r.risk_if_close_is_true.ruin_probability|pct(0) }}{% endif %}</td>
+    <td>{% if r.risk_if_close_is_true is none %}—{% else %}{{ r.risk_if_close_is_true.p95_drawdown|pct(0) }}{% endif %}</td></tr>
+  {% endfor %}
+</table></div>
+<p class="note">« Ruine » : la bankroll passe sous 10 % de son niveau initial. La dernière simulation montre le risque <em>si l'avantage supposé n'existe pas</em> : c'est ce qui sépare un système qui survit à ses erreurs d'un système qui ne les survit pas.</p>
+
+<h3>L'espérance annoncée prédit-elle le rendement réalisé ? (meilleure issue de chaque match du test)</h3>
+<div class="card scroll"><table>
+  <tr><th>Espérance annoncée</th><th>Matchs</th><th>Annoncée (moyenne)</th><th>Rendement réalisé</th><th>CLV</th></tr>
+  {% for b in s.ev_buckets %}<tr><td>{{ b.label }}</td><td>{{ b.n }}</td><td>{{ b.announced|spct }}</td><td>{{ b.realized|spct }}</td><td>{{ opt(b.clv, 2) }}</td></tr>{% endfor %}
+</table></div>
+<p class="note">Une bonne règle voit son rendement réalisé monter avec l'espérance annoncée. Une mauvaise voit l'inverse : plus l'écart annoncé est grand, plus il est fait d'erreur.</p>
+
+<h3>Et si le prix était celui d'un opérateur français ?</h3>
+<div class="card scroll"><table>
+  <tr><th>Cotes multipliées par</th><th>Paris au test</th><th>CLV</th><th>Rendement</th></tr>
+  {% for f in s.price_sensitivity %}<tr><td>{{ f[0]|num(3) }}{% if f[0] == 1.0 %} (telles quelles){% elif f[0] == 0.957 %} (Betclic, mesuré){% elif f[0] == 0.91 %} (Winamax, mesuré){% endif %}</td><td>{{ f[1] }}</td><td>{{ opt(f[2], 2) }}</td><td>{{ opt(f[3], 1) }}</td></tr>{% endfor %}
+</table></div>
+<p class="note">Décotes mesurées sur notre archive (un seul relevé) : les cotes de Betclic valent 0,957 de celles de Pinnacle, celles de Winamax 0,910.</p>
+</details>
+{% endfor %}
+
+{% endif %}
+
+<h2>Limites</h2>
+<ul>
+  <li><strong>Puissance du test.</strong> Peu de matchs franchissent un seuil d'avantage, et l'historique de football-data perd Pinnacle et la plupart des bookmakers après janvier 2026. Plusieurs règles ont moins de 30 paris au test : elles ne sont ni validées ni infirmées.</li>
+  <li><strong>Réglage.</strong> {{ configs_tried }} configurations essayées : même avec un seuil gelé, choisir le meilleur parmi autant augmente la chance d'un faux positif au réglage. C'est pourquoi seul le test compte.</li>
+  <li><strong>Bookmakers accessibles.</strong> Interwetten et plusieurs autres ne sont pas agréés en France et ont disparu des données. Aucune de ces règles n'a été vérifiée sur Winamax ni Betclic : leurs cotes d'avant-match historiques n'existent pas, notre archive est trop récente (elle démarre le 18 octobre 2026).</li>
+  <li><strong>Décision au bon moment.</strong> On suppose que l'on peut parier au prix du relevé du vendredi ou du mardi. Un prix en retard sur Pinnacle peut avoir été corrigé entre-temps.</li>
+  <li><strong>Limites des opérateurs.</strong> Un avantage prouvé reste exploitable en France (l'ANJ interdit de limiter un joueur parce qu'il gagne), mais ce n'est pas le cas chez un courtier ou à l'étranger.</li>
+</ul>
+
+</main>
+</body>
+</html>

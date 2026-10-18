@@ -138,3 +138,13 @@ fn model_report_on_an_empty_database_explains_what_to_do() {
     assert!(!output.status.success());
     assert!(text(&output.stderr).contains("edge fd fetch"));
 }
+
+#[test]
+fn backtest_report_without_a_frozen_threshold_points_to_backtest_tune() {
+    let home = tempfile::tempdir().unwrap();
+
+    let output = run_edge(home.path(), &["backtest", "report"], None);
+
+    assert!(!output.status.success());
+    assert!(text(&output.stderr).contains("edge backtest tune"));
+}
