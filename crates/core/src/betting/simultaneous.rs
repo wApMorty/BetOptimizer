@@ -360,7 +360,7 @@ mod tests {
 
     #[test]
     fn a_large_batch_with_large_edges_is_capped_below_the_whole_bankroll() {
-        // Quarante paris à fort avantage : l'approximation brute dépasse 1 (≈ 2,1), le plafond la ramène à 0,95.
+        // Quarante paris à fort avantage : l'approximation brute dépasse 1 (≈ 2,8), le plafond la ramène à 0,95.
         let bets: Vec<Bet> = (0..40).map(|_| bet(0.55, 2.2)).collect();
         let raw: f64 = approximate_fractions(&bets).iter().sum();
         assert!(
