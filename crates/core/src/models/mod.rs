@@ -1,4 +1,4 @@
-//! Modèles de prévision : Poisson et Dixon-Coles pour les scores de football, Elo ([`elo`]) pour le tennis.
+//! Modèles de prévision : Poisson et Dixon-Coles pour les scores de football, Elo ([`elo`]) pour le tennis, Elo à marge de victoire ([`nba`]) pour la NBA.
 //!
 //! Un modèle estime, pour chaque match, les buts attendus de chaque équipe, puis en déduit une grille de scores
 //! d'où l'on lit les probabilités du 1X2, du plus/moins et de « les deux équipes marquent ».
@@ -13,6 +13,8 @@ pub mod elo;
 pub mod elo_tuning;
 pub mod grid;
 pub mod likelihood;
+pub mod nba;
+pub mod nba_tuning;
 pub mod poisson;
 pub mod tuning;
 pub mod walk_forward;

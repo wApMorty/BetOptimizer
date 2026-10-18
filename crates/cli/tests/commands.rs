@@ -546,3 +546,17 @@ fn nba_snapshot_without_a_key_fails_clearly() {
     assert!(!output.status.success());
     assert!(text(&output.stderr).contains("EDGE_ODDS_API_KEY"));
 }
+
+#[test]
+fn nba_tune_is_refused_before_the_validation_window_ends_and_report_needs_results() {
+    let home = tempfile::tempdir().unwrap();
+
+    let tune = run_edge(home.path(), &["nba", "tune"], None);
+    let report = run_edge(home.path(), &["nba", "report"], None);
+
+    // La fenêtre de validation se termine le 01/02/2027 : la date du jour (octobre 2026) est trop tôt.
+    assert!(!tune.status.success());
+    assert!(text(&tune.stderr).contains("01/02/2027"));
+    assert!(!report.status.success());
+    assert!(text(&report.stderr).contains("edge nba snapshot"));
+}

@@ -112,6 +112,14 @@ enum NbaCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Règle le modèle sur la validation (15/11/2026 → 01/02/2027) et le gèle. Refusé avant le 01/02/2027.
+    Tune,
+    /// Génère le rapport HTML : le modèle contre Pinnacle (exploratoire tant que rien n'est gelé).
+    Report {
+        /// Fichier de sortie (par défaut : dossier des rapports de l'application).
+        #[arg(long, value_name = "FICHIER")]
+        out: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -249,6 +257,8 @@ fn main() -> Result<()> {
         ),
         Command::Nba { command } => match command {
             NbaCommand::Snapshot { dry_run } => commands::nba_snapshot(&paths, dry_run),
+            NbaCommand::Tune => commands::nba_tune(&paths),
+            NbaCommand::Report { out } => commands::nba_report(&paths, out.as_deref()),
         },
         Command::Tennis { command } => match command {
             TennisCommand::Import => commands::tennis_import(&paths),

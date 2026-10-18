@@ -200,7 +200,7 @@ fn half() -> Probability {
     Probability::new(0.5).expect("0,5 est une probabilité")
 }
 
-fn mean(values: impl Iterator<Item = f64>) -> f64 {
+pub(crate) fn mean(values: impl Iterator<Item = f64>) -> f64 {
     let (sum, count) = values.fold((0.0, 0usize), |(s, c), v| (s + v, c + 1));
     if count == 0 {
         f64::NAN
@@ -209,7 +209,7 @@ fn mean(values: impl Iterator<Item = f64>) -> f64 {
     }
 }
 
-fn loss(p: f64) -> f64 {
+pub(crate) fn loss(p: f64) -> f64 {
     log_loss_binary(probability(p), true)
 }
 
@@ -236,13 +236,13 @@ fn group(label: String, rows: &[&EvalRow]) -> GroupRow {
 }
 
 /// `logit(p) = ln(p / (1 − p))`.
-fn logit(p: f64) -> f64 {
+pub(crate) fn logit(p: f64) -> f64 {
     let p = p.clamp(1e-9, 1.0 - 1e-9);
     (p / (1.0 - p)).ln()
 }
 
 /// Mélange dans l'espace logit : `σ((1 − w)·logit(marché) + w·logit(Elo))`.
-fn blend(market: f64, elo: f64, weight: f64) -> f64 {
+pub(crate) fn blend(market: f64, elo: f64, weight: f64) -> f64 {
     1.0 / (1.0 + (-((1.0 - weight) * logit(market) + weight * logit(elo))).exp())
 }
 

@@ -22,21 +22,23 @@ use edge_core::ingest::tennis::{import as tennis_import_files, quality as tennis
 use edge_core::ingest::{closing, nba};
 use edge_core::init::initialize;
 use edge_core::models::data::load_leagues;
-use edge_core::models::elo_tuning;
 use edge_core::models::tuning;
+use edge_core::models::{elo_tuning, nba_tuning};
 use edge_core::notify::{self, discord};
 use edge_core::paths::Paths;
 use edge_core::report::backtest_report;
 use edge_core::report::market_report;
 use edge_core::report::models_report;
+use edge_core::report::nba_report;
 use edge_core::report::recommend_report;
 use edge_core::report::render::{
-    render_backtest_report, render_market_report, render_models_report, render_recommend_report,
-    render_tennis_report,
+    render_backtest_report, render_market_report, render_models_report, render_nba_report,
+    render_recommend_report, render_tennis_report,
 };
 use edge_core::report::tennis_report;
 use edge_core::store::archive::last_known_usage;
 use edge_core::store::journal::{self, Settlement, SettlementSource};
+use edge_core::store::nba as nba_store;
 use edge_core::store::tennis as tennis_store;
 use edge_core::store::{self, Connection};
 
@@ -1096,6 +1098,94 @@ pub fn nba_snapshot(paths: &Paths, dry_run: bool) -> Result<()> {
     if report.odds_failure.is_some() {
         bail!("les cotes de la NBA n'ont pas été archivées");
     }
+    Ok(())
+}
+
+/// `edge nba tune` : règle le modèle sur la validation (15/11/2026 → 01/02/2027) et le gèle ; refusé avant le 01/02/2027.
+pub fn nba_tune(paths: &Paths) -> Result<()> {
+    let conn = open_database(paths)?;
+    let today = Utc::now().date_naive();
+    if today < nba_tuning::TEST_START {
+        bail!(
+            "la fenêtre de validation se termine le {} : régler avant ce jour figerait un modèle sur une validation incomplète. D'ici là, `edge nba report` donne un diagnostic exploratoire",
+            nba_tuning::TEST_START.format("%d/%m/%Y")
+        );
+    }
+    let games = nba_store::load_games(&conn)?;
+    let sessions = nba_store::tuning_sessions(&conn)?;
+    if sessions > 0 {
+        println!(
+            "Attention : {sessions} session(s) de réglage existent déjà (journalisées, jamais effacées). Chaque session supplémentaire est une occasion de s'ajuster au hasard ; le rapport les compte."
+        );
+    }
+    let tuned = nba_tuning::tune(&games).context(
+        "aucun match de validation exploitable : l'archive est-elle complète depuis novembre ?",
+    )?;
+    println!(
+        "{} configurations essayées. Retenu : K {}, avantage du terrain {} Elo, dos à dos {} Elo, conservation {}, pas du total {}.",
+        tuned.configs_tried,
+        format::decimal(tuned.elo.k, 0),
+        format::decimal(tuned.elo.home_advantage, 0),
+        format::decimal(tuned.elo.back_to_back, 0),
+        format::decimal(tuned.elo.carry_over, 2),
+        format::decimal(tuned.totals_rate, 2)
+    );
+    println!(
+        "Validation : {} matchs, log loss {}, {} points de marge par point d'Elo (σ marge {}, σ total {}).",
+        tuned.validation_games,
+        format::decimal(tuned.validation_log_loss, 4),
+        format::decimal(tuned.margin_per_elo, 4),
+        format::decimal(tuned.margin_sigma, 1),
+        format::decimal(tuned.total_sigma, 1)
+    );
+    nba_store::insert_tuning(
+        &conn,
+        &nba_store::FrozenNba {
+            created_at: Utc::now(),
+            k: tuned.elo.k,
+            home_advantage: tuned.elo.home_advantage,
+            back_to_back: tuned.elo.back_to_back,
+            carry_over: tuned.elo.carry_over,
+            totals_rate: tuned.totals_rate,
+            margin_per_elo: tuned.margin_per_elo,
+            margin_sigma: tuned.margin_sigma,
+            total_sigma: tuned.total_sigma,
+            validation_log_loss: tuned.validation_log_loss,
+            validation_games: tuned.validation_games,
+            configs_tried: tuned.configs_tried,
+        },
+    )?;
+    println!(
+        "Configuration gelée. Le test (à partir du 01/02/2027) n'a pas été lu. Rapport : `edge nba report`."
+    );
+    Ok(())
+}
+
+/// `edge nba report` : rapport HTML (exploratoire tant que rien n'est gelé, puis sur le test).
+pub fn nba_report(paths: &Paths, out: Option<&std::path::Path>) -> Result<()> {
+    let conn = open_database(paths)?;
+    let config = Config::load(&paths.config_file)?;
+    let now = Utc::now();
+    let report = nba_report::build(
+        &conn,
+        config.margin_method,
+        &now.format("%Y-%m-%d").to_string(),
+    )?;
+    if report.exploratory {
+        println!(
+            "Mode exploratoire : aucune configuration gelée, les chiffres décrivent sans rien valider."
+        );
+    }
+    let html = render_nba_report(&report)?;
+    let target = match out {
+        Some(path) => path.to_path_buf(),
+        None => paths.reports_dir.join("nba.html"),
+    };
+    if let Some(dir) = target.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("création de {}", dir.display()))?;
+    }
+    std::fs::write(&target, html).with_context(|| format!("écriture de {}", target.display()))?;
+    println!("Rapport écrit : {}", target.display());
     Ok(())
 }
 

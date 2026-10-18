@@ -114,6 +114,161 @@ pub fn last_scores_call(conn: &Connection) -> Result<Option<DateTime<Utc>>> {
     at.map(|text| parse_timestamp(&text)).transpose()
 }
 
+/// Une cote de Pinnacle lue dans l'archive.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PinnacleQuote {
+    /// `h2h`, `spreads` ou `totals`.
+    pub market: String,
+    /// Nom de l'issue : une équipe, `Over` ou `Under`.
+    pub outcome: String,
+    /// Ligne (handicap ou total), absente pour `h2h`.
+    pub point: Option<f64>,
+    /// Cote décimale.
+    pub price: f64,
+}
+
+/// Les cotes de Pinnacle d'un match dans le **dernier relevé antérieur** à `before` (le coup d'envoi) : le plus proche du match.
+pub fn pinnacle_quotes_before(
+    conn: &Connection,
+    event_id: &str,
+    before: DateTime<Utc>,
+) -> Result<Vec<PinnacleQuote>> {
+    let call: Option<i64> = conn
+        .query_row(
+            "SELECT q.api_call_id FROM quote q JOIN api_call a ON a.id = q.api_call_id
+             WHERE q.event_id = ?1 AND q.bookmaker_key = 'pinnacle' AND a.called_at < ?2
+             ORDER BY q.api_call_id DESC LIMIT 1",
+            params![event_id, timestamp(before)],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(call) = call else {
+        return Ok(Vec::new());
+    };
+    let mut statement = conn.prepare(
+        "SELECT market_key, outcome_raw, point, price FROM quote
+         WHERE api_call_id = ?1 AND event_id = ?2 AND bookmaker_key = 'pinnacle' ORDER BY rowid",
+    )?;
+    let rows = statement.query_map(params![call, event_id], |row| {
+        Ok(PinnacleQuote {
+            market: row.get(0)?,
+            outcome: row.get(1)?,
+            point: row.get(2)?,
+            price: row.get(3)?,
+        })
+    })?;
+    let mut quotes = Vec::new();
+    for row in rows {
+        quotes.push(row?);
+    }
+    Ok(quotes)
+}
+
+/// Configuration du modèle gelée à l'issue d'une session de réglage.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrozenNba {
+    /// Instant du gel.
+    pub created_at: DateTime<Utc>,
+    /// Facteur `K` de l'Elo.
+    pub k: f64,
+    /// Avantage du terrain, en points d'Elo.
+    pub home_advantage: f64,
+    /// Pénalité du dos à dos, en points d'Elo.
+    pub back_to_back: f64,
+    /// Part du classement conservée d'une saison à l'autre.
+    pub carry_over: f64,
+    /// Pas d'apprentissage du modèle de total.
+    pub totals_rate: f64,
+    /// Points de marge par point d'écart d'Elo.
+    pub margin_per_elo: f64,
+    /// Écart-type de la marge.
+    pub margin_sigma: f64,
+    /// Écart-type du total.
+    pub total_sigma: f64,
+    /// Log loss de la validation.
+    pub validation_log_loss: f64,
+    /// Matchs de validation.
+    pub validation_games: usize,
+    /// Configurations essayées.
+    pub configs_tried: usize,
+}
+
+/// Enregistre une configuration gelée.
+pub fn insert_tuning(conn: &Connection, frozen: &FrozenNba) -> Result<()> {
+    conn.execute(
+        "INSERT INTO nba_tuning (created_at, k, home_advantage, back_to_back, carry_over, totals_rate, margin_per_elo,
+                                 margin_sigma, total_sigma, validation_log_loss, validation_games, configs_tried)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![
+            timestamp(frozen.created_at),
+            frozen.k,
+            frozen.home_advantage,
+            frozen.back_to_back,
+            frozen.carry_over,
+            frozen.totals_rate,
+            frozen.margin_per_elo,
+            frozen.margin_sigma,
+            frozen.total_sigma,
+            frozen.validation_log_loss,
+            frozen.validation_games as i64,
+            frozen.configs_tried as i64,
+        ],
+    )?;
+    Ok(())
+}
+
+/// La dernière configuration gelée, s'il y en a une.
+pub fn latest_tuning(conn: &Connection) -> Result<Option<FrozenNba>> {
+    let row = conn
+        .query_row(
+            "SELECT created_at, k, home_advantage, back_to_back, carry_over, totals_rate, margin_per_elo,
+                    margin_sigma, total_sigma, validation_log_loss, validation_games, configs_tried
+             FROM nba_tuning ORDER BY id DESC LIMIT 1",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    [
+                        row.get::<_, f64>(1)?,
+                        row.get::<_, f64>(2)?,
+                        row.get::<_, f64>(3)?,
+                        row.get::<_, f64>(4)?,
+                        row.get::<_, f64>(5)?,
+                        row.get::<_, f64>(6)?,
+                        row.get::<_, f64>(7)?,
+                        row.get::<_, f64>(8)?,
+                        row.get::<_, f64>(9)?,
+                    ],
+                    row.get::<_, i64>(10)?,
+                    row.get::<_, i64>(11)?,
+                ))
+            },
+        )
+        .optional()?;
+    row.map(|(created_at, v, games, tried)| {
+        Ok(FrozenNba {
+            created_at: parse_timestamp(&created_at)?,
+            k: v[0],
+            home_advantage: v[1],
+            back_to_back: v[2],
+            carry_over: v[3],
+            totals_rate: v[4],
+            margin_per_elo: v[5],
+            margin_sigma: v[6],
+            total_sigma: v[7],
+            validation_log_loss: v[8],
+            validation_games: usize::try_from(games).unwrap_or(0),
+            configs_tried: usize::try_from(tried).unwrap_or(0),
+        })
+    })
+    .transpose()
+}
+
+/// Nombre de sessions de réglage déjà faites.
+pub fn tuning_sessions(conn: &Connection) -> Result<u32> {
+    Ok(conn.query_row("SELECT COUNT(*) FROM nba_tuning", [], |row| row.get(0))?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

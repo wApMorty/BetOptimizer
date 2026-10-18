@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NBA : le modèle contre Pinnacle — edge</title>
+<style>
+  :root { --bg:#fafaf8; --fg:#1d1d1b; --muted:#6b6b66; --card:#ffffff; --line:#e3e2dc; --accent:#1f5eaa; --good:#1a7f4b; --bad:#b3261e; --warn:#8a5a00; --warnbg:#fff4d6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ececea; --muted:#a3a39d; --card:#201f1e; --line:#34332f; --accent:#7fb2ee; --good:#59c58a; --bad:#f08b83; --warn:#f2c46b; --warnbg:#3a2f12; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.6rem; margin: .4em 0 .1em; }
+  h2 { font-size: 1.25rem; margin: 2em 0 .4em; padding-top: .6em; border-top: 1px solid var(--line); }
+  p, li { max-width: 72ch; }
+  .meta, .note { color: var(--muted); font-size: .9rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+  .warn { background: var(--warnbg); color: var(--warn); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  .ci { color: var(--muted); }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  svg { max-width: 100%; height: auto; background: #fff; border-radius: 8px; }
+</style>
+</head>
+<body>
+<main>
+
+{% macro delta(c) %}{% if c is none %}—{% else %}<span class="{{ 'bad' if c.low > 0 else ('good' if c.high < 0 else '') }}">{{ c.mean|num(4) }} <span class="ci">[{{ c.low|num(4) }} ; {{ c.high|num(4) }}]</span></span>{% endif %}{% endmacro %}
+
+<h1>NBA : le modèle contre Pinnacle</h1>
+<p class="meta">Généré le {{ generated_on }} · archive : {{ games }} match(s) terminé(s) ({{ period }}) · fenêtre évaluée : {{ window }} · {{ scored }} match(s) où les deux équipes ont déjà joué au moins 10 matchs.</p>
+
+{% if exploratory %}
+<div class="warn"><strong>Exploratoire.</strong> Aucune configuration n'est gelée : le modèle utilise son point de départ (K, avantage du terrain et repos de FiveThirtyEight, non réglés) sur toute l'archive, y compris les premières semaines où les classements ne savent encore rien. Ces chiffres décrivent ; ils ne valident rien et ne doivent servir à aucun réglage. Le réglage est prévu après le 1er février 2027 (<code>edge nba tune</code>).</div>
+{% endif %}
+
+<div class="card">
+  <strong>En bref.</strong>
+  <ul>
+    {% for r in probabilities %}{% if r.delta %}
+    <li>{{ r.label }} ({{ r.n }} matchs) :
+      {% if r.delta.low > 0 %}le modèle est <strong class="bad">moins bon que Pinnacle</strong>{% elif r.delta.high < 0 %}le modèle est <strong class="good">meilleur que Pinnacle</strong> (à vérifier avant de s'y fier){% else %}le modèle et Pinnacle sont <strong>indiscernables</strong>{% endif %}
+      — écart de log loss {{ r.delta.mean|num(4) }} [{{ r.delta.low|num(4) }} ; {{ r.delta.high|num(4) }}].</li>
+    {% endif %}{% endfor %}
+    {% if info %}<li>Mélangé à Pinnacle sur la victoire, le modèle reçoit un poids optimal de <strong>{{ info.weight|num(1) }}</strong> (choisi sur la validation){% if info.weight == 0 %} : il n'apporte rien que Pinnacle n'ait déjà{% endif %}.</li>{% endif %}
+    <li>Un modèle qui n'égale pas le marché ne fournit pas d'avantage : un écart de prix ne vaut que par la qualité de la probabilité qui le mesure.</li>
+  </ul>
+</div>
+
+<h2>1. Protocole</h2>
+<p>Elo avec marge de victoire : K = {{ config.k|num(0) }}, avantage du terrain {{ config.home_advantage|num(0) }} points d'Elo, pénalité de dos à dos {{ config.back_to_back|num(0) }}, {{ (config.carry_over * 100)|round|int }} % du classement conservé entre deux saisons. Marge attendue = écart d'Elo × {{ config.margin_per_elo|num(4) }} (soit un point de marge pour {{ (1 / config.margin_per_elo)|num(1) }} points d'Elo), écart-type {{ config.margin_sigma|num(1) }} points. Total par une tendance apprise par équipe (pas {{ config.totals_rate|num(2) }}), écart-type {{ config.total_sigma|num(1) }} points. Marge et total sont supposés gaussiens autour de ces prévisions.</p>
+{% if frozen %}
+<p>Configuration choisie sur la validation (du 15/11/2026 au 01/02/2027, {{ frozen.validation_games }} matchs, log loss {{ frozen.validation_log_loss|num(4) }}) parmi <strong>{{ frozen.configs_tried }} configurations</strong>, en {{ frozen.sessions }} session(s) de réglage, puis gelée avant la lecture du test.</p>
+{% endif %}
+<p>Le marché est le dernier relevé de Pinnacle antérieur au coup d'envoi (vers 18 h à New York) : proche de la clôture, mais pas la clôture exacte.</p>
+
+<h2>2. Probabilités : modèle contre Pinnacle</h2>
+<div class="card scroll"><table>
+  <tr><th>Marché</th><th>Matchs</th><th>Log loss modèle</th><th>Log loss Pinnacle</th><th>Écart (positif = modèle moins bon)</th></tr>
+  {% for r in probabilities %}<tr><td>{{ r.label }}</td><td>{{ r.n }}</td><td>{{ r.model_log_loss|num(4) }}</td><td>{{ r.market_log_loss|num(4) }}</td><td>{{ delta(r.delta) }}</td></tr>{% endfor %}
+</table></div>
+<p class="note">Handicap et plus/moins : la probabilité du modèle vient de la loi normale ; celle de Pinnacle de ses cotes sans marge. Les égalités (lignes entières) sont exclues.</p>
+
+<h2>3. Prévisions en points</h2>
+<div class="card scroll"><table>
+  <tr><th>Grandeur</th><th>Matchs</th><th>Erreur du modèle (points)</th><th>Erreur de la ligne de Pinnacle (points)</th><th>Écart des erreurs au carré</th></tr>
+  {% for r in points %}<tr><td>{{ r.label }}</td><td>{{ r.n }}</td><td>{{ r.model_rmse|num(2) }}</td><td>{{ r.market_rmse|num(2) }}</td><td>{{ delta(r.delta_squared) }}</td></tr>{% endfor %}
+</table></div>
+
+{% if info %}
+<h2>4. Le modèle apporte-t-il quelque chose à Pinnacle ?</h2>
+<p>Mélange dans l'espace logit sur la victoire, poids choisi sur la validation ({{ info.validation_games }} matchs).</p>
+<div class="card scroll"><table>
+  <tr><th>Poids du modèle</th><th>Écart de log loss du mélange contre Pinnacle seul (test)</th></tr>
+  <tr><td>{{ info.weight|num(1) }}</td><td>{{ delta(info.delta) }}</td></tr>
+</table></div>
+{% endif %}
+
+<h2>Calibration</h2>
+{% if chart %}<div>{{ chart|safe }}</div>{% else %}<p class="note">Pas encore de match évalué.</p>{% endif %}
+
+<h2>Limites</h2>
+<ul>
+  <li><strong>Archive sans historique.</strong> Aucune source gratuite et licite de résultats et de cotes n'a été trouvée : tout vient de l'archive, qui commence avec la saison 2026-27. Les premières semaines servent à chauffer les classements.</li>
+  <li><strong>Pas de CLV.</strong> Le dernier relevé avant le match n'est pas la clôture ; les opérateurs français ne cotent que le vainqueur, avec 7 à 10 % de marge.</li>
+  <li><strong>Blessures et repos des joueurs absents.</strong> Le modèle ne connaît que les résultats : une absence d'un joueur majeur est connue du marché, pas de lui.</li>
+  <li><strong>Phase finale.</strong> Séries éliminatoires et saison régulière sont traitées de la même façon.</li>
+</ul>
+
+</main>
+</body>
+</html>

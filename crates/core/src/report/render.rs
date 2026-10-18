@@ -10,6 +10,7 @@ use serde::Serialize;
 use super::backtest_report::BacktestReport;
 use super::market_report::MarketReport;
 use super::models_report::ModelsReport;
+use super::nba_report::NbaReport;
 use super::recommend_report::RecommendReport;
 use super::tennis_report::TennisReport;
 use crate::error::{Error, Result};
@@ -19,6 +20,7 @@ const MODELS_TEMPLATE: &str = include_str!("templates/models.html");
 const BACKTEST_TEMPLATE: &str = include_str!("templates/backtest.html");
 const RECOMMEND_TEMPLATE: &str = include_str!("templates/recommend.html");
 const TENNIS_TEMPLATE: &str = include_str!("templates/tennis.html");
+const NBA_TEMPLATE: &str = include_str!("templates/nba.html");
 
 /// Nombre au format français (virgule décimale), `digits` décimales.
 fn number(value: f64, digits: Option<usize>) -> String {
@@ -62,6 +64,11 @@ pub fn render_models_report(report: &ModelsReport) -> Result<String> {
 /// Génère le HTML du rapport des recommandations (la pièce jointe de la notification).
 pub fn render_recommend_report(report: &RecommendReport) -> Result<String> {
     render_template("recommend.html", RECOMMEND_TEMPLATE, report)
+}
+
+/// Génère le HTML du rapport « NBA ».
+pub fn render_nba_report(report: &NbaReport) -> Result<String> {
+    render_template("nba.html", NBA_TEMPLATE, report)
 }
 
 /// Génère le HTML du rapport « tennis ».
