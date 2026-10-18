@@ -11,5 +11,14 @@ publish.workspace = true
 name = "edge"
 path = "src/main.rs"
 
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+edge-core.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
 [lints]
 workspace = true
