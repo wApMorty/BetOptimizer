@@ -117,10 +117,39 @@ impl Config {
             path: path.to_path_buf(),
             source,
         })?;
+        config.validate()?;
         if config.odds_api_key.is_some() {
             check_permissions(path)?;
         }
         Ok(config)
+    }
+
+    /// Vérifie les valeurs avant tout appel réseau : un identifiant malformé ou une liste vide
+    /// serait envoyé à l'API, qui peut facturer la requête sans la rejeter.
+    pub fn validate(&self) -> Result<()> {
+        if self.monthly_credit_cap == 0 {
+            return Err(Error::InvalidConfig(
+                "monthly_credit_cap doit être supérieur à 0".to_string(),
+            ));
+        }
+        let lists = [
+            ("leagues", &self.leagues),
+            ("bookmakers", &self.bookmakers),
+            ("markets", &self.markets),
+        ];
+        for (field, names) in lists {
+            if names.is_empty() {
+                return Err(Error::InvalidConfig(format!(
+                    "{field} ne doit pas être vide"
+                )));
+            }
+            if let Some(bad) = names.iter().find(|name| !is_api_name(name)) {
+                return Err(Error::InvalidConfig(format!(
+                    "{field} : « {bad} » n'est pas un identifiant valide (minuscules, chiffres et _ uniquement)"
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Détermine la clé API : la variable d'environnement (`from_env`) prime, sinon celle du fichier.
@@ -135,6 +164,15 @@ impl Config {
             None => self.odds_api_key.clone().ok_or(Error::MissingApiKey),
         }
     }
+}
+
+/// Les clés de The Odds API (`soccer_epl`, `winamax_fr`, `h2h`) sont en minuscules, chiffres et `_`.
+/// Cela garantit aussi qu'aucun caractère spécial ne peut se glisser dans l'URL.
+fn is_api_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
 /// Refuse un fichier de secrets lisible ou modifiable par le groupe ou les autres.
@@ -232,6 +270,41 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains(API_KEY_ENV));
         assert!(message.contains("odds_api_key"));
+    }
+
+    #[test]
+    fn default_config_is_valid() {
+        Config::default().validate().unwrap();
+    }
+
+    #[test]
+    fn malformed_identifier_is_rejected_with_its_field() {
+        let config = Config::parse(r#"bookmakers = ["pinnacle", "Winamax FR"]"#).unwrap();
+        let message = config.validate().unwrap_err().to_string();
+        assert!(message.contains("bookmakers"));
+        assert!(message.contains("Winamax FR"));
+    }
+
+    #[test]
+    fn empty_list_and_zero_cap_are_rejected() {
+        assert!(Config::parse("leagues = []").unwrap().validate().is_err());
+        assert!(
+            Config::parse("monthly_credit_cap = 0")
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn load_rejects_an_invalid_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("edge.toml");
+        fs::write(&path, r#"markets = ["h2h;drop"]"#).unwrap();
+        assert!(matches!(
+            Config::load(&path).unwrap_err(),
+            Error::InvalidConfig(_)
+        ));
     }
 
     #[test]

@@ -33,6 +33,10 @@ pub enum Error {
         source: toml::de::Error,
     },
 
+    /// Une valeur de la configuration est inutilisable (identifiant malformé, liste vide…).
+    #[error("configuration invalide : {0}")]
+    InvalidConfig(String),
+
     /// Aucune clé API n'est disponible, ni dans l'environnement ni dans le fichier.
     #[error(
         "clé API introuvable : définis la variable EDGE_ODDS_API_KEY ou ajoute odds_api_key dans le fichier de configuration"
