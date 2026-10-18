@@ -38,7 +38,18 @@ pub struct LikelihoodProblem<'a> {
     fit_rho: bool,
 }
 
-impl LikelihoodProblem<'_> {
+impl<'a> LikelihoodProblem<'a> {
+    /// Définit le problème d'une ligue (réservé aux tests de référence).
+    #[cfg(test)]
+    pub(crate) fn new(teams: usize, games: &'a [TrainingGame], ridge: f64, fit_rho: bool) -> Self {
+        LikelihoodProblem {
+            teams,
+            games,
+            ridge,
+            fit_rho,
+        }
+    }
+
     /// Nombre de paramètres : attaque et défense de chaque équipe, base, avantage, et `φ` si `ρ` est libre.
     fn parameter_count(&self) -> usize {
         2 * self.teams + 2 + usize::from(self.fit_rho)

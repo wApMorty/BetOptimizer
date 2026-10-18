@@ -1,0 +1,2886 @@
+{
+ "penaltyblog_version": "1.13.1",
+ "xi": 0.0018,
+ "games": [
+  {
+   "home": 0,
+   "away": 1,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 0
+  },
+  {
+   "home": 0,
+   "away": 2,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 1
+  },
+  {
+   "home": 0,
+   "away": 3,
+   "goals_home": 6,
+   "goals_away": 0,
+   "day": 2
+  },
+  {
+   "home": 0,
+   "away": 4,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 3
+  },
+  {
+   "home": 0,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 4
+  },
+  {
+   "home": 0,
+   "away": 6,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 5
+  },
+  {
+   "home": 0,
+   "away": 7,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 6
+  },
+  {
+   "home": 1,
+   "away": 0,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 7
+  },
+  {
+   "home": 1,
+   "away": 2,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 8
+  },
+  {
+   "home": 1,
+   "away": 3,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 9
+  },
+  {
+   "home": 1,
+   "away": 4,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 10
+  },
+  {
+   "home": 1,
+   "away": 5,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 11
+  },
+  {
+   "home": 1,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 12
+  },
+  {
+   "home": 1,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 13
+  },
+  {
+   "home": 2,
+   "away": 0,
+   "goals_home": 4,
+   "goals_away": 1,
+   "day": 14
+  },
+  {
+   "home": 2,
+   "away": 1,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 15
+  },
+  {
+   "home": 2,
+   "away": 3,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 16
+  },
+  {
+   "home": 2,
+   "away": 4,
+   "goals_home": 4,
+   "goals_away": 3,
+   "day": 17
+  },
+  {
+   "home": 2,
+   "away": 5,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 18
+  },
+  {
+   "home": 2,
+   "away": 6,
+   "goals_home": 3,
+   "goals_away": 2,
+   "day": 19
+  },
+  {
+   "home": 2,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 20
+  },
+  {
+   "home": 3,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 21
+  },
+  {
+   "home": 3,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 22
+  },
+  {
+   "home": 3,
+   "away": 2,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 23
+  },
+  {
+   "home": 3,
+   "away": 4,
+   "goals_home": 0,
+   "goals_away": 2,
+   "day": 24
+  },
+  {
+   "home": 3,
+   "away": 5,
+   "goals_home": 5,
+   "goals_away": 3,
+   "day": 25
+  },
+  {
+   "home": 3,
+   "away": 6,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 26
+  },
+  {
+   "home": 3,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 27
+  },
+  {
+   "home": 4,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 2,
+   "day": 28
+  },
+  {
+   "home": 4,
+   "away": 1,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 29
+  },
+  {
+   "home": 4,
+   "away": 2,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 30
+  },
+  {
+   "home": 4,
+   "away": 3,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 31
+  },
+  {
+   "home": 4,
+   "away": 5,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 32
+  },
+  {
+   "home": 4,
+   "away": 6,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 33
+  },
+  {
+   "home": 4,
+   "away": 7,
+   "goals_home": 4,
+   "goals_away": 1,
+   "day": 34
+  },
+  {
+   "home": 5,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 4,
+   "day": 35
+  },
+  {
+   "home": 5,
+   "away": 1,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 36
+  },
+  {
+   "home": 5,
+   "away": 2,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 37
+  },
+  {
+   "home": 5,
+   "away": 3,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 38
+  },
+  {
+   "home": 5,
+   "away": 4,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 39
+  },
+  {
+   "home": 5,
+   "away": 6,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 40
+  },
+  {
+   "home": 5,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 41
+  },
+  {
+   "home": 6,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 42
+  },
+  {
+   "home": 6,
+   "away": 1,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 43
+  },
+  {
+   "home": 6,
+   "away": 2,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 44
+  },
+  {
+   "home": 6,
+   "away": 3,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 45
+  },
+  {
+   "home": 6,
+   "away": 4,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 46
+  },
+  {
+   "home": 6,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 4,
+   "day": 47
+  },
+  {
+   "home": 6,
+   "away": 7,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 48
+  },
+  {
+   "home": 7,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 49
+  },
+  {
+   "home": 7,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 50
+  },
+  {
+   "home": 7,
+   "away": 2,
+   "goals_home": 0,
+   "goals_away": 3,
+   "day": 51
+  },
+  {
+   "home": 7,
+   "away": 3,
+   "goals_home": 4,
+   "goals_away": 2,
+   "day": 52
+  },
+  {
+   "home": 7,
+   "away": 4,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 53
+  },
+  {
+   "home": 7,
+   "away": 5,
+   "goals_home": 2,
+   "goals_away": 4,
+   "day": 54
+  },
+  {
+   "home": 7,
+   "away": 6,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 55
+  },
+  {
+   "home": 0,
+   "away": 1,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 56
+  },
+  {
+   "home": 0,
+   "away": 2,
+   "goals_home": 0,
+   "goals_away": 3,
+   "day": 57
+  },
+  {
+   "home": 0,
+   "away": 3,
+   "goals_home": 4,
+   "goals_away": 1,
+   "day": 58
+  },
+  {
+   "home": 0,
+   "away": 4,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 59
+  },
+  {
+   "home": 0,
+   "away": 5,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 60
+  },
+  {
+   "home": 0,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 61
+  },
+  {
+   "home": 0,
+   "away": 7,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 62
+  },
+  {
+   "home": 1,
+   "away": 0,
+   "goals_home": 4,
+   "goals_away": 1,
+   "day": 63
+  },
+  {
+   "home": 1,
+   "away": 2,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 64
+  },
+  {
+   "home": 1,
+   "away": 3,
+   "goals_home": 4,
+   "goals_away": 1,
+   "day": 65
+  },
+  {
+   "home": 1,
+   "away": 4,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 66
+  },
+  {
+   "home": 1,
+   "away": 5,
+   "goals_home": 4,
+   "goals_away": 4,
+   "day": 67
+  },
+  {
+   "home": 1,
+   "away": 6,
+   "goals_home": 4,
+   "goals_away": 0,
+   "day": 68
+  },
+  {
+   "home": 1,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 69
+  },
+  {
+   "home": 2,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 70
+  },
+  {
+   "home": 2,
+   "away": 1,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 71
+  },
+  {
+   "home": 2,
+   "away": 3,
+   "goals_home": 4,
+   "goals_away": 0,
+   "day": 72
+  },
+  {
+   "home": 2,
+   "away": 4,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 73
+  },
+  {
+   "home": 2,
+   "away": 5,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 74
+  },
+  {
+   "home": 2,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 75
+  },
+  {
+   "home": 2,
+   "away": 7,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 76
+  },
+  {
+   "home": 3,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 2,
+   "day": 77
+  },
+  {
+   "home": 3,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 2,
+   "day": 78
+  },
+  {
+   "home": 3,
+   "away": 2,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 79
+  },
+  {
+   "home": 3,
+   "away": 4,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 80
+  },
+  {
+   "home": 3,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 81
+  },
+  {
+   "home": 3,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 82
+  },
+  {
+   "home": 3,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 83
+  },
+  {
+   "home": 4,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 2,
+   "day": 84
+  },
+  {
+   "home": 4,
+   "away": 1,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 85
+  },
+  {
+   "home": 4,
+   "away": 2,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 86
+  },
+  {
+   "home": 4,
+   "away": 3,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 87
+  },
+  {
+   "home": 4,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 88
+  },
+  {
+   "home": 4,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 89
+  },
+  {
+   "home": 4,
+   "away": 7,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 90
+  },
+  {
+   "home": 5,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 3,
+   "day": 91
+  },
+  {
+   "home": 5,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 92
+  },
+  {
+   "home": 5,
+   "away": 2,
+   "goals_home": 0,
+   "goals_away": 2,
+   "day": 93
+  },
+  {
+   "home": 5,
+   "away": 3,
+   "goals_home": 0,
+   "goals_away": 3,
+   "day": 94
+  },
+  {
+   "home": 5,
+   "away": 4,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 95
+  },
+  {
+   "home": 5,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 96
+  },
+  {
+   "home": 5,
+   "away": 7,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 97
+  },
+  {
+   "home": 6,
+   "away": 0,
+   "goals_home": 3,
+   "goals_away": 2,
+   "day": 98
+  },
+  {
+   "home": 6,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 99
+  },
+  {
+   "home": 6,
+   "away": 2,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 100
+  },
+  {
+   "home": 6,
+   "away": 3,
+   "goals_home": 2,
+   "goals_away": 4,
+   "day": 101
+  },
+  {
+   "home": 6,
+   "away": 4,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 102
+  },
+  {
+   "home": 6,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 103
+  },
+  {
+   "home": 6,
+   "away": 7,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 104
+  },
+  {
+   "home": 7,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 105
+  },
+  {
+   "home": 7,
+   "away": 1,
+   "goals_home": 1,
+   "goals_away": 3,
+   "day": 106
+  },
+  {
+   "home": 7,
+   "away": 2,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 107
+  },
+  {
+   "home": 7,
+   "away": 3,
+   "goals_home": 4,
+   "goals_away": 3,
+   "day": 108
+  },
+  {
+   "home": 7,
+   "away": 4,
+   "goals_home": 3,
+   "goals_away": 2,
+   "day": 109
+  },
+  {
+   "home": 7,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 110
+  },
+  {
+   "home": 7,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 111
+  },
+  {
+   "home": 0,
+   "away": 1,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 112
+  },
+  {
+   "home": 0,
+   "away": 2,
+   "goals_home": 4,
+   "goals_away": 0,
+   "day": 113
+  },
+  {
+   "home": 0,
+   "away": 3,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 114
+  },
+  {
+   "home": 0,
+   "away": 4,
+   "goals_home": 4,
+   "goals_away": 2,
+   "day": 115
+  },
+  {
+   "home": 0,
+   "away": 5,
+   "goals_home": 4,
+   "goals_away": 1,
+   "day": 116
+  },
+  {
+   "home": 0,
+   "away": 6,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 117
+  },
+  {
+   "home": 0,
+   "away": 7,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 118
+  },
+  {
+   "home": 1,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 119
+  },
+  {
+   "home": 1,
+   "away": 2,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 120
+  },
+  {
+   "home": 1,
+   "away": 3,
+   "goals_home": 3,
+   "goals_away": 2,
+   "day": 121
+  },
+  {
+   "home": 1,
+   "away": 4,
+   "goals_home": 4,
+   "goals_away": 1,
+   "day": 122
+  },
+  {
+   "home": 1,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 3,
+   "day": 123
+  },
+  {
+   "home": 1,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 124
+  },
+  {
+   "home": 1,
+   "away": 7,
+   "goals_home": 6,
+   "goals_away": 2,
+   "day": 125
+  },
+  {
+   "home": 2,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 5,
+   "day": 126
+  },
+  {
+   "home": 2,
+   "away": 1,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 127
+  },
+  {
+   "home": 2,
+   "away": 3,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 128
+  },
+  {
+   "home": 2,
+   "away": 4,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 129
+  },
+  {
+   "home": 2,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 130
+  },
+  {
+   "home": 2,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 4,
+   "day": 131
+  },
+  {
+   "home": 2,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 132
+  },
+  {
+   "home": 3,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 4,
+   "day": 133
+  },
+  {
+   "home": 3,
+   "away": 1,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 134
+  },
+  {
+   "home": 3,
+   "away": 2,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 135
+  },
+  {
+   "home": 3,
+   "away": 4,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 136
+  },
+  {
+   "home": 3,
+   "away": 5,
+   "goals_home": 3,
+   "goals_away": 2,
+   "day": 137
+  },
+  {
+   "home": 3,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 138
+  },
+  {
+   "home": 3,
+   "away": 7,
+   "goals_home": 5,
+   "goals_away": 0,
+   "day": 139
+  },
+  {
+   "home": 4,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 2,
+   "day": 140
+  },
+  {
+   "home": 4,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 141
+  },
+  {
+   "home": 4,
+   "away": 2,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 142
+  },
+  {
+   "home": 4,
+   "away": 3,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 143
+  },
+  {
+   "home": 4,
+   "away": 5,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 144
+  },
+  {
+   "home": 4,
+   "away": 6,
+   "goals_home": 8,
+   "goals_away": 1,
+   "day": 145
+  },
+  {
+   "home": 4,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 146
+  },
+  {
+   "home": 5,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 3,
+   "day": 147
+  },
+  {
+   "home": 5,
+   "away": 1,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 148
+  },
+  {
+   "home": 5,
+   "away": 2,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 149
+  },
+  {
+   "home": 5,
+   "away": 3,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 150
+  },
+  {
+   "home": 5,
+   "away": 4,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 151
+  },
+  {
+   "home": 5,
+   "away": 6,
+   "goals_home": 6,
+   "goals_away": 2,
+   "day": 152
+  },
+  {
+   "home": 5,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 3,
+   "day": 153
+  },
+  {
+   "home": 6,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 5,
+   "day": 154
+  },
+  {
+   "home": 6,
+   "away": 1,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 155
+  },
+  {
+   "home": 6,
+   "away": 2,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 156
+  },
+  {
+   "home": 6,
+   "away": 3,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 157
+  },
+  {
+   "home": 6,
+   "away": 4,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 158
+  },
+  {
+   "home": 6,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 159
+  },
+  {
+   "home": 6,
+   "away": 7,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 160
+  },
+  {
+   "home": 7,
+   "away": 0,
+   "goals_home": 3,
+   "goals_away": 3,
+   "day": 161
+  },
+  {
+   "home": 7,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 2,
+   "day": 162
+  },
+  {
+   "home": 7,
+   "away": 2,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 163
+  },
+  {
+   "home": 7,
+   "away": 3,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 164
+  },
+  {
+   "home": 7,
+   "away": 4,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 165
+  },
+  {
+   "home": 7,
+   "away": 5,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 166
+  },
+  {
+   "home": 7,
+   "away": 6,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 167
+  },
+  {
+   "home": 0,
+   "away": 1,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 168
+  },
+  {
+   "home": 0,
+   "away": 2,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 169
+  },
+  {
+   "home": 0,
+   "away": 3,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 170
+  },
+  {
+   "home": 0,
+   "away": 4,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 171
+  },
+  {
+   "home": 0,
+   "away": 5,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 172
+  },
+  {
+   "home": 0,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 173
+  },
+  {
+   "home": 0,
+   "away": 7,
+   "goals_home": 4,
+   "goals_away": 1,
+   "day": 174
+  },
+  {
+   "home": 1,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 175
+  },
+  {
+   "home": 1,
+   "away": 2,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 176
+  },
+  {
+   "home": 1,
+   "away": 3,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 177
+  },
+  {
+   "home": 1,
+   "away": 4,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 178
+  },
+  {
+   "home": 1,
+   "away": 5,
+   "goals_home": 7,
+   "goals_away": 1,
+   "day": 179
+  },
+  {
+   "home": 1,
+   "away": 6,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 180
+  },
+  {
+   "home": 1,
+   "away": 7,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 181
+  },
+  {
+   "home": 2,
+   "away": 0,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 182
+  },
+  {
+   "home": 2,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 3,
+   "day": 183
+  },
+  {
+   "home": 2,
+   "away": 3,
+   "goals_home": 4,
+   "goals_away": 0,
+   "day": 184
+  },
+  {
+   "home": 2,
+   "away": 4,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 185
+  },
+  {
+   "home": 2,
+   "away": 5,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 186
+  },
+  {
+   "home": 2,
+   "away": 6,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 187
+  },
+  {
+   "home": 2,
+   "away": 7,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 188
+  },
+  {
+   "home": 3,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 189
+  },
+  {
+   "home": 3,
+   "away": 1,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 190
+  },
+  {
+   "home": 3,
+   "away": 2,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 191
+  },
+  {
+   "home": 3,
+   "away": 4,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 192
+  },
+  {
+   "home": 3,
+   "away": 5,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 193
+  },
+  {
+   "home": 3,
+   "away": 6,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 194
+  },
+  {
+   "home": 3,
+   "away": 7,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 195
+  },
+  {
+   "home": 4,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 196
+  },
+  {
+   "home": 4,
+   "away": 1,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 197
+  },
+  {
+   "home": 4,
+   "away": 2,
+   "goals_home": 0,
+   "goals_away": 3,
+   "day": 198
+  },
+  {
+   "home": 4,
+   "away": 3,
+   "goals_home": 3,
+   "goals_away": 2,
+   "day": 199
+  },
+  {
+   "home": 4,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 200
+  },
+  {
+   "home": 4,
+   "away": 6,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 201
+  },
+  {
+   "home": 4,
+   "away": 7,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 202
+  },
+  {
+   "home": 5,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 3,
+   "day": 203
+  },
+  {
+   "home": 5,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 3,
+   "day": 204
+  },
+  {
+   "home": 5,
+   "away": 2,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 205
+  },
+  {
+   "home": 5,
+   "away": 3,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 206
+  },
+  {
+   "home": 5,
+   "away": 4,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 207
+  },
+  {
+   "home": 5,
+   "away": 6,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 208
+  },
+  {
+   "home": 5,
+   "away": 7,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 209
+  },
+  {
+   "home": 6,
+   "away": 0,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 210
+  },
+  {
+   "home": 6,
+   "away": 1,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 211
+  },
+  {
+   "home": 6,
+   "away": 2,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 212
+  },
+  {
+   "home": 6,
+   "away": 3,
+   "goals_home": 3,
+   "goals_away": 3,
+   "day": 213
+  },
+  {
+   "home": 6,
+   "away": 4,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 214
+  },
+  {
+   "home": 6,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 215
+  },
+  {
+   "home": 6,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 216
+  },
+  {
+   "home": 7,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 2,
+   "day": 217
+  },
+  {
+   "home": 7,
+   "away": 1,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 218
+  },
+  {
+   "home": 7,
+   "away": 2,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 219
+  },
+  {
+   "home": 7,
+   "away": 3,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 220
+  },
+  {
+   "home": 7,
+   "away": 4,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 221
+  },
+  {
+   "home": 7,
+   "away": 5,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 222
+  },
+  {
+   "home": 7,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 3,
+   "day": 223
+  },
+  {
+   "home": 0,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 224
+  },
+  {
+   "home": 0,
+   "away": 2,
+   "goals_home": 5,
+   "goals_away": 0,
+   "day": 225
+  },
+  {
+   "home": 0,
+   "away": 3,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 226
+  },
+  {
+   "home": 0,
+   "away": 4,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 227
+  },
+  {
+   "home": 0,
+   "away": 5,
+   "goals_home": 6,
+   "goals_away": 2,
+   "day": 228
+  },
+  {
+   "home": 0,
+   "away": 6,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 229
+  },
+  {
+   "home": 0,
+   "away": 7,
+   "goals_home": 4,
+   "goals_away": 0,
+   "day": 230
+  },
+  {
+   "home": 1,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 231
+  },
+  {
+   "home": 1,
+   "away": 2,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 232
+  },
+  {
+   "home": 1,
+   "away": 3,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 233
+  },
+  {
+   "home": 1,
+   "away": 4,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 234
+  },
+  {
+   "home": 1,
+   "away": 5,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 235
+  },
+  {
+   "home": 1,
+   "away": 6,
+   "goals_home": 4,
+   "goals_away": 1,
+   "day": 236
+  },
+  {
+   "home": 1,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 237
+  },
+  {
+   "home": 2,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 2,
+   "day": 238
+  },
+  {
+   "home": 2,
+   "away": 1,
+   "goals_home": 1,
+   "goals_away": 3,
+   "day": 239
+  },
+  {
+   "home": 2,
+   "away": 3,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 240
+  },
+  {
+   "home": 2,
+   "away": 4,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 241
+  },
+  {
+   "home": 2,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 242
+  },
+  {
+   "home": 2,
+   "away": 6,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 243
+  },
+  {
+   "home": 2,
+   "away": 7,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 244
+  },
+  {
+   "home": 3,
+   "away": 0,
+   "goals_home": 4,
+   "goals_away": 0,
+   "day": 245
+  },
+  {
+   "home": 3,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 246
+  },
+  {
+   "home": 3,
+   "away": 2,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 247
+  },
+  {
+   "home": 3,
+   "away": 4,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 248
+  },
+  {
+   "home": 3,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 249
+  },
+  {
+   "home": 3,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 250
+  },
+  {
+   "home": 3,
+   "away": 7,
+   "goals_home": 4,
+   "goals_away": 2,
+   "day": 251
+  },
+  {
+   "home": 4,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 252
+  },
+  {
+   "home": 4,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 2,
+   "day": 253
+  },
+  {
+   "home": 4,
+   "away": 2,
+   "goals_home": 2,
+   "goals_away": 2,
+   "day": 254
+  },
+  {
+   "home": 4,
+   "away": 3,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 255
+  },
+  {
+   "home": 4,
+   "away": 5,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 256
+  },
+  {
+   "home": 4,
+   "away": 6,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 257
+  },
+  {
+   "home": 4,
+   "away": 7,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 258
+  },
+  {
+   "home": 5,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 4,
+   "day": 259
+  },
+  {
+   "home": 5,
+   "away": 1,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 260
+  },
+  {
+   "home": 5,
+   "away": 2,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 261
+  },
+  {
+   "home": 5,
+   "away": 3,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 262
+  },
+  {
+   "home": 5,
+   "away": 4,
+   "goals_home": 9,
+   "goals_away": 0,
+   "day": 263
+  },
+  {
+   "home": 5,
+   "away": 6,
+   "goals_home": 4,
+   "goals_away": 0,
+   "day": 264
+  },
+  {
+   "home": 5,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 3,
+   "day": 265
+  },
+  {
+   "home": 6,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 3,
+   "day": 266
+  },
+  {
+   "home": 6,
+   "away": 1,
+   "goals_home": 2,
+   "goals_away": 4,
+   "day": 267
+  },
+  {
+   "home": 6,
+   "away": 2,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 268
+  },
+  {
+   "home": 6,
+   "away": 3,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 269
+  },
+  {
+   "home": 6,
+   "away": 4,
+   "goals_home": 1,
+   "goals_away": 2,
+   "day": 270
+  },
+  {
+   "home": 6,
+   "away": 5,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 271
+  },
+  {
+   "home": 6,
+   "away": 7,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 272
+  },
+  {
+   "home": 7,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 273
+  },
+  {
+   "home": 7,
+   "away": 1,
+   "goals_home": 1,
+   "goals_away": 3,
+   "day": 274
+  },
+  {
+   "home": 7,
+   "away": 2,
+   "goals_home": 1,
+   "goals_away": 3,
+   "day": 275
+  },
+  {
+   "home": 7,
+   "away": 3,
+   "goals_home": 0,
+   "goals_away": 3,
+   "day": 276
+  },
+  {
+   "home": 7,
+   "away": 4,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 277
+  },
+  {
+   "home": 7,
+   "away": 5,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 278
+  },
+  {
+   "home": 7,
+   "away": 6,
+   "goals_home": 3,
+   "goals_away": 2,
+   "day": 279
+  },
+  {
+   "home": 0,
+   "away": 1,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 280
+  },
+  {
+   "home": 0,
+   "away": 2,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 281
+  },
+  {
+   "home": 0,
+   "away": 3,
+   "goals_home": 4,
+   "goals_away": 1,
+   "day": 282
+  },
+  {
+   "home": 0,
+   "away": 4,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 283
+  },
+  {
+   "home": 0,
+   "away": 5,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 284
+  },
+  {
+   "home": 0,
+   "away": 6,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 285
+  },
+  {
+   "home": 0,
+   "away": 7,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 286
+  },
+  {
+   "home": 1,
+   "away": 0,
+   "goals_home": 3,
+   "goals_away": 5,
+   "day": 287
+  },
+  {
+   "home": 1,
+   "away": 2,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 288
+  },
+  {
+   "home": 1,
+   "away": 3,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 289
+  },
+  {
+   "home": 1,
+   "away": 4,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 290
+  },
+  {
+   "home": 1,
+   "away": 5,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 291
+  },
+  {
+   "home": 1,
+   "away": 6,
+   "goals_home": 7,
+   "goals_away": 1,
+   "day": 292
+  },
+  {
+   "home": 1,
+   "away": 7,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 293
+  },
+  {
+   "home": 2,
+   "away": 0,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 294
+  },
+  {
+   "home": 2,
+   "away": 1,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 295
+  },
+  {
+   "home": 2,
+   "away": 3,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 296
+  },
+  {
+   "home": 2,
+   "away": 4,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 297
+  },
+  {
+   "home": 2,
+   "away": 5,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 298
+  },
+  {
+   "home": 2,
+   "away": 6,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 299
+  },
+  {
+   "home": 2,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 300
+  },
+  {
+   "home": 3,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 3,
+   "day": 301
+  },
+  {
+   "home": 3,
+   "away": 1,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 302
+  },
+  {
+   "home": 3,
+   "away": 2,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 303
+  },
+  {
+   "home": 3,
+   "away": 4,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 304
+  },
+  {
+   "home": 3,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 305
+  },
+  {
+   "home": 3,
+   "away": 6,
+   "goals_home": 0,
+   "goals_away": 2,
+   "day": 306
+  },
+  {
+   "home": 3,
+   "away": 7,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 307
+  },
+  {
+   "home": 4,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 308
+  },
+  {
+   "home": 4,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 4,
+   "day": 309
+  },
+  {
+   "home": 4,
+   "away": 2,
+   "goals_home": 3,
+   "goals_away": 2,
+   "day": 310
+  },
+  {
+   "home": 4,
+   "away": 3,
+   "goals_home": 1,
+   "goals_away": 0,
+   "day": 311
+  },
+  {
+   "home": 4,
+   "away": 5,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 312
+  },
+  {
+   "home": 4,
+   "away": 6,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 313
+  },
+  {
+   "home": 4,
+   "away": 7,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 314
+  },
+  {
+   "home": 5,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 315
+  },
+  {
+   "home": 5,
+   "away": 1,
+   "goals_home": 2,
+   "goals_away": 0,
+   "day": 316
+  },
+  {
+   "home": 5,
+   "away": 2,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 317
+  },
+  {
+   "home": 5,
+   "away": 3,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 318
+  },
+  {
+   "home": 5,
+   "away": 4,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 319
+  },
+  {
+   "home": 5,
+   "away": 6,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 320
+  },
+  {
+   "home": 5,
+   "away": 7,
+   "goals_home": 2,
+   "goals_away": 1,
+   "day": 321
+  },
+  {
+   "home": 6,
+   "away": 0,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 322
+  },
+  {
+   "home": 6,
+   "away": 1,
+   "goals_home": 0,
+   "goals_away": 2,
+   "day": 323
+  },
+  {
+   "home": 6,
+   "away": 2,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 324
+  },
+  {
+   "home": 6,
+   "away": 3,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 325
+  },
+  {
+   "home": 6,
+   "away": 4,
+   "goals_home": 0,
+   "goals_away": 4,
+   "day": 326
+  },
+  {
+   "home": 6,
+   "away": 5,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 327
+  },
+  {
+   "home": 6,
+   "away": 7,
+   "goals_home": 0,
+   "goals_away": 1,
+   "day": 328
+  },
+  {
+   "home": 7,
+   "away": 0,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 329
+  },
+  {
+   "home": 7,
+   "away": 1,
+   "goals_home": 3,
+   "goals_away": 3,
+   "day": 330
+  },
+  {
+   "home": 7,
+   "away": 2,
+   "goals_home": 3,
+   "goals_away": 1,
+   "day": 331
+  },
+  {
+   "home": 7,
+   "away": 3,
+   "goals_home": 1,
+   "goals_away": 1,
+   "day": 332
+  },
+  {
+   "home": 7,
+   "away": 4,
+   "goals_home": 3,
+   "goals_away": 0,
+   "day": 333
+  },
+  {
+   "home": 7,
+   "away": 5,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 334
+  },
+  {
+   "home": 7,
+   "away": 6,
+   "goals_home": 0,
+   "goals_away": 0,
+   "day": 335
+  }
+ ],
+ "home_advantage": 0.379374866777101,
+ "rho": -0.02913294139531146,
+ "attack": [
+  1.4515796486825465,
+  1.3028939122726042,
+  1.0028721252365806,
+  1.0226006687657354,
+  0.8800287259416284,
+  0.8955119309257364,
+  0.7328652550071438,
+  0.7116477331680247
+ ],
+ "defence": [
+  -1.312180384636028,
+  -1.0916376638325531,
+  -0.9818081046951331,
+  -0.90930874169381,
+  -0.8864396798284908,
+  -0.8037000609797708,
+  -0.6063190336002049,
+  -0.7127948739823653
+ ],
+ "pairs": [
+  {
+   "home": 0,
+   "away": 1,
+   "lambda": 2.0945041685244243,
+   "mu": 0.9907565137550107,
+   "p_home": 0.6247169790929048,
+   "p_draw": 0.2082852701016365,
+   "p_away": 0.16699775080545892
+  },
+  {
+   "home": 0,
+   "away": 2,
+   "lambda": 2.3376506066662897,
+   "mu": 0.7339544867817697,
+   "p_home": 0.7307574862914987,
+   "p_draw": 0.17185601838734485,
+   "p_away": 0.09738649532115629
+  },
+  {
+   "home": 0,
+   "away": 3,
+   "lambda": 2.513423514391918,
+   "mu": 0.7485781169762865,
+   "p_home": 0.7557275810639293,
+   "p_draw": 0.15648859510828125,
+   "p_away": 0.08778382382778947
+  },
+  {
+   "home": 0,
+   "away": 4,
+   "lambda": 2.5715654439605387,
+   "mu": 0.6491109259043345,
+   "p_home": 0.7860864047618,
+   "p_draw": 0.14400811823378795,
+   "p_away": 0.0699054770044119
+  },
+  {
+   "home": 0,
+   "away": 5,
+   "lambda": 2.793385928535306,
+   "mu": 0.6592394521097309,
+   "p_home": 0.8133702568890985,
+   "p_draw": 0.12638303030194536,
+   "p_away": 0.060246712808956215
+  },
+  {
+   "home": 0,
+   "away": 6,
+   "lambda": 3.4029254286343824,
+   "mu": 0.5602819557069242,
+   "p_home": 0.891332498055376,
+   "p_draw": 0.07874049469247515,
+   "p_away": 0.029927007252148915
+  },
+  {
+   "home": 0,
+   "away": 7,
+   "lambda": 3.0592189597638226,
+   "mu": 0.5485193886103389,
+   "p_home": 0.8634782340474281,
+   "p_draw": 0.09830551881351099,
+   "p_away": 0.038216247139061105
+  },
+  {
+   "home": 1,
+   "away": 0,
+   "lambda": 1.4478625919719041,
+   "mu": 1.4332462621514188,
+   "p_home": 0.3755435002647893,
+   "p_draw": 0.25545862319933604,
+   "p_away": 0.36899787653587457
+  },
+  {
+   "home": 1,
+   "away": 2,
+   "lambda": 2.014680605412241,
+   "mu": 0.91506009469958,
+   "p_home": 0.626339834783155,
+   "p_draw": 0.21344595798147695,
+   "p_away": 0.16021420723536806
+  },
+  {
+   "home": 1,
+   "away": 3,
+   "lambda": 2.166168713661556,
+   "mu": 0.9332921522339936,
+   "p_home": 0.6526098932035094,
+   "p_draw": 0.1993265210104355,
+   "p_away": 0.14806358578605508
+  },
+  {
+   "home": 1,
+   "away": 4,
+   "lambda": 2.21627774942982,
+   "mu": 0.8092811148726747,
+   "p_home": 0.6915593308455046,
+   "p_draw": 0.18839314691343464,
+   "p_away": 0.12004752224106069
+  },
+  {
+   "home": 1,
+   "away": 5,
+   "lambda": 2.4074514975004293,
+   "mu": 0.8219088871877079,
+   "p_home": 0.7222794562570505,
+   "p_draw": 0.17087328982050445,
+   "p_away": 0.10684725392244512
+  },
+  {
+   "home": 1,
+   "away": 6,
+   "lambda": 2.9327769698273505,
+   "mu": 0.6985333132789815,
+   "p_home": 0.822484161784909,
+   "p_draw": 0.11888359162776364,
+   "p_away": 0.05863224658732734
+  },
+  {
+   "home": 1,
+   "away": 7,
+   "lambda": 2.6365570151371345,
+   "mu": 0.6838682952769702,
+   "p_home": 0.7877217889694302,
+   "p_draw": 0.14106031816160622,
+   "p_away": 0.07121789286896368
+  },
+  {
+   "home": 2,
+   "away": 0,
+   "lambda": 1.0725796205908489,
+   "mu": 1.5996287066742048,
+   "p_home": 0.25129006296025774,
+   "p_draw": 0.25622443531808764,
+   "p_away": 0.4924855017216546
+  },
+  {
+   "home": 2,
+   "away": 1,
+   "lambda": 1.337242059101314,
+   "mu": 1.378623872193253,
+   "p_home": 0.3583162757392048,
+   "p_draw": 0.2643458915930856,
+   "p_away": 0.3773378326677098
+  },
+  {
+   "home": 2,
+   "away": 3,
+   "lambda": 1.6047022900637,
+   "mu": 1.0416360103993945,
+   "p_home": 0.501117199839984,
+   "p_draw": 0.25610194791339613,
+   "p_away": 0.24278085224662005
+  },
+  {
+   "home": 2,
+   "away": 4,
+   "lambda": 1.6418231680189062,
+   "mu": 0.9032288011527146,
+   "p_home": 0.5443318281833207,
+   "p_draw": 0.25256252991379285,
+   "p_away": 0.20310564190288657
+  },
+  {
+   "home": 2,
+   "away": 5,
+   "lambda": 1.7834450783503555,
+   "mu": 0.9173225041191201,
+   "p_home": 0.5747523375706651,
+   "p_draw": 0.23741308830939664,
+   "p_away": 0.18783457411993823
+  },
+  {
+   "home": 2,
+   "away": 6,
+   "lambda": 2.1726072812550714,
+   "mu": 0.7796245278965567,
+   "p_home": 0.6905485894246537,
+   "p_draw": 0.19113935531233997,
+   "p_away": 0.11831205526300641
+  },
+  {
+   "home": 2,
+   "away": 7,
+   "lambda": 1.9531669224981296,
+   "mu": 0.7632570798177472,
+   "p_home": 0.6510997578623388,
+   "p_draw": 0.2138262540844822,
+   "p_away": 0.13507398805317927
+  },
+  {
+   "home": 3,
+   "away": 0,
+   "lambda": 1.0939501660513327,
+   "mu": 1.7199081822518183,
+   "p_home": 0.23810566505985165,
+   "p_draw": 0.24496769438471003,
+   "p_away": 0.5169266405554385
+  },
+  {
+   "home": 3,
+   "away": 1,
+   "lambda": 1.3638858547385582,
+   "mu": 1.4822855254721197,
+   "p_home": 0.3449674998406571,
+   "p_draw": 0.256783614665482,
+   "p_away": 0.39824888549386095
+  },
+  {
+   "home": 3,
+   "away": 2,
+   "lambda": 1.5222164002658953,
+   "mu": 1.0980802013489999,
+   "p_home": 0.46685022075723825,
+   "p_draw": 0.26285887678375736,
+   "p_away": 0.2702909024590042
+  },
+  {
+   "home": 3,
+   "away": 4,
+   "lambda": 1.6745355708807983,
+   "mu": 0.9711444906348812,
+   "p_home": 0.5354875081107278,
+   "p_draw": 0.24938185125399903,
+   "p_away": 0.21513064063527315
+  },
+  {
+   "home": 3,
+   "away": 5,
+   "lambda": 1.818979218092976,
+   "mu": 0.9862979290228086,
+   "p_home": 0.5660080149391167,
+   "p_draw": 0.23488205159319536,
+   "p_away": 0.19910993346768813
+  },
+  {
+   "home": 3,
+   "away": 6,
+   "lambda": 2.2158952589310434,
+   "mu": 0.8382461498839525,
+   "p_home": 0.684603491091546,
+   "p_draw": 0.18999871469987334,
+   "p_away": 0.12539779420858072
+  },
+  {
+   "home": 3,
+   "away": 7,
+   "lambda": 1.992082674492528,
+   "mu": 0.820647998665565,
+   "p_home": 0.6448167154529674,
+   "p_draw": 0.21211260380807095,
+   "p_away": 0.14307068073896195
+  },
+  {
+   "home": 4,
+   "away": 0,
+   "lambda": 0.9485917221933371,
+   "mu": 1.7596940678474549,
+   "p_home": 0.19815891163399257,
+   "p_draw": 0.24038941149374496,
+   "p_away": 0.5614516768722624
+  },
+  {
+   "home": 4,
+   "away": 1,
+   "lambda": 1.1826597517613717,
+   "mu": 1.5165745898216416,
+   "p_home": 0.29285556560890147,
+   "p_draw": 0.26108747236404695,
+   "p_away": 0.4460569620270516
+  },
+  {
+   "home": 4,
+   "away": 2,
+   "lambda": 1.3199521527486209,
+   "mu": 1.1234816115617854,
+   "p_home": 0.40741879756623367,
+   "p_draw": 0.2795768096843871,
+   "p_away": 0.3130043927493793
+  },
+  {
+   "home": 4,
+   "away": 3,
+   "lambda": 1.4192021549883476,
+   "mu": 1.1458663505526985,
+   "p_home": 0.4290521464152727,
+   "p_draw": 0.2703173979692602,
+   "p_away": 0.30063045561546703
+  },
+  {
+   "home": 4,
+   "away": 5,
+   "lambda": 1.5772826611955006,
+   "mu": 1.0091135286997275,
+   "p_home": 0.5020330969612493,
+   "p_draw": 0.2591234608094724,
+   "p_away": 0.2388434422292784
+  },
+  {
+   "home": 4,
+   "away": 6,
+   "lambda": 1.9214585500330876,
+   "mu": 0.8576369323480497,
+   "p_home": 0.6206208947410237,
+   "p_draw": 0.22110857884228655,
+   "p_away": 0.15827052641668993
+  },
+  {
+   "home": 4,
+   "away": 7,
+   "lambda": 1.7273850250137488,
+   "mu": 0.8396316907754825,
+   "p_home": 0.5811849762811314,
+   "p_draw": 0.24208824762861386,
+   "p_away": 0.17672677609025453
+  },
+  {
+   "home": 5,
+   "away": 0,
+   "lambda": 0.9633932541550304,
+   "mu": 1.9114833959199686,
+   "p_home": 0.18236438316548198,
+   "p_draw": 0.2252172908148138,
+   "p_away": 0.592418326019704
+  },
+  {
+   "home": 5,
+   "away": 1,
+   "lambda": 1.2011136088907897,
+   "mu": 1.6473926917673207,
+   "p_home": 0.2753261327664983,
+   "p_draw": 0.25007886501178866,
+   "p_away": 0.47459500222171286
+  },
+  {
+   "home": 5,
+   "away": 2,
+   "lambda": 1.340548278057031,
+   "mu": 1.2203919336664637,
+   "p_home": 0.3917980401347747,
+   "p_draw": 0.2730429154989125,
+   "p_away": 0.33515904436631283
+  },
+  {
+   "home": 5,
+   "away": 3,
+   "lambda": 1.441346946647074,
+   "mu": 1.2447075562993644,
+   "p_home": 0.4130320398913234,
+   "p_draw": 0.2646229871895621,
+   "p_away": 0.32234497291911446
+  },
+  {
+   "home": 5,
+   "away": 4,
+   "lambda": 1.4746889967138634,
+   "mu": 1.079317249632073,
+   "p_home": 0.4589006580435515,
+   "p_draw": 0.26765385884423176,
+   "p_away": 0.27344548311221684
+  },
+  {
+   "home": 5,
+   "away": 6,
+   "lambda": 1.9514403951999666,
+   "mu": 0.9316157767789599,
+   "p_home": 0.6088726754412268,
+   "p_draw": 0.2203570923443839,
+   "p_away": 0.17077023221438936
+  },
+  {
+   "home": 5,
+   "away": 7,
+   "lambda": 1.754338606896978,
+   "mu": 0.9120574223272737,
+   "p_home": 0.5692567491619182,
+   "p_draw": 0.2404266323991312,
+   "p_away": 0.1903166184389506
+  },
+  {
+   "home": 6,
+   "away": 0,
+   "lambda": 0.8187796631791885,
+   "mu": 2.3285845997653207,
+   "p_home": 0.11246051230190168,
+   "p_draw": 0.1780381154053045,
+   "p_away": 0.709501372292794
+  },
+  {
+   "home": 6,
+   "away": 1,
+   "lambda": 1.0208161536174538,
+   "mu": 2.0068671587749085,
+   "p_home": 0.18327699611956536,
+   "p_draw": 0.21740701886726863,
+   "p_away": 0.599315985013166
+  },
+  {
+   "home": 6,
+   "away": 2,
+   "lambda": 1.139320482937851,
+   "mu": 1.4866913667569888,
+   "p_home": 0.2869498385936059,
+   "p_draw": 0.264865650741191,
+   "p_away": 0.44818451066520315
+  },
+  {
+   "home": 6,
+   "away": 3,
+   "lambda": 1.2249884067696957,
+   "mu": 1.5163128557626133,
+   "p_home": 0.30365460227104096,
+   "p_draw": 0.25978579837101734,
+   "p_away": 0.43655959935794164
+  },
+  {
+   "home": 6,
+   "away": 4,
+   "lambda": 1.2533255291292802,
+   "mu": 1.314833040725788,
+   "p_home": 0.3489982609222975,
+   "p_draw": 0.2730324897310956,
+   "p_away": 0.3779692493466067
+  },
+  {
+   "home": 6,
+   "away": 5,
+   "lambda": 1.3614360486784958,
+   "mu": 1.3353492889928447,
+   "p_home": 0.3732769638071082,
+   "p_draw": 0.2654748764872462,
+   "p_away": 0.3612481597056458
+  },
+  {
+   "home": 6,
+   "away": 7,
+   "lambda": 1.490997334123127,
+   "mu": 1.1110757604623553,
+   "p_home": 0.45577828808226195,
+   "p_draw": 0.26531133625880454,
+   "p_away": 0.27891037565893356
+  },
+  {
+   "home": 7,
+   "away": 0,
+   "lambda": 0.8015901916508523,
+   "mu": 2.09339002761365,
+   "p_home": 0.1294954359817441,
+   "p_draw": 0.20050465298903744,
+   "p_away": 0.6699999110292185
+  },
+  {
+   "home": 7,
+   "away": 1,
+   "lambda": 0.9993851252255912,
+   "mu": 1.8041670881737057,
+   "p_home": 0.20406076381248467,
+   "p_draw": 0.2365265703909175,
+   "p_away": 0.5594126657965979
+  },
+  {
+   "home": 7,
+   "away": 2,
+   "lambda": 1.115401573023714,
+   "mu": 1.3365307327129294,
+   "p_home": 0.3076882674363403,
+   "p_draw": 0.2785661301137858,
+   "p_away": 0.4137456024498739
+  },
+  {
+   "home": 7,
+   "away": 3,
+   "lambda": 1.199270983282467,
+   "mu": 1.363160355572108,
+   "p_home": 0.32518373076660567,
+   "p_draw": 0.27243951178298126,
+   "p_away": 0.402376757450413
+  },
+  {
+   "home": 7,
+   "away": 4,
+   "lambda": 1.2270131957048607,
+   "mu": 1.1820306531743339,
+   "p_home": 0.3691330436437023,
+   "p_draw": 0.2835178787834991,
+   "p_away": 0.34734907757279887
+  },
+  {
+   "home": 7,
+   "away": 5,
+   "lambda": 1.3328540415173238,
+   "mu": 1.2004746940438948,
+   "p_home": 0.3940206031481871,
+   "p_draw": 0.2746458015752077,
+   "p_away": 0.33133359527660533
+  },
+  {
+   "home": 7,
+   "away": 6,
+   "lambda": 1.6236936200633125,
+   "mu": 1.0202731453693845,
+   "p_home": 0.5109925406056833,
+   "p_draw": 0.254426074294363,
+   "p_away": 0.2345813850999538
+  }
+ ]
+}

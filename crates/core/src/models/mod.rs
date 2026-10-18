@@ -12,6 +12,9 @@ pub mod grid;
 pub mod likelihood;
 pub mod poisson;
 
+#[cfg(test)]
+mod reference;
+
 use crate::error::Result;
 use grid::ScoreGrid;
 
