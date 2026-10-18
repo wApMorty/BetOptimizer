@@ -9,6 +9,7 @@ use edge_core::ingest::aliases::Aliases;
 use edge_core::ingest::client::OddsApiClient;
 use edge_core::ingest::football_data::fetch::{FileClient, fetch_all};
 use edge_core::ingest::football_data::import::{import_files, load_files};
+use edge_core::ingest::football_data::quality::{self, SeasonStatus};
 use edge_core::ingest::football_data::{FIRST_SEASON, Season, wanted_files};
 use edge_core::ingest::snapshot::{self, SnapshotReport};
 use edge_core::init::initialize;
@@ -158,6 +159,64 @@ pub fn fd_import(paths: &Paths) -> Result<()> {
             println!("  - {path}");
         }
     }
+    Ok(())
+}
+
+/// `edge fd check` : contrôle qualité de l'historique importé.
+pub fn fd_check(paths: &Paths) -> Result<()> {
+    let conn = open_database(paths)?;
+    let current = Season::containing(Utc::now().date_naive()).label();
+    let report = quality::run(&conn, &current)?;
+
+    let incomplete: Vec<_> = report
+        .seasons
+        .iter()
+        .filter(|season| season.status == SeasonStatus::Incomplete)
+        .collect();
+    println!(
+        "Saisons : {} ligue-saisons, {} incomplètes.",
+        report.seasons.len(),
+        incomplete.len()
+    );
+    for season in incomplete {
+        println!(
+            "  - {} {} : {} matchs sur {} attendus ({} équipes)",
+            season.div, season.season, season.games, season.expected, season.teams
+        );
+    }
+    println!(
+        "Résultats publiés contredisant les buts : {}",
+        report.result_mismatches
+    );
+    let (low, high) = quality::IMPLIED_SUM_RANGE;
+    println!("Cotes dont la somme des probabilités implicites sort de [{low:.2} ; {high:.2}] :");
+    let mut any = false;
+    for check in report.odds.iter().filter(|check| check.out_of_range > 0) {
+        any = true;
+        println!(
+            "  - {} ({}) : {} sur {}",
+            check.bookmaker, check.moment, check.out_of_range, check.rows
+        );
+    }
+    if !any {
+        println!("  aucune");
+    }
+    for sample in report.odds_samples.iter().take(5) {
+        println!(
+            "    exemple : {} {} {}–{} {} {} somme {:.3}",
+            sample.date,
+            sample.div,
+            sample.home,
+            sample.away,
+            sample.bookmaker,
+            sample.moment,
+            sample.implied_sum
+        );
+    }
+    println!(
+        "Matchs sans tirs : {} ; sans heure de coup d'envoi : {}",
+        report.games_without_shots, report.games_without_kickoff
+    );
     Ok(())
 }
 

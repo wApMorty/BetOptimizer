@@ -53,6 +53,8 @@ enum FdCommand {
     },
     /// Importe en base les fichiers du cache. Sûr à relancer : rien n'est dupliqué.
     Import,
+    /// Contrôle qualité des données importées (signale, ne corrige jamais).
+    Check,
 }
 
 /// `anyhow::Result` accepte n'importe quelle erreur : le `?` convertit celles de `edge-core`
@@ -72,6 +74,7 @@ fn main() -> Result<()> {
         Command::Fd { command } => match command {
             FdCommand::Fetch { force } => commands::fd_fetch(&paths, force),
             FdCommand::Import => commands::fd_import(&paths),
+            FdCommand::Check => commands::fd_check(&paths),
         },
     }
 }
