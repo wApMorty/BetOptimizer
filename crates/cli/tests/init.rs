@@ -30,7 +30,10 @@ fn init_creates_config_and_database() {
     assert!(output.status.success(), "{}", text(&output.stderr));
     let stdout = text(&output.stdout);
     assert!(stdout.contains("(créée)"));
-    assert!(stdout.contains("version du schéma : 1"));
+    assert!(stdout.contains(&format!(
+        "version du schéma : {}",
+        edge_core::store::migrate::LATEST_VERSION
+    )));
     assert!(stdout.contains("Clé API : absente"));
     assert!(home.path().join("edge.toml").exists());
     assert!(home.path().join("edge.db").exists());

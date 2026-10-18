@@ -9,7 +9,13 @@ use crate::error::{Error, Result};
 
 /// Migrations dans l'ordre : la première est la version 1, la deuxième la version 2, etc.
 /// Une migration déjà publiée ne se modifie jamais : on en ajoute une nouvelle à la suite.
-const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_api_call.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/0001_api_call.sql"),
+    include_str!("migrations/0002_odds_archive.sql"),
+];
+
+/// Version du schéma attendue par ce programme (le nombre de migrations connues).
+pub const LATEST_VERSION: u32 = MIGRATIONS.len() as u32;
 
 /// Version actuelle du schéma de la base (0 pour une base vierge).
 pub fn schema_version(conn: &Connection) -> Result<u32> {
@@ -73,7 +79,7 @@ mod tests {
 
         let version = migrate(&mut conn).unwrap();
 
-        assert_eq!(version, MIGRATIONS.len() as u32);
+        assert_eq!(version, LATEST_VERSION);
         assert!(table_exists(&conn, "api_call"));
     }
 
@@ -90,7 +96,7 @@ mod tests {
 
         let version = migrate(&mut conn).unwrap();
 
-        assert_eq!(version, MIGRATIONS.len() as u32);
+        assert_eq!(version, LATEST_VERSION);
         let rows: u32 = conn
             .query_row("SELECT COUNT(*) FROM api_call", [], |row| row.get(0))
             .unwrap();
@@ -126,7 +132,7 @@ mod tests {
             err,
             Error::DatabaseTooNew {
                 found: 99,
-                supported: 1
+                supported: LATEST_VERSION
             }
         ));
         assert_eq!(schema_version(&conn).unwrap(), 99);

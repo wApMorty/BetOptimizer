@@ -75,7 +75,7 @@ mod tests {
         let report = initialize(&paths).unwrap();
 
         assert!(report.config_created);
-        assert_eq!(report.schema_version, 1);
+        assert_eq!(report.schema_version, migrate::LATEST_VERSION);
         assert_eq!(
             fs::read_to_string(&paths.config_file).unwrap(),
             EXAMPLE_TOML
@@ -112,7 +112,7 @@ mod tests {
         let report = initialize(&paths).unwrap();
 
         assert!(!report.config_created);
-        assert_eq!(report.schema_version, 1);
+        assert_eq!(report.schema_version, migrate::LATEST_VERSION);
         assert_eq!(
             fs::read_to_string(&paths.config_file).unwrap(),
             "monthly_credit_cap = 300"
