@@ -161,7 +161,12 @@ impl Config {
             Some(value) => Ok(ApiKey::new(value)),
             // `clone()` : `self` n'est qu'emprunté ici ; l'appelant reçoit sa propre copie de la clé
             // (une petite chaîne) et n'est plus lié à la durée de vie de la configuration.
-            None => self.odds_api_key.clone().ok_or(Error::MissingApiKey),
+            // Une clé vide dans le fichier (`odds_api_key = ""`) équivaut à une clé absente.
+            None => self
+                .odds_api_key
+                .clone()
+                .filter(|key| !key.expose().is_empty())
+                .ok_or(Error::MissingApiKey),
         }
     }
 }
@@ -262,6 +267,15 @@ mod tests {
     fn empty_environment_value_counts_as_absent() {
         let config = Config::parse(r#"odds_api_key = "du-fichier""#).unwrap();
         assert_eq!(config.api_key(Some("  ")).unwrap().expose(), "du-fichier");
+    }
+
+    #[test]
+    fn empty_key_in_the_file_counts_as_missing() {
+        let config = Config::parse("odds_api_key = \"\"").unwrap();
+        assert!(matches!(
+            config.api_key(None).unwrap_err(),
+            Error::MissingApiKey
+        ));
     }
 
     #[test]

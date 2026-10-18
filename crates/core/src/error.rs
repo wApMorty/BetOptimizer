@@ -83,6 +83,27 @@ pub enum Error {
         message: String,
     },
 
+    /// Échec réseau ou protocole lors d'un appel HTTP (le message ne contient jamais la clé).
+    #[error("échec de la requête HTTP : {0}")]
+    Http(String),
+
+    /// La garde de budget refuse l'appel : il ferait dépasser le plafond de crédits.
+    #[error(
+        "garde de budget : {used} crédits déjà utilisés + {cost} pour cet appel dépasseraient le plafond de {cap}"
+    )]
+    BudgetExceeded {
+        /// Crédits déjà consommés.
+        used: u32,
+        /// Coût de l'appel refusé.
+        cost: u32,
+        /// Plafond configuré.
+        cap: u32,
+    },
+
+    /// Le quota n'a pas pu être lu : par prudence, aucun appel payant n'est lancé.
+    #[error("quota inconnu : l'API n'a pas renvoyé l'en-tête x-requests-used")]
+    QuotaUnknown,
+
     /// Le fichier de configuration contient un secret mais d'autres utilisateurs peuvent le lire.
     #[error(
         "permissions trop ouvertes sur {path} ({mode:o}) : il contient un secret, exécute `chmod 600 {path}`"
