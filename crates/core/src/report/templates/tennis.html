@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tennis : l'Elo contre le marché — edge</title>
+<style>
+  :root { --bg:#fafaf8; --fg:#1d1d1b; --muted:#6b6b66; --card:#ffffff; --line:#e3e2dc; --accent:#1f5eaa; --good:#1a7f4b; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ececea; --muted:#a3a39d; --card:#201f1e; --line:#34332f; --accent:#7fb2ee; --good:#59c58a; --bad:#f08b83; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.6rem; margin: .4em 0 .1em; }
+  h2 { font-size: 1.25rem; margin: 2em 0 .4em; padding-top: .6em; border-top: 1px solid var(--line); }
+  p, li { max-width: 72ch; }
+  .meta, .note { color: var(--muted); font-size: .9rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  .ci { color: var(--muted); }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .charts { display: flex; flex-wrap: wrap; gap: 12px; }
+  .charts > div { flex: 1 1 320px; }
+  svg { max-width: 100%; height: auto; background: #fff; border-radius: 8px; }
+</style>
+</head>
+<body>
+<main>
+
+{% macro delta(c) %}{% if c is none %}—{% else %}<span class="{{ 'bad' if c.low > 0 else ('good' if c.high < 0 else '') }}">{{ c.mean|num(4) }} <span class="ci">[{{ c.low|num(4) }} ; {{ c.high|num(4) }}]</span></span>{% endif %}{% endmacro %}
+
+<h1>Tennis : l'Elo contre le marché</h1>
+<p class="meta">Généré le {{ generated_on }} · test à partir du {{ test_start }} · probabilités du marché = Pinnacle sans marge (cote « la plus récente avant le match », donc quasiment la clôture).</p>
+
+<div class="card">
+  <strong>En bref.</strong>
+  <ul>
+    {% if delta_log_loss is none %}
+    <li>Aucun match du test n'est comparable au marché (pas de cote Pinnacle).</li>
+    {% elif delta_log_loss.low > 0 %}
+    <li>Sur {{ test_with_market }} matchs du test, l'Elo est <strong class="bad">moins bon que le marché</strong> : écart de log loss {{ delta_log_loss.mean|num(4) }}, intervalle à 95 % [{{ delta_log_loss.low|num(4) }} ; {{ delta_log_loss.high|num(4) }}], entièrement au-dessus de zéro.</li>
+    {% elif delta_log_loss.high < 0 %}
+    <li>Sur {{ test_with_market }} matchs du test, l'Elo est <strong class="good">meilleur que le marché</strong> : écart de log loss {{ delta_log_loss.mean|num(4) }}, intervalle à 95 % [{{ delta_log_loss.low|num(4) }} ; {{ delta_log_loss.high|num(4) }}], entièrement sous zéro. Résultat exceptionnel : à vérifier avant de s'y fier.</li>
+    {% else %}
+    <li>Sur {{ test_with_market }} matchs du test, l'Elo et le marché sont <strong>statistiquement indiscernables</strong> : écart de log loss {{ delta_log_loss.mean|num(4) }}, intervalle à 95 % [{{ delta_log_loss.low|num(4) }} ; {{ delta_log_loss.high|num(4) }}] qui contient zéro.</li>
+    {% endif %}
+    {% if info %}
+    <li>Mélangé au marché, l'Elo reçoit un poids optimal de <strong>{{ info.weight|num(1) }}</strong> (choisi sur la validation){% if info.weight == 0 %} : il n'apporte aucune information que le marché n'ait déjà{% endif %}.</li>
+    {% endif %}
+    <li>Un Elo qui n'égale pas le marché ne fournit pas d'avantage : un écart de prix ne vaut que par la qualité de la probabilité qui le mesure.</li>
+  </ul>
+</div>
+
+<h2>1. Protocole</h2>
+<p>Un Elo général et un Elo par surface, mélangés avec un poids <strong>{{ frozen.surface_weight|num(2) }}</strong> pour la surface ; <code>K(n) = {{ frozen.k_base|num(0) }} / (n + 5)^{{ frozen.k_shape|num(1) }}</code> avec <code>n</code> le nombre de matchs déjà joués. Chaque jour, les prévisions précèdent les mises à jour : aucune fuite du futur. Les forfaits sont ignorés ; les abandons sont prévus mais ne modifient pas les classements.</p>
+<p>Configuration choisie sur la validation (2022-2023, {{ frozen.validation_matches }} matchs, log loss {{ frozen.validation_log_loss|num(4) }}) parmi <strong>{{ frozen.configs_tried }} configurations</strong>, en {{ frozen.sessions }} session(s) de réglage, puis gelée avant la lecture du test.</p>
+<p>Le test compte {{ test_matches }} matchs à partir du {{ test_start }} ; {{ test_scored }} sont terminés avec deux joueurs installés (au moins 10 matchs vus) ; {{ test_with_market }} ont une cote Pinnacle et servent à la comparaison.</p>
+
+<h2>2. Résultats sur le test</h2>
+<div class="card scroll"><table>
+  <tr><th>Modèle</th><th>Matchs</th><th>Log loss</th><th>Brier</th></tr>
+  {% for m in models %}<tr><td>{{ m.label }}</td><td>{{ m.n }}</td><td>{{ m.log_loss|num(4) }}</td><td>{{ m.brier|num(4) }}</td></tr>{% endfor %}
+  <tr><td>Écart Elo − marché (positif = l'Elo est moins bon)</td><td></td><td>{{ delta(delta_log_loss) }}</td><td>{{ delta(delta_brier) }}</td></tr>
+</table></div>
+
+<h3>Par surface, circuit et format</h3>
+<div class="card scroll"><table>
+  <tr><th>Tranche</th><th>Matchs</th><th>Log loss Elo</th><th>Log loss marché</th><th>Écart</th></tr>
+  {% for g in by_surface + by_tour + by_best_of %}
+  <tr><td>{{ g.label }}</td><td>{{ g.n }}</td><td>{{ g.elo_log_loss|num(4) }}</td><td>{{ g.market_log_loss|num(4) }}</td><td>{{ delta(g.delta) }}</td></tr>
+  {% endfor %}
+</table></div>
+<p class="note">Les intervalles sont calculés par blocs d'une semaine et d'un circuit. Une tranche de quelques dizaines de matchs ne conclut rien.</p>
+
+{% if info %}
+<h2>3. Le modèle apporte-t-il quelque chose au marché ?</h2>
+<p>On mélange les deux dans l'espace logit : <code>σ((1 − w)·logit(marché) + w·logit(Elo))</code>. Le poids <code>w</code> est choisi sur la validation ({{ info.validation_matches }} matchs), puis lu sur le test. Si le meilleur poids est 0, l'Elo ne sait rien que le marché ignore.</p>
+<div class="card scroll"><table>
+  <tr><th>Poids de l'Elo</th><th>Écart de log loss du mélange contre le marché seul (test)</th></tr>
+  <tr><td>{{ info.weight|num(1) }}</td><td>{{ delta(info.delta_log_loss) }}</td></tr>
+</table></div>
+{% endif %}
+
+<h2>4. Calibration</h2>
+<p>Pour chaque match, on retient le <strong>favori</strong> de la prévision et on regarde s'il gagne aussi souvent qu'annoncé. Sur la diagonale, la prévision est fiable.</p>
+<div class="charts"><div>{{ elo_chart|safe }}</div><div>{{ market_chart|safe }}</div></div>
+
+<h2>5. Données</h2>
+<div class="card scroll"><table>
+  <tr><th>Circuit</th><th>Année</th><th>Matchs</th><th>Avec Pinnacle</th></tr>
+  {% for c in coverage %}<tr><td>{{ c.tour }}</td><td>{{ c.season }}</td><td>{{ c.matches }}</td><td>{{ c.with_pinnacle }} ({{ (100 * c.with_pinnacle / c.matches)|round|int }} %)</td></tr>{% endfor %}
+</table></div>
+
+<h2>Limites</h2>
+<ul>
+  <li><strong>Pas de CLV, pas de décision d'avant-match.</strong> Les cotes de tennis-data sont quasiment des clôtures : on compare des probabilités au marché final, on ne simule aucun pari. Seule l'archive en direct, qui sépare prix d'avant-match et clôture, permettra de juger un avantage.</li>
+  <li><strong>Joueurs identifiés par leur nom publié.</strong> Deux homonymes se confondent dans le classement (voir <code>edge tennis check</code>). Le détecteur ne voit que les homonymes qui jouent le même jour.</li>
+  <li><strong>Format ignoré.</strong> L'Elo ne distingue pas le meilleur des 3 du meilleur des 5, où le favori gagne plus souvent : lire la tranche « au meilleur des 5 ».</li>
+  <li><strong>Réglage.</strong> {{ frozen.configs_tried }} configurations essayées sur la validation : le test, lui, n'a servi qu'à ce rapport.</li>
+</ul>
+
+</main>
+</body>
+</html>

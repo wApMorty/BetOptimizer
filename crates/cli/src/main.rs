@@ -105,6 +105,14 @@ enum TennisCommand {
     Import,
     /// Contrôle qualité des données de tennis (signale, ne corrige jamais).
     Check,
+    /// Règle l'Elo sur la validation (2022-2023) et gèle la meilleure configuration. Le test n'est pas lu.
+    Tune,
+    /// Génère le rapport HTML : l'Elo contre le marché sur le test (à partir du 2024-01-01).
+    Report {
+        /// Fichier de sortie (par défaut : dossier des rapports de l'application).
+        #[arg(long, value_name = "FICHIER")]
+        out: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -227,6 +235,8 @@ fn main() -> Result<()> {
         Command::Tennis { command } => match command {
             TennisCommand::Import => commands::tennis_import(&paths),
             TennisCommand::Check => commands::tennis_check(&paths),
+            TennisCommand::Tune => commands::tennis_tune(&paths),
+            TennisCommand::Report { out } => commands::tennis_report(&paths, out.as_deref()),
         },
         Command::Bet { command } => match command {
             BetCommand::Log {

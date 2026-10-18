@@ -486,3 +486,34 @@ fn tennis_files_are_imported_once_checked_and_reimported_without_duplicates() {
     assert!(report.contains("ATP"), "{report}");
     assert!(report.contains("Années sans aucun match"), "{report}");
 }
+
+#[test]
+fn tennis_tune_and_report_say_what_is_missing() {
+    let home = tempfile::tempdir().unwrap();
+
+    let no_data = run_edge(home.path(), &["tennis", "tune"], None);
+    assert!(!no_data.status.success());
+    assert!(text(&no_data.stderr).contains("edge tennis import"));
+
+    let atp = home.path().join("tennis-data").join("atp");
+    std::fs::create_dir_all(&atp).unwrap();
+    std::fs::write(
+        atp.join("2024.xlsx"),
+        include_bytes!("../../core/tests/fixtures/tennis/mini_atp_2024.xlsx"),
+    )
+    .unwrap();
+    assert!(
+        run_edge(home.path(), &["tennis", "import"], None)
+            .status
+            .success()
+    );
+
+    // Les six matchs de la fixture sont de 2024 : aucun ne tombe dans la validation 2022-2023.
+    let no_validation = run_edge(home.path(), &["tennis", "tune"], None);
+    assert!(!no_validation.status.success());
+    assert!(text(&no_validation.stderr).contains("validation"));
+
+    let no_freeze = run_edge(home.path(), &["tennis", "report"], None);
+    assert!(!no_freeze.status.success());
+    assert!(text(&no_freeze.stderr).contains("edge tennis tune"));
+}

@@ -22,6 +22,7 @@ use edge_core::ingest::snapshot::{self, SnapshotReport};
 use edge_core::ingest::tennis::{import as tennis_import_files, quality as tennis_quality};
 use edge_core::init::initialize;
 use edge_core::models::data::load_leagues;
+use edge_core::models::elo_tuning;
 use edge_core::models::tuning;
 use edge_core::notify::{self, discord};
 use edge_core::paths::Paths;
@@ -31,9 +32,12 @@ use edge_core::report::models_report;
 use edge_core::report::recommend_report;
 use edge_core::report::render::{
     render_backtest_report, render_market_report, render_models_report, render_recommend_report,
+    render_tennis_report,
 };
+use edge_core::report::tennis_report;
 use edge_core::store::archive::last_known_usage;
 use edge_core::store::journal::{self, Settlement, SettlementSource};
+use edge_core::store::tennis as tennis_store;
 use edge_core::store::{self, Connection};
 
 /// `edge init` : crée la configuration par défaut et la base.
@@ -939,6 +943,80 @@ pub fn tennis_check(paths: &Paths) -> Result<()> {
             h.days
         );
     }
+    Ok(())
+}
+
+/// `edge tennis tune` : règle l'Elo sur la validation (2022-2023) et gèle la meilleure configuration.
+pub fn tennis_tune(paths: &Paths) -> Result<()> {
+    let conn = open_database(paths)?;
+    let matches = tennis_store::load_matches(&conn)?;
+    if matches.is_empty() {
+        bail!("aucun match de tennis en base : lance d'abord `edge tennis import`");
+    }
+    let sessions = tennis_store::tuning_sessions(&conn)?;
+    if sessions > 0 {
+        println!(
+            "Attention : {sessions} session(s) de réglage existent déjà (journalisées, jamais effacées). Chaque session supplémentaire est une occasion de s'ajuster au hasard ; le rapport les compte."
+        );
+    }
+    let result = elo_tuning::tune(&matches)
+        .context("aucun match de validation (2022-2023) : importe les années 2022 et 2023")?;
+    let mut ranked = result.rows.clone();
+    ranked.sort_by(|a, b| a.log_loss.total_cmp(&b.log_loss));
+    println!(
+        "{} configurations essayées. Les cinq meilleures (log loss de validation) :",
+        result.rows.len()
+    );
+    for row in ranked.iter().take(5) {
+        println!(
+            "  K = {}/(n+5)^{}, poids de surface {} : {} sur {} matchs",
+            format::decimal(row.config.k_base, 0),
+            format::decimal(row.config.k_shape, 1),
+            format::decimal(row.config.surface_weight, 2),
+            format::decimal(row.log_loss, 4),
+            row.matches
+        );
+    }
+    tennis_store::insert_tuning(
+        &conn,
+        &tennis_store::FrozenElo {
+            created_at: Utc::now(),
+            k_base: result.best.config.k_base,
+            k_shape: result.best.config.k_shape,
+            surface_weight: result.best.config.surface_weight,
+            validation_log_loss: result.best.log_loss,
+            validation_matches: result.best.matches,
+            configs_tried: result.rows.len(),
+        },
+    )?;
+    println!(
+        "Configuration gelée. Le test (à partir du 2024-01-01) n'a pas été lu. Rapport : `edge tennis report`."
+    );
+    Ok(())
+}
+
+/// `edge tennis report` : rapport HTML, l'Elo contre le marché sur le test.
+pub fn tennis_report(paths: &Paths, out: Option<&std::path::Path>) -> Result<()> {
+    let conn = open_database(paths)?;
+    let config = Config::load(&paths.config_file)?;
+    let now = Utc::now();
+    let year = u16::try_from(chrono::Datelike::year(&now)).unwrap_or(tennis_quality::FIRST_YEAR);
+    let report = tennis_report::build(
+        &conn,
+        config.margin_method,
+        &now.format("%Y-%m-%d").to_string(),
+        year,
+    )?;
+    let html = render_tennis_report(&report)?;
+    let target = match out {
+        Some(path) => path.to_path_buf(),
+        None => paths.reports_dir.join("tennis.html"),
+    };
+    if let Some(dir) = target.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("création de {}", dir.display()))?;
+    }
+    std::fs::write(&target, html).with_context(|| format!("écriture de {}", target.display()))?;
+    println!("Rapport écrit : {}", target.display());
     Ok(())
 }
 
