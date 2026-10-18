@@ -26,9 +26,19 @@ impl MeanCi {
 }
 
 /// Générateur SplitMix64 (Steele, Lea & Flood, 2014, « Fast splittable pseudorandom number generators »).
-struct SplitMix64(u64);
+pub(crate) struct SplitMix64(u64);
 
 impl SplitMix64 {
+    /// Générateur initialisé par une graine : même graine, même suite.
+    pub(crate) fn new(seed: u64) -> SplitMix64 {
+        SplitMix64(seed)
+    }
+
+    /// Réel uniforme dans [0, 1) (53 bits aléatoires).
+    pub(crate) fn next_f64(&mut self) -> f64 {
+        (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
+    }
+
     fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
@@ -73,7 +83,7 @@ pub fn block_bootstrap_mean(values: &[(u32, f64)], resamples: usize, seed: u64) 
     let total_count: f64 = blocks.iter().map(|b| b.1).sum();
     let mean = total_sum / total_count;
 
-    let mut rng = SplitMix64(seed);
+    let mut rng = SplitMix64::new(seed);
     let mut means = Vec::with_capacity(resamples);
     for _ in 0..resamples {
         let (mut sum, mut count) = (0.0, 0.0);
