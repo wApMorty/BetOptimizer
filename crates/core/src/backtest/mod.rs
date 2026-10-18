@@ -6,3 +6,4 @@
 pub mod candidates;
 pub mod engine;
 pub mod metrics;
+pub mod study;
