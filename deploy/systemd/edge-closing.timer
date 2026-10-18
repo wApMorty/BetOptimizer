@@ -1,0 +1,10 @@
+[Unit]
+Description=Cotes de clôture : passage toutes les dix minutes
+
+[Timer]
+OnCalendar=*:0/10
+# Rattraper un passage manqué n'aurait aucun sens : la fenêtre des 30 minutes avant le coup d'envoi est passée.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

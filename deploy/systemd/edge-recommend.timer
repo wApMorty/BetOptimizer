@@ -1,0 +1,11 @@
+[Unit]
+Description=Recommandations quotidiennes à 14 h 10, heure de Paris
+
+[Timer]
+# Dix minutes après le relevé des cotes de 14 h.
+OnCalendar=*-*-* 14:10:00 Europe/Paris
+# Si le portable était éteint à 14 h 10, la commande part au réveil : elle ne lit que les relevés de moins de 30 h.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

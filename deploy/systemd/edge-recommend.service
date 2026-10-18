@@ -1,0 +1,13 @@
+[Unit]
+Description=Recommandations quotidiennes et notification Discord (edge)
+Documentation=file://%h/Documents/Workspace/BetOptimizer/docs/sources.md
+# Quand le relevé de 14 h et cette unité démarrent ensemble (réveil du portable), le relevé passe d'abord.
+After=edge-snapshot.service
+
+[Service]
+Type=oneshot
+# Comme pour le relevé : attendre le réseau (Discord) au plus cinq minutes avant de commencer.
+ExecStartPre=/usr/bin/sh -c 'for i in $(seq 1 30); do getent hosts discord.com >/dev/null && exit 0; sleep 10; done; exit 1'
+# Le webhook est lu dans ~/.config/edge/edge.toml (discord_webhook_url, permissions 0600).
+ExecStart=%h/.local/bin/edge recommend --notify
+TimeoutStartSec=300

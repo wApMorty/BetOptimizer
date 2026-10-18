@@ -435,6 +435,29 @@ mod tests {
     }
 
     #[test]
+    fn a_recorded_single_event_response_is_read() {
+        // Réponse réelle de `/sports/soccer_spain_la_liga/events/{match}/odds?markets=h2h&bookmakers=pinnacle`
+        // (2026-10-18, coût mesuré : 1 crédit). Voir docs/sources.md.
+        let body = include_str!("../../tests/fixtures/odds_event_pinnacle.json");
+
+        let parsed = parse_event_odds(body, "2026-10-18T12:00:00Z".parse().unwrap()).unwrap();
+
+        assert_eq!(parsed.events.len(), 1);
+        let event = &parsed.events[0];
+        assert_eq!(
+            (event.home_team.as_str(), event.away_team.as_str()),
+            ("Levante", "Athletic Bilbao")
+        );
+        let pinnacle: Vec<_> = event
+            .quotes
+            .iter()
+            .filter(|q| q.bookmaker_key == "pinnacle")
+            .collect();
+        assert_eq!(pinnacle.len(), 3);
+        assert!(pinnacle.iter().any(|q| q.outcome == "Draw"));
+    }
+
+    #[test]
     fn the_event_path_refuses_anything_but_letters_and_digits() {
         assert_eq!(
             event_odds_path("soccer_epl", "f0153980fbafeb84"),

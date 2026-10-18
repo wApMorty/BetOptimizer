@@ -1,0 +1,10 @@
+[Unit]
+Description=Cotes de clôture de Pinnacle avant le coup d'envoi (edge)
+Documentation=file://%h/Documents/Workspace/BetOptimizer/docs/sources.md
+
+[Service]
+Type=oneshot
+# Sans match suivi dans les 30 minutes, la commande ne fait aucun appel réseau et ne dit rien.
+# Pas de Restart= : un nouvel essai se ferait au prochain passage du timer, dix minutes plus tard.
+ExecStart=%h/.local/bin/edge closing
+TimeoutStartSec=120
