@@ -36,12 +36,12 @@ impl Aliases {
             for (canonical, variants) in teams {
                 // `once(&canonical).chain(…)` parcourt le nom canonique puis ses variantes, sans les copier.
                 for name in std::iter::once(&canonical).chain(variants.iter()) {
-                    if let Some(previous) = names.insert(name.clone(), canonical.clone()) {
-                        if previous != canonical {
-                            return Err(Error::Aliases(format!(
-                                "{div} : « {name} » désigne à la fois « {previous} » et « {canonical} »"
-                            )));
-                        }
+                    if let Some(previous) = names.insert(name.clone(), canonical.clone())
+                        && previous != canonical
+                    {
+                        return Err(Error::Aliases(format!(
+                            "{div} : « {name} » désigne à la fois « {previous} » et « {canonical} »"
+                        )));
                     }
                 }
             }
