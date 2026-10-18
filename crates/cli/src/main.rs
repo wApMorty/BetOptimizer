@@ -57,6 +57,8 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Envoie un message de test sur Discord pour vérifier le webhook.
+    NotifyTest,
     /// Écrit les recommandations du dernier relevé dans le journal immuable (et notifie sur Discord avec --notify).
     Recommend {
         /// Envoie les nouvelles recommandations sur Discord, rapport HTML joint.
@@ -235,6 +237,7 @@ fn main() -> Result<()> {
         },
         Command::Clv => commands::clv_report(&paths),
         Command::Closing { dry_run } => commands::closing(&paths, dry_run),
+        Command::NotifyTest => commands::notify_test(&paths),
         Command::Recommend { notify } => commands::recommend(&paths, notify),
         Command::Backtest { command } => match command {
             BacktestCommand::Tune => commands::backtest_tune(&paths),

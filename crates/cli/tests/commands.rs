@@ -435,3 +435,13 @@ fn clv_on_a_fresh_journal_prints_the_empty_groups() {
     assert!(report.contains("Mes paris hors modèle : 0"), "{report}");
     assert!(report.contains("≥ 5 %"));
 }
+
+#[test]
+fn notify_test_without_a_webhook_says_where_to_put_it() {
+    let home = tempfile::tempdir().unwrap();
+
+    let output = run_edge(home.path(), &["notify-test"], None);
+
+    assert!(!output.status.success());
+    assert!(text(&output.stderr).contains("EDGE_DISCORD_WEBHOOK"));
+}

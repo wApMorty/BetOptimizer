@@ -885,6 +885,25 @@ fn ci_text(ci: Option<edge_core::eval::bootstrap::MeanCi>) -> String {
     })
 }
 
+/// `edge notify-test` : envoie un message de test (avec une pièce jointe) pour vérifier le webhook Discord.
+pub fn notify_test(paths: &Paths) -> Result<()> {
+    let config = Config::load(&paths.config_file)?;
+    let webhook = config.discord_webhook(std::env::var(WEBHOOK_ENV).ok().as_deref())?;
+    let page = "<!doctype html><meta charset=\"utf-8\"><title>Test edge</title><p>Le webhook fonctionne.</p>";
+    discord::send(
+        &webhook,
+        "**edge** · test de notification : le webhook fonctionne. Aucune recommandation.",
+        Some(discord::Attachment {
+            filename: "test-edge.html",
+            content_type: "text/html; charset=utf-8",
+            bytes: page.as_bytes(),
+        }),
+        &mut discord::http_post,
+    )?;
+    println!("Message de test envoyé sur Discord.");
+    Ok(())
+}
+
 /// `edge recommend` : écrit les recommandations du dernier relevé dans le journal immuable et notifie sur Discord.
 pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
     let mut conn = open_database(paths)?;
