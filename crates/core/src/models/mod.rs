@@ -7,10 +7,12 @@
 //! `log μ = base + attaque_ext + défense_dom` pour l'équipe à l'extérieur. Une *défense* élevée est une défense
 //! qui encaisse beaucoup : `défense` s'ajoute aux buts de l'adversaire.
 
+pub mod data;
 pub mod dixon_coles;
 pub mod grid;
 pub mod likelihood;
 pub mod poisson;
+pub mod xg_proxy;
 
 #[cfg(test)]
 mod reference;
