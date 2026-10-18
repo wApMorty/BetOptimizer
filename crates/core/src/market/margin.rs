@@ -9,10 +9,13 @@
 //! Journal of Forecasting* 30(4) ; Shin (1993), *The Economic Journal* 103(420) ; Clarke, Kovalchik & Ingram
 //! (2017), « Adjusting bookmaker's odds to allow for overround », *American Journal of Sports Science*.
 
+use serde::Deserialize;
+
 use crate::domain::{Odds1x2, Probs1x2};
 
-/// Méthode de retrait de la marge.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Méthode de retrait de la marge. Dans la configuration : `multiplicative`, `power` ou `shin`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum MarginMethod {
     /// Normalisation proportionnelle : la marge est répartie au prorata des probabilités implicites.
     Multiplicative,

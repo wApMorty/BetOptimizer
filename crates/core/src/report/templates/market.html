@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Le marché comme pronostiqueur — edge</title>
+<style>
+  :root { --bg:#fafaf8; --fg:#1d1d1b; --muted:#6b6b66; --card:#ffffff; --line:#e3e2dc; --accent:#1f5eaa; --good:#1a7f4b; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ececea; --muted:#a3a39d; --card:#201f1e; --line:#34332f; --accent:#7fb2ee; --good:#59c58a; --bad:#f08b83; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.6rem; margin: .4em 0 .1em; }
+  h2 { font-size: 1.25rem; margin: 2em 0 .4em; padding-top: .6em; border-top: 1px solid var(--line); }
+  h3 { font-size: 1rem; margin: 1.2em 0 .3em; }
+  p, li { max-width: 70ch; }
+  .meta, .note { color: var(--muted); font-size: .9rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  .ci { color: var(--muted); }
+  .sig { color: var(--good); font-weight: 600; }
+  .ns { color: var(--muted); }
+  .warn { color: var(--bad); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .grid svg, .charts svg { width: 100%; height: auto; background: #fff; border-radius: 8px; border: 1px solid var(--line); }
+  details > summary { cursor: pointer; color: var(--accent); margin: .4em 0; }
+</style>
+</head>
+<body>
+<main>
+
+{% macro ci(c, d=4) %}{{ c.mean|num(d) }} <span class="ci">[{{ c.low|num(d) }} ; {{ c.high|num(d) }}]</span>{% endmacro %}
+{% macro dci(c, d=4) %}<span class="{{ 'sig' if (c.low > 0 or c.high < 0) else 'ns' }}">{{ c.mean|num(d) }} [{{ c.low|num(d) }} ; {{ c.high|num(d) }}]</span>{% endmacro %}
+
+<h1>Le marché comme pronostiqueur</h1>
+<p class="meta">Généré le {{ generated_on }} · {{ games_total }} matchs importés, dont {{ games_with_pinnacle }} avec une cote de clôture Pinnacle · six championnats, de 2016/17 à aujourd'hui.</p>
+
+<div class="card">
+  <strong>En bref.</strong>
+  <ul>
+    <li>Méthode de retrait de marge au log loss le plus bas : <strong>{{ best_method }}</strong>
+      {% if best_method_is_distinguishable %}(écart avec la méthode multiplicative <span class="sig">distinguable du bruit</span>){% else %}(écart avec la méthode multiplicative <span class="ns">non distinguable du bruit</span>){% endif %}.</li>
+    <li>Les intervalles entre crochets sont à 95 %, par bootstrap de blocs (une ligue et une semaine = un bloc). Un score <em>plus bas</em> est meilleur.</li>
+    <li>Pinnacle disparaît des fichiers football-data en janvier 2026 : la référence de marché passe alors à la moyenne de clôture (voir « Sources de cotes »).</li>
+  </ul>
+</div>
+
+<h2>1. Qualité des données</h2>
+<p>Les contrôles signalent, ils ne corrigent jamais en silence.</p>
+<div class="card">
+  <ul>
+    <li>Résultats publiés contredisant les buts : <strong>{{ qc.result_mismatches }}</strong>.</li>
+    <li>Matchs sans statistique de tirs : {{ qc.games_without_shots }} ; sans heure de coup d'envoi : {{ qc.games_without_kickoff }} (saisons 2016/17 à 2018/19, heure non publiée).</li>
+  </ul>
+  <h3>Saisons incomplètes</h3>
+  <div class="scroll"><table>
+    <tr><th>Ligue</th><th>Saison</th><th>Matchs</th><th>Attendus</th><th>Équipes</th></tr>
+    {% for s in qc.seasons if s.status == "Incomplete" %}
+    <tr><td>{{ s.div }}</td><td>{{ s.season }}</td><td class="warn">{{ s.games }}</td><td>{{ s.expected }}</td><td>{{ s.teams }}</td></tr>
+    {% else %}
+    <tr><td colspan="5">Aucune.</td></tr>
+    {% endfor %}
+  </table></div>
+  <p class="note">Une saison incomplète est presque toujours une saison arrêtée (Covid, 2019/20).</p>
+  <h3>Cotes hors de [1,00 ; 1,30]</h3>
+  <p class="note">Somme des probabilités implicites d'un 1X2, hors bookmaker « Max » (meilleure cote de chaque issue, sous 1 par construction).</p>
+  <div class="scroll"><table>
+    <tr><th>Bookmaker</th><th>Moment</th><th>Triplets</th><th>Hors bornes</th></tr>
+    {% for o in qc.odds if o.out_of_range > 0 %}
+    <tr><td>{{ o.bookmaker }}</td><td>{{ o.moment }}</td><td>{{ o.rows }}</td><td class="warn">{{ o.out_of_range }}</td></tr>
+    {% else %}
+    <tr><td colspan="4">Aucune.</td></tr>
+    {% endfor %}
+  </table></div>
+  {% if qc.odds_samples %}
+  <details><summary>Exemples</summary>
+  <div class="scroll"><table>
+    <tr><th>Date</th><th>Match</th><th>Bookmaker</th><th>Somme</th></tr>
+    {% for s in qc.odds_samples %}
+    <tr><td>{{ s.date }}</td><td>{{ s.div }} {{ s.home }} – {{ s.away }}</td><td>{{ s.bookmaker }} ({{ s.moment }})</td><td>{{ s.implied_sum|num(3) }}</td></tr>
+    {% endfor %}
+  </table></div></details>
+  {% endif %}
+</div>
+
+<h2>2. Marge des bookmakers</h2>
+<p>Marge = somme des probabilités implicites − 1 : ce que le bookmaker garde en moyenne sur un pari sans avantage.</p>
+<div class="card scroll"><table>
+  <tr><th>Bookmaker</th><th>Moment</th><th>Matchs</th><th>Moyenne</th><th>Min</th><th>Max</th></tr>
+  {% for m in margins %}
+  <tr><td>{{ m.bookmaker }}</td><td>{{ m.moment }}</td><td>{{ m.games }}</td><td><strong>{{ m.mean|pct }}</strong></td><td>{{ m.min|pct }}</td><td>{{ m.max|pct }}</td></tr>
+  {% endfor %}
+</table></div>
+<h3>Par saison (clôture)</h3>
+<div class="card scroll"><table>
+  <tr><th>Saison</th><th>Pinnacle</th><th>Moyenne du marché</th><th>Bet365</th></tr>
+  {% for s in season_margins %}
+  <tr><td>{{ s.season }}</td>
+    <td>{% if s.pinnacle is none %}—{% else %}{{ s.pinnacle|pct }}{% endif %}</td>
+    <td>{% if s.average is none %}—{% else %}{{ s.average|pct }}{% endif %}</td>
+    <td>{% if s.bet365 is none %}—{% else %}{{ s.bet365|pct }}{% endif %}</td></tr>
+  {% endfor %}
+</table></div>
+
+<h2>3. Méthodes de retrait de marge</h2>
+<p>Pinnacle, clôture, {{ methods[0].n }} matchs ({{ methods_excluded }} écartés). Les trois méthodes sont jugées sur exactement les mêmes matchs. La dernière colonne donne la différence de log loss avec la méthode multiplicative : <span class="sig">vert</span> si zéro est hors de l'intervalle, <span class="ns">gris</span> sinon.</p>
+<div class="card scroll"><table>
+  <tr><th>Méthode</th><th>Log loss</th><th>Brier</th><th>RPS</th><th>Δ log loss vs multiplicative</th><th>Δ RPS vs multiplicative</th></tr>
+  {% for m in methods %}
+  <tr><td>{{ m.name }}</td><td>{{ ci(m.log_loss) }}</td><td>{{ ci(m.brier) }}</td><td>{{ ci(m.rps) }}</td>
+    <td>{% if m.log_loss_vs_multiplicative %}{{ dci(m.log_loss_vs_multiplicative, 5) }}{% else %}référence{% endif %}</td>
+    <td>{% if m.rps_vs_multiplicative %}{{ dci(m.rps_vs_multiplicative, 5) }}{% else %}référence{% endif %}</td></tr>
+  {% endfor %}
+</table></div>
+
+<h3>Sur des bookmakers à marge plus élevée (clôture)</h3>
+<p>Le choix de méthode compte surtout quand la marge est grande. Différences avec la méthode multiplicative (négatif = meilleur) :</p>
+<div class="card scroll"><table>
+  <tr><th>Bookmaker</th><th>Matchs</th><th>Marge</th><th>Δ log loss power</th><th>Δ log loss shin</th><th>Δ RPS power</th><th>Δ RPS shin</th></tr>
+  {% for b in bookmaker_methods %}
+  <tr><td>{{ b.label }}</td><td>{{ b.n }}</td><td>{{ b.mean_margin|pct }}</td>
+    <td>{{ dci(b.power_log_loss, 5) }}</td><td>{{ dci(b.shin_log_loss, 5) }}</td><td>{{ dci(b.power_rps, 5) }}</td><td>{{ dci(b.shin_rps, 5) }}</td></tr>
+  {% endfor %}
+</table></div>
+
+<h2>4. Sources de cotes</h2>
+<p>Mêmes {{ sources_common_games }} matchs pour toutes les sources, probabilités calculées avec la méthode « {{ best_method }} ». Question : à quel point la moyenne du marché remplace-t-elle Pinnacle, disparu des fichiers depuis janvier 2026 ? Et que perd-on en pariant sur le relevé d'avant-match plutôt que sur la clôture ?</p>
+<div class="card scroll"><table>
+  <tr><th>Source</th><th>Marge moyenne</th><th>Log loss</th><th>RPS</th><th>Δ log loss vs Pinnacle clôture</th></tr>
+  {% for s in sources %}
+  <tr><td>{{ s.label }}</td><td>{{ s.mean_margin|pct }}</td><td>{{ ci(s.log_loss) }}</td><td>{{ ci(s.rps) }}</td>
+    <td>{% if s.log_loss_vs_reference %}{{ dci(s.log_loss_vs_reference, 5) }}{% else %}référence{% endif %}</td></tr>
+  {% endfor %}
+</table></div>
+
+<h2>5. Calibration</h2>
+<p>Chaque point regroupe les prévisions de probabilité voisines (classes de 5 points) et montre la fréquence réellement observée ; la diagonale est la calibration parfaite. Les traits verticaux sont des intervalles de Wilson à 95 % (classes d'au moins 30 prévisions). Pinnacle, clôture, méthode « {{ best_method }} ».</p>
+<div class="charts card">{{ pooled_svg|safe }}</div>
+<details><summary>Classes, toutes ligues</summary>
+<div class="scroll"><table>
+  <tr><th>Classe</th><th>Prévisions</th><th>Prévue</th><th>Observée</th><th>Intervalle 95 %</th></tr>
+  {% for b in pooled_bins %}
+  <tr><td>{{ b.lower|pct(0) }} – {{ b.upper|pct(0) }}</td><td>{{ b.n }}</td><td>{{ b.mean_predicted|pct }}</td><td>{{ b.observed|pct }}</td><td>{{ b.wilson_low|pct }} – {{ b.wilson_high|pct }}</td></tr>
+  {% endfor %}
+</table></div></details>
+<h3>Par ligue</h3>
+<div class="grid">
+  {% for l in leagues if l.games > 0 %}<div>{{ l.svg|safe }}<p class="note">{{ l.name }} : {{ l.games }} matchs</p></div>{% endfor %}
+</div>
+
+<h2>6. Tranches de cote : biais favori / outsider</h2>
+<p>Chaque issue de chaque match est classée selon sa cote juste (inverse de la probabilité sans marge). « Rendement » = gain moyen d'une mise de 1 € placée sur chaque sélection de la tranche, à la cote brute du bookmaker. Si les outsiders gagnent moins souvent que ne le dit le marché, leur rendement est plus négatif que celui des favoris. L'erreur-type suppose l'indépendance des matchs : elle est indicative.</p>
+<div class="card scroll"><table>
+  <tr><th>Cote juste</th><th>Sélections</th><th>Prévue</th><th>Observée</th><th>Rendement</th><th>± erreur-type</th></tr>
+  {% for b in pooled_buckets %}
+  <tr><td>{{ b.label }}</td><td>{{ b.n }}</td><td>{{ b.mean_fair_probability|pct }}</td><td>{{ b.observed|pct }}</td><td><strong>{{ b.roi|pct }}</strong></td><td>{{ b.roi_standard_error|pct }}</td></tr>
+  {% endfor %}
+</table></div>
+<details><summary>Rendement par ligue</summary>
+{% for l in leagues if l.games > 0 %}
+<h3>{{ l.name }}</h3>
+<div class="scroll"><table>
+  <tr><th>Cote juste</th><th>Sélections</th><th>Prévue</th><th>Observée</th><th>Rendement</th></tr>
+  {% for b in l.buckets %}
+  <tr><td>{{ b.label }}</td><td>{{ b.n }}</td><td>{{ b.mean_fair_probability|pct }}</td><td>{{ b.observed|pct }}</td><td>{{ b.roi|pct }}</td></tr>
+  {% endfor %}
+</table></div>
+{% endfor %}
+</details>
+
+<h2>Limites</h2>
+<ul>
+  <li>Le marché est ici <em>l'adversaire</em> : ce rapport mesure sa qualité, pas un avantage. Aucun modèle n'est évalué à cette phase.</li>
+  <li>Les cotes sont celles de bookmakers étrangers (sauf mention) : la décote réelle chez Winamax ou Betclic se mesurera sur notre propre archive.</li>
+  <li>Les intervalles par blocs supposent l'indépendance entre semaines ; ils ne tiennent pas compte des changements de régime d'une saison à l'autre (huis clos 2020/21 par exemple).</li>
+  <li>L'erreur-type des rendements ignore la dépendance entre matchs d'une même journée.</li>
+</ul>
+
+</main>
+</body>
+</html>

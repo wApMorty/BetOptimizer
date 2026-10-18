@@ -8,7 +8,7 @@
 //! résultat est reproductible à graine égale (invariant 9 du projet).
 
 /// Résultat : moyenne observée et bornes à 95 % (percentiles 2,5 % et 97,5 %).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub struct MeanCi {
     /// Moyenne sur l'échantillon réel.
     pub mean: f64,

@@ -12,6 +12,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::error::{Error, Result};
+use crate::market::margin::MarginMethod;
 
 /// Nom de la variable d'environnement qui contient la clé API.
 pub const API_KEY_ENV: &str = "EDGE_ODDS_API_KEY";
@@ -63,6 +64,9 @@ pub struct Config {
     pub bookmakers: Vec<String>,
     /// Marchés interrogés (`h2h` = victoire / nul / défaite).
     pub markets: Vec<String>,
+    /// Méthode de retrait de la marge des cotes. `power` : log loss le plus bas sur 19 138 matchs Pinnacle
+    /// (rapport `edge market report`, 2026-10-18), écart avec les autres non significatif au niveau Pinnacle.
+    pub margin_method: MarginMethod,
     /// Clé API écrite dans le fichier (alternative à la variable d'environnement).
     pub odds_api_key: Option<ApiKey>,
 }
@@ -91,6 +95,7 @@ impl Default for Config {
                 "netbet_fr",
             ]),
             markets: owned(&["h2h"]),
+            margin_method: MarginMethod::Power,
             odds_api_key: None,
         }
     }

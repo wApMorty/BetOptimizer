@@ -11,4 +11,5 @@ pub mod ingest;
 pub mod init;
 pub mod market;
 pub mod paths;
+pub mod report;
 pub mod store;

@@ -36,10 +36,25 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Analyses du marché des paris (retrait de marge, calibration).
+    Market {
+        #[command(subcommand)]
+        command: MarketCommand,
+    },
     /// Données historiques football-data.co.uk (résultats, statistiques, cotes).
     Fd {
         #[command(subcommand)]
         command: FdCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum MarketCommand {
+    /// Génère le rapport HTML sur la qualité du marché.
+    Report {
+        /// Fichier de sortie (par défaut : dossier des rapports de l'application).
+        #[arg(long, value_name = "FICHIER")]
+        out: Option<PathBuf>,
     },
 }
 
@@ -71,6 +86,9 @@ fn main() -> Result<()> {
         Command::Init => commands::init(&paths),
         Command::Quota => commands::quota(&paths),
         Command::Snapshot { dry_run } => commands::snapshot(&paths, dry_run),
+        Command::Market { command } => match command {
+            MarketCommand::Report { out } => commands::market_report(&paths, out.as_deref()),
+        },
         Command::Fd { command } => match command {
             FdCommand::Fetch { force } => commands::fd_fetch(&paths, force),
             FdCommand::Import => commands::fd_import(&paths),

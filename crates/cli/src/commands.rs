@@ -14,6 +14,8 @@ use edge_core::ingest::football_data::{FIRST_SEASON, Season, wanted_files};
 use edge_core::ingest::snapshot::{self, SnapshotReport};
 use edge_core::init::initialize;
 use edge_core::paths::Paths;
+use edge_core::report::market_report;
+use edge_core::report::render::render_market_report;
 use edge_core::store::archive::last_known_usage;
 use edge_core::store::{self, Connection, migrate};
 
@@ -216,6 +218,38 @@ pub fn fd_check(paths: &Paths) -> Result<()> {
     println!(
         "Matchs sans tirs : {} ; sans heure de coup d'envoi : {}",
         report.games_without_shots, report.games_without_kickoff
+    );
+    Ok(())
+}
+
+/// `edge market report` : rapport HTML sur la qualité du marché (marges, calibration, sources de cotes).
+pub fn market_report(paths: &Paths, out: Option<&std::path::Path>) -> Result<()> {
+    let conn = open_database(paths)?;
+    let today = Utc::now().date_naive();
+    let current = Season::containing(today).label();
+
+    println!("Calcul en cours (bootstrap par blocs, quelques secondes)…");
+    let report = market_report::build(&conn, &current, &today.format("%Y-%m-%d").to_string())?;
+    let html = render_market_report(&report)?;
+
+    let target = match out {
+        Some(path) => path.to_path_buf(),
+        None => paths.reports_dir.join("market.html"),
+    };
+    if let Some(dir) = target.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("création de {}", dir.display()))?;
+    }
+    std::fs::write(&target, html).with_context(|| format!("écriture de {}", target.display()))?;
+
+    println!("Rapport écrit : {}", target.display());
+    println!(
+        "Méthode de retrait de marge au log loss le plus bas : {} (distinguable du bruit : {})",
+        report.best_method,
+        if report.best_method_is_distinguishable {
+            "oui"
+        } else {
+            "non"
+        }
     );
     Ok(())
 }
