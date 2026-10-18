@@ -19,6 +19,17 @@ systemctl --user daemon-reload
 systemctl --user enable --now edge-snapshot.timer edge-recommend.timer edge-closing.timer
 ```
 
+## Application (`edge-gui`)
+
+```sh
+cargo install --path crates/gui --locked --root ~/.local     # compile en release : environ 3 minutes la première fois
+mkdir -p ~/.local/share/applications
+sed "s|^Exec=.*|Exec=$HOME/.local/bin/edge-gui|" deploy/edge-gui.desktop > ~/.local/share/applications/edge-gui.desktop
+```
+
+L'application apparaît ensuite dans le lanceur d'applications (« edge »), ou se lance par `edge-gui`. Elle lit et écrit le journal
+(recommandations, paris, règlements) mais n'appelle jamais l'API de cotes : elle ne dépense aucun crédit.
+
 ## Webhook Discord
 
 La notification a besoin de l'URL d'un webhook (Discord : réglages du salon → Intégrations → Webhooks → Nouveau webhook →

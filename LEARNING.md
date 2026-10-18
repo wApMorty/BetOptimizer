@@ -11,6 +11,6 @@ trois questions pour vérifier la compréhension, trois fichiers à relire en pr
 | 3 | Modèles (Poisson, Dixon-Coles) | [docs/learning/phase-3.md](docs/learning/phase-3.md) |
 | 4 | Backtest et mises (Kelly, CLV, seuils gelés) | [docs/learning/phase-4.md](docs/learning/phase-4.md) |
 | 5 | Recommandations quotidiennes (journal, Discord, clôture, CLV réel) | [docs/learning/phase-5.md](docs/learning/phase-5.md) |
-| 6 | Application egui | à venir |
+| 6 | Application egui (recommandations, paris, bankroll, CLV) | [docs/learning/phase-6.md](docs/learning/phase-6.md) |
 | 7 | Tennis | à venir |
 | 8 | NBA | à venir |
