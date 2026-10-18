@@ -175,7 +175,7 @@ impl Probs1x2 {
 }
 
 /// Moment où un bookmaker a relevé ses cotes, dans les données historiques de football-data.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Moment {
     /// Relevé d'avant-match : le vendredi après-midi (week-end) ou le mardi (semaine), donc 1 à 3 jours
     /// avant le coup d'envoi. C'est le moment où l'on pourrait réellement parier.

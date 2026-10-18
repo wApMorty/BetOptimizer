@@ -1,6 +1,7 @@
 //! Accès à la base SQLite : ouverture et migrations de schéma.
 
 pub mod archive;
+pub mod backtests;
 pub mod history;
 pub mod migrate;
 pub mod predictions;
