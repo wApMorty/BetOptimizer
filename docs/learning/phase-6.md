@@ -59,8 +59,8 @@ inutile. L'onglet CLV marque « indicatif » tout groupe de moins de 30 clôture
 
 1. Pourquoi les onglets renvoient-ils des `Action` au lieu d'appeler la base eux-mêmes ? Cite deux conséquences concrètes sur les
    tests et sur ce qui peut arriver à ton journal.
-2. Ta bankroll de départ est de 1 000 €, tu as un pari gagné (+60 €), un perdu (−50 €) et un ouvert (50 €). Que valent la bankroll
-   réalisée, la bankroll disponible et le drawdown ? Laquelle sert à calculer la prochaine mise ?
+2. Ta bankroll de départ est de 1 000 €, tu as un pari gagné (+60 €), puis un pari perdu (−50 €), et un pari ouvert (50 €). Que valent
+   la bankroll réalisée, la bankroll disponible et le drawdown ? Laquelle sert à calculer la prochaine mise ?
 3. Le diagramme de fiabilité montre un seul point à (0,45 ; 100 %) construit sur deux recommandations. Pourquoi ne faut-il rien en
    conclure, et quel autre onglet te donne une mesure plus tôt ?
 
