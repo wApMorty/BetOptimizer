@@ -2,7 +2,10 @@
 //!
 //! Le risque propre à ces fichiers : aucun identifiant de joueur, seulement un nom (« Federer R. »). Deux joueurs
 //! homonymes se confondraient dans l'Elo. Le détecteur est exact pour une partie du risque : **un joueur ne joue pas deux
-//! matchs le même jour**, donc un nom qui apparaît deux fois à la même date désigne au moins deux personnes.
+//! tournois le même jour**, donc un nom qui apparaît à la même date dans deux tournois différents désigne au moins deux
+//! personnes. Un même nom deux fois à la même date **dans un même tournoi** n'est pas un homonyme (deux joueurs ne
+//! portent pas le même nom dans un même tableau) : c'est une date approximative (demi-finale et finale datées du même
+//! jour après une interruption), comptée à part.
 
 use std::collections::BTreeMap;
 
@@ -63,7 +66,7 @@ pub struct HomonymSuspect {
     pub tour: Tour,
     /// Nom publié.
     pub name: String,
-    /// Nombre de dates où il apparaît plus d'une fois.
+    /// Nombre de dates où il apparaît dans plusieurs tournois.
     pub days: u32,
 }
 
@@ -78,6 +81,10 @@ pub struct QcReport {
     pub odds_anomalies: Vec<OddsAnomaly>,
     /// Noms suspects d'être portés par deux joueurs.
     pub homonyms: Vec<HomonymSuspect>,
+    /// Couples (circuit, nom, date) où un joueur apparaît deux fois le même jour dans le même tournoi : dates approximatives.
+    pub repeated_dates: u32,
+    /// Paires de tours d'un même tournoi où le tour avancé est daté entièrement avant le tour précédent.
+    pub round_order_violations: u32,
 }
 
 /// Contrôle la base. `current_year` borne les années attendues.
@@ -149,19 +156,30 @@ pub fn run(conn: &Connection, current_year: u16) -> Result<QcReport> {
         odds_anomalies.push(row?);
     }
 
-    // Un nom deux fois à la même date : au moins deux personnes derrière ce nom.
+    // Un nom à la même date dans deux tournois : au moins deux personnes derrière ce nom.
     let mut days: BTreeMap<(String, String), u32> = BTreeMap::new();
     let mut statement = conn.prepare(
         "SELECT tour, name FROM (
-             SELECT tour, winner AS name, match_date FROM tennis_match
-             UNION ALL SELECT tour, loser, match_date FROM tennis_match
-         ) GROUP BY tour, name, match_date HAVING COUNT(*) > 1",
+             SELECT tour, winner AS name, match_date, tournament FROM tennis_match
+             UNION ALL SELECT tour, loser, match_date, tournament FROM tennis_match
+         ) GROUP BY tour, name, match_date HAVING COUNT(DISTINCT tournament) > 1",
     )?;
     for row in statement.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })? {
         *days.entry(row?).or_default() += 1;
     }
+    let repeated_dates: u32 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+             SELECT 1 FROM (
+                 SELECT tour, winner AS name, match_date, tournament FROM tennis_match
+                 UNION ALL SELECT tour, loser, match_date, tournament FROM tennis_match
+             ) GROUP BY tour, name, match_date HAVING COUNT(*) > 1 AND COUNT(DISTINCT tournament) = 1
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    let round_order_violations = round_order_violations(conn)?;
     let homonyms = days
         .into_iter()
         .filter_map(|((tour, name), days)| {
@@ -178,7 +196,50 @@ pub fn run(conn: &Connection, current_year: u16) -> Result<QcReport> {
         missing,
         odds_anomalies,
         homonyms,
+        repeated_dates,
+        round_order_violations,
     })
+}
+
+/// Paires de tours d'un même tournoi où TOUS les matchs du tour avancé sont datés avant TOUS ceux du tour précédent.
+fn round_order_violations(conn: &Connection) -> Result<u32> {
+    // (circuit, année, tournoi) → rang du tour → (première date, dernière date) ; `AAAA-MM-JJ` se compare comme du texte.
+    type Rounds = BTreeMap<u8, (String, String)>;
+    let mut tournaments: BTreeMap<(String, i64, String), Rounds> = BTreeMap::new();
+    let mut statement = conn.prepare(
+        "SELECT tour, season, tournament, round, MIN(match_date), MAX(match_date)
+         FROM tennis_match GROUP BY tour, season, tournament, round",
+    )?;
+    for row in statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, String>(5)?,
+        ))
+    })? {
+        let (tour, season, tournament, round, first, last) = row?;
+        let rank = super::round_rank(&round);
+        if rank > 0 {
+            tournaments
+                .entry((tour, season, tournament))
+                .or_default()
+                .insert(rank, (first, last));
+        }
+    }
+    let mut violations = 0;
+    for rounds in tournaments.values() {
+        for (rank_a, (first_a, _)) in rounds {
+            for (rank_b, (_, last_b)) in rounds {
+                if rank_a < rank_b && last_b < first_a {
+                    violations += 1;
+                }
+            }
+        }
+    }
+    Ok(violations)
 }
 
 #[cfg(test)]
@@ -248,6 +309,36 @@ mod tests {
         assert_eq!(report.odds_anomalies.len(), 1);
         assert_eq!(report.odds_anomalies[0].bookmaker, "PS");
         assert!((report.odds_anomalies[0].implied_sum - 2.0 / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_name_twice_on_the_same_day_in_the_same_tournament_is_a_rough_date_not_a_homonym() {
+        let conn = database_with_the_fixture();
+        // « Alpha A. » a déjà gagné le 7 janvier dans « Fake Open » : une demi-finale du même tournoi, même jour.
+        conn.execute_batch(
+            "INSERT INTO tennis_match (tour, season, tournament, match_date, surface, round, best_of, winner, loser, status)
+             VALUES ('atp', 2024, 'Fake Open', '2024-01-07', 'hard', 'Semifinals', 3, 'Alpha A.', 'Zulu Z.', 'completed')",
+        )
+        .unwrap();
+
+        let report = run(&conn, 2024).unwrap();
+
+        assert!(report.homonyms.is_empty());
+        assert_eq!(report.repeated_dates, 1);
+    }
+
+    #[test]
+    fn a_later_round_dated_entirely_before_an_earlier_round_is_counted() {
+        let conn = database_with_the_fixture();
+        assert_eq!(run(&conn, 2024).unwrap().round_order_violations, 0);
+        // Une finale datée de 2023 pour un tournoi dont les premiers tours sont en janvier 2024.
+        conn.execute_batch(
+            "INSERT INTO tennis_match (tour, season, tournament, match_date, surface, round, best_of, winner, loser, status)
+             VALUES ('atp', 2024, 'Fake Open', '2023-12-31', 'hard', 'The Final', 3, 'Alpha A.', 'Zulu Z.', 'completed')",
+        )
+        .unwrap();
+
+        assert!(run(&conn, 2024).unwrap().round_order_violations >= 1);
     }
 
     #[test]

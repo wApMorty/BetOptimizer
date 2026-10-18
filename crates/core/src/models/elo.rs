@@ -26,7 +26,7 @@ use std::collections::HashMap;
 
 use chrono::NaiveDate;
 
-use crate::ingest::tennis::{Status, Surface, Tour};
+use crate::ingest::tennis::{Status, Surface, Tour, round_rank};
 use crate::store::tennis::StoredMatch;
 
 /// Classement de départ d'un joueur inconnu.
@@ -191,30 +191,33 @@ pub struct Prediction {
     pub min_experience: u32,
 }
 
-/// Rejoue tous les matchs dans l'ordre chronologique et prévoit chacun avec les classements **d'avant sa journée**.
+/// Rejoue tous les matchs dans l'ordre chronologique et prévoit chacun avec les classements **d'avant sa vague**.
 ///
-/// - un jour à la fois : toutes les prévisions d'une date sont faites avant d'appliquer les résultats de cette date, donc
-///   un résultat ne peut pas influencer la prévision d'un match du même jour (aucune fuite du futur) ;
+/// - une « vague » = une date et un tour de tournoi (voir [`round_rank`]) : toutes les prévisions d'une vague sont faites
+///   avant d'appliquer ses résultats, donc un résultat ne peut pas influencer la prévision d'un match de la même vague
+///   (aucune fuite du futur). À date égale, un tour précédent passe avant : la demi-finale que tennis-data date du
+///   jour de la finale compte pour prévoir la finale. Les matchs reçus dans le désordre sont triés (tri stable) ;
 /// - un forfait n'est ni prévu ni compté ; un abandon est prévu (la prévision précède l'abandon) mais ne modifie pas les
 ///   classements : il ne dit rien de la force relative ;
 /// - un circuit = un Elo : ATP et WTA ne se rencontrent jamais.
-///
-/// `matches` doit être trié par date (c'est l'ordre de `store::tennis::load_matches`).
 pub fn walk_forward(matches: &[StoredMatch], config: EloConfig) -> Vec<Prediction> {
     let mut states: HashMap<Tour, Elo> = Tour::ALL
         .into_iter()
         .map(|t| (t, Elo::new(config)))
         .collect();
     let mut predictions = Vec::with_capacity(matches.len());
+    let wave = |m: &StoredMatch| (m.date, round_rank(&m.round));
+    let mut ordered: Vec<&StoredMatch> = matches.iter().collect();
+    ordered.sort_by_key(|m| wave(m));
     let mut start = 0;
-    while start < matches.len() {
-        let day = matches[start].date;
+    while start < ordered.len() {
+        let key = wave(ordered[start]);
         let end = start
-            + matches[start..]
+            + ordered[start..]
                 .iter()
-                .take_while(|m| m.date == day)
+                .take_while(|m| wave(m) == key)
                 .count();
-        let today = &matches[start..end];
+        let today = &ordered[start..end];
 
         for m in today.iter().filter(|m| m.status != Status::Walkover) {
             let Some(elo) = states.get(&m.tour) else {
@@ -405,6 +408,33 @@ mod tests {
         // Le 2, A a gagné deux fois : il est favori.
         assert!(predictions[2].p_winner > 0.5);
         assert_eq!(predictions[2].min_experience, 1);
+    }
+
+    #[test]
+    fn a_semifinal_dated_like_the_final_still_counts_for_the_final() {
+        let semifinal = StoredMatch {
+            round: "Semifinals".into(),
+            ..game(1, "2024-01-07", "A", "B", Surface::Hard, Status::Completed)
+        };
+        let final_ = StoredMatch {
+            round: "The Final".into(),
+            ..game(2, "2024-01-07", "A", "C", Surface::Hard, Status::Completed)
+        };
+
+        // Reçus dans le désordre : la finale d'abord.
+        let predictions = walk_forward(&[final_, semifinal], config());
+
+        let ids: Vec<i64> = predictions.iter().map(|p| p.match_id).collect();
+        assert_eq!(
+            ids,
+            vec![1, 2],
+            "la demi-finale est rejouée avant la finale"
+        );
+        assert_abs_diff_eq!(predictions[0].p_winner, 0.5, epsilon = 1e-12);
+        assert!(
+            predictions[1].p_winner > 0.5,
+            "A a gagné sa demi-finale : il est favori de la finale"
+        );
     }
 
     #[test]

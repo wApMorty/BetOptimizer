@@ -77,6 +77,24 @@ impl Surface {
     }
 }
 
+/// Rang chronologique d'un tour de tournoi (`1st Round` = 1 … `The Final` = 8), 0 pour un libellé inconnu.
+///
+/// Les dates de tennis-data sont parfois approximatives (la demi-finale datée du jour de la finale, après une
+/// interruption de pluie) : à date égale, le rang du tour rétablit l'ordre réel des matchs d'un même tournoi.
+pub fn round_rank(round: &str) -> u8 {
+    match round {
+        "1st Round" => 1,
+        "2nd Round" => 2,
+        "3rd Round" => 3,
+        "4th Round" => 4,
+        "Round Robin" => 5,
+        "Quarterfinals" => 6,
+        "Semifinals" => 7,
+        "The Final" => 8,
+        _ => 0,
+    }
+}
+
 /// Issue d'un match dans le fichier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {

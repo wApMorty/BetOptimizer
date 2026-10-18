@@ -932,7 +932,15 @@ pub fn tennis_check(paths: &Paths) -> Result<()> {
         );
     }
     println!(
-        "Noms joués deux fois le même jour (homonymes probables) : {}",
+        "Dates approximatives (un joueur deux fois le même jour dans le même tournoi, ex. demi-finale et finale) : {}",
+        report.repeated_dates
+    );
+    println!(
+        "Tours avancés datés entièrement avant un tour précédent : {}",
+        report.round_order_violations
+    );
+    println!(
+        "Noms à la même date dans deux tournois (homonymes probables) : {}",
         report.homonyms.len()
     );
     for h in report.homonyms.iter().take(15) {

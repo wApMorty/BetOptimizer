@@ -33,6 +33,9 @@ const SEED: u64 = 20_261_021;
 /// Bookmaker de référence : Pinnacle.
 const MARKET: &str = "PS";
 
+/// Marge plausible d'un marché à deux issues (somme des probabilités implicites), comme dans le contrôle qualité.
+const IMPLIED_SUM: (f64, f64) = (1.0, 1.30);
+
 /// La configuration gelée, telle qu'affichée.
 #[derive(Debug, Clone, Serialize)]
 pub struct FrozenView {
@@ -119,8 +122,10 @@ pub struct TennisReport {
     pub test_matches: usize,
     /// Matchs du test comptés (terminés, joueurs installés).
     pub test_scored: usize,
-    /// Matchs du test comparés au marché (cote Pinnacle présente).
+    /// Matchs du test comparés au marché (cote Pinnacle présente et plausible).
     pub test_with_market: usize,
+    /// Matchs du test qui ont une cote Pinnacle mais aberrante : écartés de la comparaison.
+    pub test_odds_rejected: usize,
     /// Elo et marché sur les mêmes matchs.
     pub models: Vec<ModelRow>,
     /// Écart de log loss Elo − marché.
@@ -165,6 +170,11 @@ fn eval_rows(
         .filter_map(|p| {
             let stored = matches.get(&p.match_id)?;
             let (winner_odds, loser_odds) = *stored.odds.get(MARKET)?;
+            // Marge hors de [1,00 ; 1,30] : cote aberrante, signalée par `edge tennis check`, jamais utilisée ni corrigée.
+            let implied = 1.0 / winner_odds + 1.0 / loser_odds;
+            if !(IMPLIED_SUM.0..=IMPLIED_SUM.1).contains(&implied) {
+                return None;
+            }
             let market =
                 remove_margin_two_way(Odds::new(winner_odds)?, Odds::new(loser_odds)?, method)?;
             Some(EvalRow {
@@ -391,6 +401,17 @@ pub fn build(
             .filter(|p| p.date >= TEST_START && is_scored(p))
             .count(),
         test_with_market: test.len(),
+        test_odds_rejected: predictions
+            .iter()
+            .filter(|p| p.date >= TEST_START && is_scored(p))
+            .filter(|p| {
+                by_id.get(&p.match_id).is_some_and(|m| {
+                    m.odds.get(MARKET).is_some_and(|(w, l)| {
+                        !(IMPLIED_SUM.0..=IMPLIED_SUM.1).contains(&(1.0 / w + 1.0 / l))
+                    })
+                })
+            })
+            .count(),
         delta_log_loss: delta(&refs, loss),
         delta_brier: delta(&refs, squared),
         models,
