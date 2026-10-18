@@ -3,10 +3,13 @@
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
-use chrono::Utc;
+use chrono::{DateTime, Datelike, Timelike, Utc};
+use chrono_tz::Europe::Paris;
 use edge_core::backtest::candidates::load_inputs;
 use edge_core::backtest::study;
+use edge_core::betting::live;
 use edge_core::config::{API_KEY_ENV, Config};
+use edge_core::domain::{Euros, Outcome};
 use edge_core::ingest::aliases::Aliases;
 use edge_core::ingest::client::OddsApiClient;
 use edge_core::ingest::football_data::fetch::{FileClient, fetch_all};
@@ -407,6 +410,145 @@ pub fn backtest_tune(paths: &Paths) -> Result<()> {
     let sessions = edge_core::store::backtests::selection_session_count(&conn)?;
     println!("Sessions de réglage des seuils enregistrées : {sessions}.");
     Ok(())
+}
+
+/// Réglages de `edge value`.
+pub struct ValueOptions {
+    /// Avantage minimal, en points de pourcentage (3 = 3 %).
+    pub min_edge_pct: f64,
+    /// Bankroll courante, en euros.
+    pub bankroll: f64,
+    /// Fraction de Kelly (1 = Kelly complet).
+    pub kelly_fraction: f64,
+    /// Mise minimale, en euros.
+    pub min_stake: f64,
+}
+
+/// `edge value` : les prix des derniers relevés qui dépassent la cote juste de Pinnacle. Lecture seule.
+pub fn value(paths: &Paths, options: &ValueOptions) -> Result<()> {
+    // NaN échoue à la comparaison : `is_nan` l'attrape explicitement.
+    if options.min_edge_pct.is_nan() || options.min_edge_pct < 0.0 {
+        bail!("--min-edge doit être positif ou nul");
+    }
+    if !(options.kelly_fraction > 0.0 && options.kelly_fraction <= 1.0) {
+        bail!("--kelly doit être dans ]0 ; 1]");
+    }
+    let (Some(bankroll), Some(min_stake)) = (
+        Euros::new(options.bankroll).filter(|b| b.get() > 0.0),
+        Euros::new(options.min_stake),
+    ) else {
+        bail!("--bankroll doit être strictement positif et --min-stake positif ou nul");
+    };
+
+    let conn = open_database(paths)?;
+    let config = Config::load(&paths.config_file)?;
+    let now = Utc::now();
+    let mut scan = live::scan(
+        &conn,
+        config.margin_method,
+        options.min_edge_pct / 100.0,
+        now,
+    )?;
+    live::size_stakes(
+        &mut scan.opportunities,
+        bankroll,
+        options.kelly_fraction,
+        min_stake,
+    )?;
+
+    if scan.events == 0 {
+        println!(
+            "Aucun match à venir dans un relevé de moins de {} h : lance `edge snapshot`.",
+            live::MAX_SNAPSHOT_AGE_HOURS
+        );
+        return Ok(());
+    }
+    println!(
+        "{} match(s) à venir ; {} sans cotes complètes de Pinnacle (ignorés) ; {} prix aberrant(s) écarté(s).",
+        scan.events, scan.without_reference, scan.implausible_quotes
+    );
+    println!(
+        "Seuil d'avantage {} % · Kelly ×{} · bankroll {} €",
+        french(options.min_edge_pct, 1),
+        french(options.kelly_fraction, 2),
+        french(options.bankroll, 0)
+    );
+    if scan.opportunities.is_empty() {
+        println!("\nAucun prix n'atteint le seuil.");
+    }
+    for found in &scan.opportunities {
+        let kickoff = found.kickoff.with_timezone(&Paris);
+        let selection = &found.selection;
+        let outcome = match selection.outcome {
+            Outcome::Home => "domicile",
+            Outcome::Draw => "nul",
+            Outcome::Away => "extérieur",
+        };
+        println!(
+            "\n{} {:02}/{:02} {:02}:{:02}  {} – {}  ({})",
+            french_weekday(kickoff.weekday()),
+            kickoff.day(),
+            kickoff.month(),
+            kickoff.hour(),
+            kickoff.minute(),
+            found.home_team,
+            found.away_team,
+            found.sport_key
+        );
+        let stake = found.stake.map_or_else(
+            || "sous la mise minimale".to_string(),
+            |s| format!("mise {} €", french(s.get(), 1)),
+        );
+        println!(
+            "    {} · {} à {} · cote juste {} · avantage {} % · cote minimale {} · {}",
+            found.bookmaker,
+            outcome,
+            french(selection.odds.get(), 2),
+            french(1.0 / selection.probability.get(), 2),
+            french_signed(selection.edge * 100.0, 1),
+            french(found.minimal_odds, 2),
+            stake
+        );
+        println!("    prix mis à jour {}", age(found.priced_at, now));
+    }
+    println!(
+        "\nÀ lire : la probabilité est celle de Pinnacle sans marge, pas celle d'un modèle. Aucune règle n'est validée hors\n\
+         échantillon (voir `edge backtest report`) : vérifie chaque prix à la main avant tout pari ; si la cote affichée\n\
+         par l'opérateur est sous la cote minimale, ne parie pas."
+    );
+    Ok(())
+}
+
+/// Nombre à la française (virgule décimale) avec `digits` décimales.
+fn french(value: f64, digits: usize) -> String {
+    format!("{value:.digits$}").replace('.', ",")
+}
+
+/// Comme [`french`], avec le signe explicite (`+1,2`).
+fn french_signed(value: f64, digits: usize) -> String {
+    format!("{value:+.digits$}").replace('.', ",")
+}
+
+fn french_weekday(day: chrono::Weekday) -> &'static str {
+    match day {
+        chrono::Weekday::Mon => "lun.",
+        chrono::Weekday::Tue => "mar.",
+        chrono::Weekday::Wed => "mer.",
+        chrono::Weekday::Thu => "jeu.",
+        chrono::Weekday::Fri => "ven.",
+        chrono::Weekday::Sat => "sam.",
+        chrono::Weekday::Sun => "dim.",
+    }
+}
+
+/// « il y a 3 h 20 » ou « il y a 12 min ».
+fn age(at: DateTime<Utc>, now: DateTime<Utc>) -> String {
+    let minutes = (now - at).num_minutes().max(0);
+    if minutes < 60 {
+        format!("il y a {minutes} min")
+    } else {
+        format!("il y a {} h {:02}", minutes / 60, minutes % 60)
+    }
 }
 
 fn percent_or_dash(value: Option<f64>) -> String {

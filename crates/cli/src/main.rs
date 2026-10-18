@@ -36,6 +36,21 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Prix des derniers relevés qui dépassent la cote juste de Pinnacle (lecture seule, ne parie jamais).
+    Value {
+        /// Avantage minimal, en points de pourcentage (3 = 3 %).
+        #[arg(long, value_name = "POURCENT", default_value_t = 3.0)]
+        min_edge: f64,
+        /// Bankroll courante, en euros.
+        #[arg(long, value_name = "EUROS", default_value_t = 1000.0)]
+        bankroll: f64,
+        /// Fraction de Kelly (1 = Kelly complet, 0,5 = demi-Kelly).
+        #[arg(long, value_name = "FRACTION", default_value_t = 1.0)]
+        kelly: f64,
+        /// Mise minimale, en euros : un pari plus petit n'est pas suggéré.
+        #[arg(long, value_name = "EUROS", default_value_t = 1.0)]
+        min_stake: f64,
+    },
     /// Backtest des règles de sélection de paris (seuils gelés, Kelly, CLV).
     Backtest {
         #[command(subcommand)]
@@ -124,6 +139,20 @@ fn main() -> Result<()> {
         Command::Init => commands::init(&paths),
         Command::Quota => commands::quota(&paths),
         Command::Snapshot { dry_run } => commands::snapshot(&paths, dry_run),
+        Command::Value {
+            min_edge,
+            bankroll,
+            kelly,
+            min_stake,
+        } => commands::value(
+            &paths,
+            &commands::ValueOptions {
+                min_edge_pct: min_edge,
+                bankroll,
+                kelly_fraction: kelly,
+                min_stake,
+            },
+        ),
         Command::Backtest { command } => match command {
             BacktestCommand::Tune => commands::backtest_tune(&paths),
             BacktestCommand::Run => commands::backtest_run(&paths),
