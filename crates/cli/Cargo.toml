@@ -1,0 +1,15 @@
+[package]
+name = "edge-cli"
+description = "Binaire `edge` : ligne de commande du moteur de recommandations."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Le paquet s'appelle `edge-cli`, mais l'exécutable doit s'appeler `edge`.
+[[bin]]
+name = "edge"
+path = "src/main.rs"
+
+[lints]
+workspace = true

@@ -1,0 +1,2 @@
+# `unwrap()` est toléré dans les tests (un échec de test doit simplement faire échouer le test).
+allow-unwrap-in-tests = true
