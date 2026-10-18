@@ -36,6 +36,23 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Données historiques football-data.co.uk (résultats, statistiques, cotes).
+    Fd {
+        #[command(subcommand)]
+        command: FdCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum FdCommand {
+    /// Télécharge les fichiers CSV manquants dans le cache (pause entre deux requêtes).
+    Fetch {
+        /// Retélécharge aussi les fichiers déjà en cache.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Importe en base les fichiers du cache. Sûr à relancer : rien n'est dupliqué.
+    Import,
 }
 
 /// `anyhow::Result` accepte n'importe quelle erreur : le `?` convertit celles de `edge-core`
@@ -52,6 +69,10 @@ fn main() -> Result<()> {
         Command::Init => commands::init(&paths),
         Command::Quota => commands::quota(&paths),
         Command::Snapshot { dry_run } => commands::snapshot(&paths, dry_run),
+        Command::Fd { command } => match command {
+            FdCommand::Fetch { force } => commands::fd_fetch(&paths, force),
+            FdCommand::Import => commands::fd_import(&paths),
+        },
     }
 }
 

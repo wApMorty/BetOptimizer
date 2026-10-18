@@ -1,9 +1,15 @@
 //! Les sous-commandes de `edge`. Chacune lit la configuration, appelle `edge-core` et affiche le résultat.
 
+use std::time::{Duration, SystemTime};
+
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use edge_core::config::{API_KEY_ENV, Config};
+use edge_core::ingest::aliases::Aliases;
 use edge_core::ingest::client::OddsApiClient;
+use edge_core::ingest::football_data::fetch::{FileClient, fetch_all};
+use edge_core::ingest::football_data::import::{import_files, load_files};
+use edge_core::ingest::football_data::{FIRST_SEASON, Season, wanted_files};
 use edge_core::ingest::snapshot::{self, SnapshotReport};
 use edge_core::init::initialize;
 use edge_core::paths::Paths;
@@ -84,6 +90,73 @@ pub fn snapshot(paths: &Paths, dry_run: bool) -> Result<()> {
     if !report.failures.is_empty() {
         // Code de sortie non nul : systemd marque l'unité en échec et `journalctl` montre pourquoi.
         bail!("{} ligue(s) non archivée(s)", report.failures.len());
+    }
+    Ok(())
+}
+
+/// `edge fd fetch` : télécharge les CSV football-data manquants (2016/17 à la saison en cours).
+pub fn fd_fetch(paths: &Paths, force: bool) -> Result<()> {
+    let current = Season::containing(Utc::now().date_naive());
+    let wanted = wanted_files(FIRST_SEASON, current);
+    let client = FileClient::new();
+    println!(
+        "{} fichiers voulus (2016/17 à {}). Une pause de 1,5 s sépare deux téléchargements.",
+        wanted.len(),
+        current.label()
+    );
+    let report = fetch_all(
+        &paths.football_data_dir,
+        &wanted,
+        current,
+        force,
+        SystemTime::now(),
+        &mut |url| client.get(url),
+        &mut || std::thread::sleep(Duration::from_millis(1500)),
+    )?;
+    println!(
+        "Téléchargés : {} ; déjà en cache : {} ; dossier : {}",
+        report.downloaded,
+        report.cached,
+        paths.football_data_dir.display()
+    );
+    for url in &report.not_published {
+        println!("Pas encore publié par le site : {url}");
+    }
+    Ok(())
+}
+
+/// `edge fd import` : importe en base les CSV du cache (idempotent).
+pub fn fd_import(paths: &Paths) -> Result<()> {
+    let current = Season::containing(Utc::now().date_naive());
+    let wanted = wanted_files(FIRST_SEASON, current);
+    let aliases = Aliases::bundled()?;
+    let (files, missing) = load_files(&paths.football_data_dir, &wanted)?;
+    if files.is_empty() {
+        bail!(
+            "aucun fichier dans {} : lance d'abord `edge fd fetch`",
+            paths.football_data_dir.display()
+        );
+    }
+    let mut conn = open_database(paths)?;
+
+    let report = import_files(&mut conn, &aliases, &files)?;
+
+    println!(
+        "{} fichiers importés : {} matchs ({} nouveaux), {} lignes de cotes.",
+        report.files, report.games, report.new_games, report.odds_rows
+    );
+    println!(
+        "Écartés : {} lignes incomplètes, {} doublons, {} triplets de cotes invalides.",
+        report.incomplete_rows, report.duplicate_rows, report.dropped_odds
+    );
+    if !missing.is_empty() {
+        println!(
+            "{} fichier(s) absent(s) du cache (voir `edge fd fetch`) :",
+            missing.len()
+        );
+        for path in missing.iter().take(5) {
+            println!("  - {path}");
+        }
     }
     Ok(())
 }

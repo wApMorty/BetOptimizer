@@ -3,6 +3,7 @@
 pub mod fetch;
 pub mod import;
 pub mod parse;
+pub mod quality;
 
 use chrono::{Datelike, NaiveDate};
 
@@ -101,6 +102,18 @@ impl Season {
     }
 }
 
+/// Première saison importée : 2016/17 (dès cette saison, la clôture Pinnacle et les statistiques de tirs
+/// sont complètes dans les six championnats).
+pub const FIRST_SEASON: Season = Season { start_year: 2016 };
+
+/// Tous les fichiers voulus : chaque championnat pour chaque saison de `first` à `current`.
+pub fn wanted_files(first: Season, current: Season) -> Vec<(League, Season)> {
+    seasons_between(first, current)
+        .into_iter()
+        .flat_map(|season| LEAGUES.into_iter().map(move |league| (league, season)))
+        .collect()
+}
+
 /// Toutes les saisons de `first` à `current` incluses.
 pub fn seasons_between(first: Season, current: Season) -> Vec<Season> {
     (first.start_year..=current.start_year)
@@ -132,6 +145,15 @@ mod tests {
         assert_eq!(Season::containing(day(2026, 6, 30)), Season::new(2025));
         assert_eq!(Season::containing(day(2026, 7, 1)), Season::new(2026));
         assert_eq!(Season::containing(day(2027, 1, 5)), Season::new(2026));
+    }
+
+    #[test]
+    fn wanted_files_cover_every_league_and_season() {
+        let wanted = wanted_files(FIRST_SEASON, Season::new(2026));
+        assert_eq!(wanted.len(), 6 * 11);
+        assert_eq!(wanted[0].0.div, "E0");
+        assert_eq!(wanted[0].1.label(), "2016/17");
+        assert_eq!(wanted[65].1.label(), "2026/27");
     }
 
     #[test]
