@@ -43,6 +43,12 @@ pub enum Error {
     )]
     MissingApiKey,
 
+    /// Aucune URL de webhook Discord n'est disponible, ni dans l'environnement ni dans le fichier.
+    #[error(
+        "webhook Discord introuvable : définis la variable EDGE_DISCORD_WEBHOOK ou ajoute discord_webhook_url dans le fichier de configuration"
+    )]
+    MissingWebhook,
+
     /// Erreur renvoyée par SQLite. `#[from]` écrit pour nous `impl From<rusqlite::Error> for Error` :
     /// c'est ce qui permet d'écrire `?` sur un résultat rusqlite dans une fonction qui renvoie notre `Result`.
     #[error("erreur SQLite : {0}")]

@@ -10,15 +10,16 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Duration, SecondsFormat, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, params};
 
 use super::kelly::stake;
 use super::simultaneous::{Bet, fractions};
 use super::value::{Selection, best_selection, minimal_odds};
 use crate::domain::{Euros, Odds, Odds1x2, Outcome};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::market::margin::{MarginMethod, remove_margin};
+use crate::store::journal::{parse_timestamp, timestamp};
 
 /// Bookmaker de référence : ses probabilités, sans marge, tiennent lieu de probabilités vraies.
 pub const SHARP_BOOKMAKER: &str = "pinnacle";
@@ -34,6 +35,10 @@ const IMPLIED_SUM_RANGE: (f64, f64) = (1.0, 1.30);
 /// Un pari à étudier : un prix qui dépasse la cote juste de Pinnacle d'au moins le seuil demandé.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Opportunity {
+    /// Identifiant du match chez The Odds API.
+    pub event_id: String,
+    /// Relevé (ligne de `api_call`) d'où viennent les prix.
+    pub api_call_id: i64,
     /// Compétition (clé The Odds API).
     pub sport_key: String,
     /// Équipe à domicile, nom brut de l'API.
@@ -151,7 +156,7 @@ pub fn scan(
             };
             let book = books.entry(bookmaker).or_default();
             book.prices[outcome.index()] = Odds::new(price);
-            let updated = parse_time(&updated_at)?;
+            let updated = parse_timestamp(&updated_at)?;
             book.oldest_update = Some(book.oldest_update.map_or(updated, |t| t.min(updated)));
         }
 
@@ -184,10 +189,12 @@ pub fn scan(
                 .is_none_or(|b| selection.edge > b.selection.edge)
             {
                 best = Some(Opportunity {
+                    event_id: event_id.clone(),
+                    api_call_id: call_id,
                     sport_key: sport_key.clone(),
                     home_team: home.clone(),
                     away_team: away.clone(),
-                    kickoff: parse_time(&kickoff)?,
+                    kickoff: parse_timestamp(&kickoff)?,
                     bookmaker: bookmaker.clone(),
                     minimal_odds: minimal_odds(selection.probability, min_edge),
                     selection,
@@ -227,81 +234,10 @@ fn plausible(odds: &Odds1x2) -> bool {
     (IMPLIED_SUM_RANGE.0..=IMPLIED_SUM_RANGE.1).contains(&odds.implied_sum())
 }
 
-fn timestamp(at: DateTime<Utc>) -> String {
-    at.to_rfc3339_opts(SecondsFormat::Secs, true)
-}
-
-fn parse_time(text: &str) -> Result<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(text)
-        .map(|t| t.with_timezone(&Utc))
-        .map_err(|e| {
-            Error::Data(format!(
-                "horodatage illisible dans l'archive « {text} » : {e}"
-            ))
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{Event, Quota, Quote};
-    use crate::store::archive::{Endpoint, NewApiCall, record_api_call, record_snapshot};
-    use crate::store::migrate;
-
-    fn database() -> Connection {
-        let mut conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("PRAGMA foreign_keys = ON").unwrap();
-        migrate::migrate(&mut conn).unwrap();
-        conn
-    }
-
-    fn at(text: &str) -> DateTime<Utc> {
-        text.parse().unwrap()
-    }
-
-    /// Un match à Falkirk le 24 octobre, avec les 1X2 `(bookmaker, domicile, nul, extérieur)`.
-    fn event(books: &[(&str, f64, f64, f64)]) -> Event {
-        let mut quotes = Vec::new();
-        for (bookmaker, home, draw, away) in books {
-            for (name, price) in [("Falkirk", home), ("Draw", draw), ("Kilmarnock", away)] {
-                quotes.push(Quote {
-                    bookmaker_key: (*bookmaker).to_string(),
-                    market_key: "h2h".to_string(),
-                    updated_at: at("2026-10-18T13:59:00Z"),
-                    outcome: name.to_string(),
-                    point: None,
-                    price: Odds::new(*price).unwrap(),
-                });
-            }
-        }
-        Event {
-            id: "match-1".to_string(),
-            sport_key: "soccer_spl".to_string(),
-            commence_time: at("2026-10-24T14:00:00Z"),
-            home_team: "Falkirk".to_string(),
-            away_team: "Kilmarnock".to_string(),
-            quotes,
-        }
-    }
-
-    fn store(conn: &mut Connection, called_at: &str, events: &[Event]) {
-        let call = NewApiCall {
-            called_at: at(called_at),
-            endpoint: Endpoint::Odds,
-            sport_key: Some("soccer_spl"),
-            params: "markets=h2h",
-            http_status: 200,
-            quota: Quota::default(),
-            body: None,
-        };
-        let id = record_api_call(conn, &call).unwrap();
-        record_snapshot(conn, id, events).unwrap();
-    }
-
-    const NOW: &str = "2026-10-18T15:00:00Z";
-
-    /// Pinnacle : 2,00 / 3,60 / 4,00, soit des probabilités implicites 0,500 / 0,278 / 0,250 (somme 1,028).
-    const PINNACLE: (&str, f64, f64, f64) = ("pinnacle", 2.0, 3.6, 4.0);
+    use crate::betting::testing::{NOW, PINNACLE, at, database, event, store};
 
     #[test]
     fn a_price_above_the_fair_odds_is_found_and_the_minimal_odds_follow() {

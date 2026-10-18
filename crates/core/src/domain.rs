@@ -98,6 +98,22 @@ impl Outcome {
     /// Les trois issues, dans l'ordre ordinal.
     pub const ALL: [Outcome; 3] = [Outcome::Home, Outcome::Draw, Outcome::Away];
 
+    /// Code à une lettre utilisé en base et par football-data : `H`, `D` ou `A`.
+    pub fn code(self) -> &'static str {
+        match self {
+            Outcome::Home => "H",
+            Outcome::Draw => "D",
+            Outcome::Away => "A",
+        }
+    }
+
+    /// Issue correspondant à un code `H`, `D` ou `A` ; `None` pour toute autre valeur.
+    pub fn from_code(code: &str) -> Option<Outcome> {
+        Outcome::ALL
+            .into_iter()
+            .find(|outcome| outcome.code() == code)
+    }
+
     /// Position de l'issue (0, 1, 2) dans [`Outcome::ALL`].
     pub fn index(self) -> usize {
         match self {

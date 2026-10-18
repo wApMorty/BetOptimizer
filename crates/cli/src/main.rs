@@ -41,15 +41,21 @@ enum Command {
         /// Avantage minimal, en points de pourcentage (3 = 3 %).
         #[arg(long, value_name = "POURCENT", default_value_t = 3.0)]
         min_edge: f64,
-        /// Bankroll courante, en euros.
-        #[arg(long, value_name = "EUROS", default_value_t = 1000.0)]
-        bankroll: f64,
-        /// Fraction de Kelly (1 = Kelly complet, 0,5 = demi-Kelly).
-        #[arg(long, value_name = "FRACTION", default_value_t = 1.0)]
-        kelly: f64,
-        /// Mise minimale, en euros : un pari plus petit n'est pas suggéré.
-        #[arg(long, value_name = "EUROS", default_value_t = 1.0)]
-        min_stake: f64,
+        /// Bankroll, en euros (par défaut : bankroll courante, calculée depuis tes paris enregistrés).
+        #[arg(long, value_name = "EUROS")]
+        bankroll: Option<f64>,
+        /// Fraction de Kelly (par défaut : celle de la configuration).
+        #[arg(long, value_name = "FRACTION")]
+        kelly: Option<f64>,
+        /// Mise minimale, en euros (par défaut : celle de la configuration).
+        #[arg(long, value_name = "EUROS")]
+        min_stake: Option<f64>,
+    },
+    /// Écrit les recommandations du dernier relevé dans le journal immuable (et notifie sur Discord avec --notify).
+    Recommend {
+        /// Envoie les nouvelles recommandations sur Discord, rapport HTML joint.
+        #[arg(long)]
+        notify: bool,
     },
     /// Backtest des règles de sélection de paris (seuils gelés, Kelly, CLV).
     Backtest {
@@ -153,6 +159,7 @@ fn main() -> Result<()> {
                 min_stake,
             },
         ),
+        Command::Recommend { notify } => commands::recommend(&paths, notify),
         Command::Backtest { command } => match command {
             BacktestCommand::Tune => commands::backtest_tune(&paths),
             BacktestCommand::Run => commands::backtest_run(&paths),

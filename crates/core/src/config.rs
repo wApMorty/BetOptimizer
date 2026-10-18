@@ -17,6 +17,16 @@ use crate::market::margin::MarginMethod;
 /// Nom de la variable d'environnement qui contient la clé API.
 pub const API_KEY_ENV: &str = "EDGE_ODDS_API_KEY";
 
+/// Nom de la variable d'environnement qui contient l'URL du webhook Discord.
+pub const WEBHOOK_ENV: &str = "EDGE_DISCORD_WEBHOOK";
+
+/// Débuts d'URL acceptés pour un webhook Discord : l'URL contient un secret et le rapport est envoyé à cette adresse,
+/// on refuse donc tout autre site (faute de frappe, ou fichier de configuration modifié).
+const WEBHOOK_PREFIXES: [&str; 2] = [
+    "https://discord.com/api/webhooks/",
+    "https://discordapp.com/api/webhooks/",
+];
+
 /// Contenu de `config/edge.example.toml`, embarqué dans le binaire à la compilation (`include_str!`).
 /// `edge init` l'écrit chez l'utilisateur ; un test garantit qu'il reste identique aux valeurs par défaut.
 pub const EXAMPLE_TOML: &str = include_str!("../../../config/edge.example.toml");
@@ -49,11 +59,46 @@ impl fmt::Debug for ApiKey {
     }
 }
 
+/// URL d'un webhook Discord. Elle porte le jeton : quiconque la connaît peut écrire dans le salon.
+///
+/// Même principe que [`ApiKey`] : newtype dont `Debug` masque la valeur.
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+pub struct WebhookUrl(String);
+
+impl WebhookUrl {
+    /// Enveloppe une URL après avoir vérifié qu'elle pointe bien vers Discord.
+    pub fn new(value: impl Into<String>) -> Result<WebhookUrl> {
+        let value = value.into();
+        if WEBHOOK_PREFIXES
+            .iter()
+            .any(|prefix| value.starts_with(prefix))
+        {
+            Ok(WebhookUrl(value))
+        } else {
+            Err(Error::InvalidConfig(format!(
+                "l'URL du webhook doit commencer par {}",
+                WEBHOOK_PREFIXES[0]
+            )))
+        }
+    }
+
+    /// Donne accès à l'URL en clair : à n'appeler que pour envoyer la requête.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for WebhookUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("WebhookUrl(***)")
+    }
+}
+
 /// Configuration de l'application.
 ///
 /// `#[serde(default)]` : un champ absent du fichier reçoit la valeur de [`Config::default`].
 /// `deny_unknown_fields` : un champ inconnu (faute de frappe) est une erreur, jamais ignoré.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     /// Plafond de crédits consommés par période de quota (garde de budget).
@@ -69,6 +114,14 @@ pub struct Config {
     pub margin_method: MarginMethod,
     /// Clé API écrite dans le fichier (alternative à la variable d'environnement).
     pub odds_api_key: Option<ApiKey>,
+    /// Bankroll de départ, en euros. La bankroll courante en déduit les gains et les mises de tes paris enregistrés.
+    pub initial_bankroll: f64,
+    /// Fraction de Kelly appliquée aux mises suggérées (1 = Kelly complet, choix du projet ; 0,5 = demi-Kelly).
+    pub kelly_fraction: f64,
+    /// Mise minimale, en euros : un pari plus petit n'est pas suggéré.
+    pub min_stake: f64,
+    /// URL du webhook Discord (alternative à la variable d'environnement). Secret : fichier en permissions 0600.
+    pub discord_webhook_url: Option<WebhookUrl>,
 }
 
 impl Default for Config {
@@ -97,6 +150,10 @@ impl Default for Config {
             markets: owned(&["h2h"]),
             margin_method: MarginMethod::Power,
             odds_api_key: None,
+            initial_bankroll: 1000.0,
+            kelly_fraction: 1.0,
+            min_stake: 1.0,
+            discord_webhook_url: None,
         }
     }
 }
@@ -123,7 +180,7 @@ impl Config {
             source,
         })?;
         config.validate()?;
-        if config.odds_api_key.is_some() {
+        if config.odds_api_key.is_some() || config.discord_webhook_url.is_some() {
             check_permissions(path)?;
         }
         Ok(config)
@@ -135,6 +192,21 @@ impl Config {
         if self.monthly_credit_cap == 0 {
             return Err(Error::InvalidConfig(
                 "monthly_credit_cap doit être supérieur à 0".to_string(),
+            ));
+        }
+        if !(self.initial_bankroll.is_finite() && self.initial_bankroll > 0.0) {
+            return Err(Error::InvalidConfig(
+                "initial_bankroll doit être un montant strictement positif".to_string(),
+            ));
+        }
+        if !(self.kelly_fraction > 0.0 && self.kelly_fraction <= 1.0) {
+            return Err(Error::InvalidConfig(
+                "kelly_fraction doit être dans ]0 ; 1]".to_string(),
+            ));
+        }
+        if !(self.min_stake.is_finite() && self.min_stake >= 0.0) {
+            return Err(Error::InvalidConfig(
+                "min_stake doit être un montant positif ou nul".to_string(),
             ));
         }
         let lists = [
@@ -155,6 +227,18 @@ impl Config {
             }
         }
         Ok(())
+    }
+
+    /// Détermine l'URL du webhook Discord : la variable d'environnement prime, sinon celle du fichier.
+    pub fn discord_webhook(&self, from_env: Option<&str>) -> Result<WebhookUrl> {
+        match from_env.map(str::trim).filter(|value| !value.is_empty()) {
+            Some(value) => WebhookUrl::new(value),
+            None => self
+                .discord_webhook_url
+                .clone()
+                .filter(|url| !url.expose().is_empty())
+                .ok_or(Error::MissingWebhook),
+        }
     }
 
     /// Détermine la clé API : la variable d'environnement (`from_env`) prime, sinon celle du fichier.
@@ -324,6 +408,56 @@ mod tests {
             Config::load(&path).unwrap_err(),
             Error::InvalidConfig(_)
         ));
+    }
+
+    #[test]
+    fn the_betting_defaults_are_the_documented_ones() {
+        let config = Config::default();
+        assert_eq!(config.initial_bankroll, 1000.0);
+        assert_eq!(config.kelly_fraction, 1.0);
+        assert_eq!(config.min_stake, 1.0);
+        assert!(config.discord_webhook_url.is_none());
+    }
+
+    #[test]
+    fn invalid_betting_values_are_rejected() {
+        for text in [
+            "initial_bankroll = 0.0",
+            "initial_bankroll = -5.0",
+            "kelly_fraction = 0.0",
+            "kelly_fraction = 1.5",
+            "min_stake = -1.0",
+        ] {
+            let config = Config::parse(text).unwrap();
+            assert!(config.validate().is_err(), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_webhook_must_point_to_discord() {
+        assert!(WebhookUrl::new("https://discord.com/api/webhooks/123/abc").is_ok());
+        assert!(WebhookUrl::new("https://evil.example/api/webhooks/123/abc").is_err());
+        assert!(WebhookUrl::new("http://discord.com/api/webhooks/123/abc").is_err());
+    }
+
+    #[test]
+    fn the_environment_webhook_has_priority_and_the_file_is_the_fallback() {
+        let config =
+            Config::parse(r#"discord_webhook_url = "https://discord.com/api/webhooks/1/fichier""#)
+                .unwrap();
+
+        let from_env = config
+            .discord_webhook(Some("https://discord.com/api/webhooks/2/env"))
+            .unwrap();
+        let from_file = config.discord_webhook(None).unwrap();
+
+        assert!(from_env.expose().ends_with("/env"));
+        assert!(from_file.expose().ends_with("/fichier"));
+        assert!(matches!(
+            Config::default().discord_webhook(None).unwrap_err(),
+            Error::MissingWebhook
+        ));
+        assert!(!format!("{from_env:?}").contains("env"));
     }
 
     #[test]

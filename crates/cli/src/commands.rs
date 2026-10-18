@@ -3,13 +3,13 @@
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
-use chrono::{DateTime, Datelike, Timelike, Utc};
-use chrono_tz::Europe::Paris;
+use chrono::{DateTime, Utc};
 use edge_core::backtest::candidates::load_inputs;
 use edge_core::backtest::study;
-use edge_core::betting::live;
-use edge_core::config::{API_KEY_ENV, Config};
+use edge_core::betting::{live, recommend};
+use edge_core::config::{API_KEY_ENV, Config, WEBHOOK_ENV};
 use edge_core::domain::{Euros, Outcome};
+use edge_core::format;
 use edge_core::ingest::aliases::Aliases;
 use edge_core::ingest::client::OddsApiClient;
 use edge_core::ingest::football_data::fetch::{FileClient, fetch_all};
@@ -20,14 +20,17 @@ use edge_core::ingest::snapshot::{self, SnapshotReport};
 use edge_core::init::initialize;
 use edge_core::models::data::load_leagues;
 use edge_core::models::tuning;
+use edge_core::notify::{self, discord};
 use edge_core::paths::Paths;
 use edge_core::report::backtest_report;
 use edge_core::report::market_report;
 use edge_core::report::models_report;
+use edge_core::report::recommend_report;
 use edge_core::report::render::{
-    render_backtest_report, render_market_report, render_models_report,
+    render_backtest_report, render_market_report, render_models_report, render_recommend_report,
 };
 use edge_core::store::archive::last_known_usage;
+use edge_core::store::journal;
 use edge_core::store::{self, Connection, migrate};
 
 /// `edge init` : crée la configuration par défaut et la base.
@@ -412,16 +415,94 @@ pub fn backtest_tune(paths: &Paths) -> Result<()> {
     Ok(())
 }
 
-/// Réglages de `edge value`.
+/// Réglages de `edge value` ; une valeur absente prend celle de la configuration.
 pub struct ValueOptions {
     /// Avantage minimal, en points de pourcentage (3 = 3 %).
     pub min_edge_pct: f64,
-    /// Bankroll courante, en euros.
-    pub bankroll: f64,
+    /// Bankroll, en euros ; par défaut la bankroll courante (départ + gains − mises ouvertes de tes paris enregistrés).
+    pub bankroll: Option<f64>,
     /// Fraction de Kelly (1 = Kelly complet).
-    pub kelly_fraction: f64,
+    pub kelly_fraction: Option<f64>,
     /// Mise minimale, en euros.
-    pub min_stake: f64,
+    pub min_stake: Option<f64>,
+}
+
+/// Mises résolues : options de la ligne de commande, sinon configuration et journal.
+struct Staking {
+    bankroll: Euros,
+    kelly_fraction: f64,
+    min_stake: Euros,
+}
+
+fn staking(
+    conn: &Connection,
+    config: &Config,
+    bankroll: Option<f64>,
+    kelly_fraction: Option<f64>,
+    min_stake: Option<f64>,
+) -> Result<Staking> {
+    let kelly_fraction = kelly_fraction.unwrap_or(config.kelly_fraction);
+    if !(kelly_fraction > 0.0 && kelly_fraction <= 1.0) {
+        bail!("--kelly doit être dans ]0 ; 1]");
+    }
+    let bankroll = match bankroll {
+        Some(amount) => Euros::new(amount).filter(|b| b.get() > 0.0),
+        None => {
+            let initial =
+                Euros::new(config.initial_bankroll).context("initial_bankroll invalide")?;
+            Some(journal::current_bankroll(conn, initial)?)
+        }
+    };
+    let min_stake = Euros::new(min_stake.unwrap_or(config.min_stake));
+    let (Some(bankroll), Some(min_stake)) = (bankroll, min_stake) else {
+        bail!("--bankroll doit être strictement positif et --min-stake positif ou nul");
+    };
+    Ok(Staking {
+        bankroll,
+        kelly_fraction,
+        min_stake,
+    })
+}
+
+/// Une sélection à afficher, qu'elle vienne d'un relevé (`edge value`) ou du journal (`edge recommend`).
+struct Pick<'a> {
+    kickoff: DateTime<Utc>,
+    home: &'a str,
+    away: &'a str,
+    sport_key: &'a str,
+    bookmaker: &'a str,
+    outcome: Outcome,
+    odds: f64,
+    probability: f64,
+    edge: f64,
+    minimal_odds: f64,
+    stake: Option<Euros>,
+    event_id: &'a str,
+}
+
+fn print_pick(pick: &Pick<'_>) {
+    println!(
+        "\n{}  {} – {}  ({})",
+        format::kickoff_label(pick.kickoff),
+        pick.home,
+        pick.away,
+        pick.sport_key
+    );
+    let stake = pick.stake.map_or_else(
+        || "sous la mise minimale".to_string(),
+        |s| format!("mise {} €", format::decimal(s.get(), 1)),
+    );
+    println!(
+        "    {} · {} à {} · cote juste {} · avantage {} % · cote minimale {} · {}",
+        pick.bookmaker,
+        format::outcome_label(pick.outcome),
+        format::decimal(pick.odds, 2),
+        format::decimal(1.0 / pick.probability, 2),
+        format::signed(pick.edge * 100.0, 1),
+        format::decimal(pick.minimal_odds, 2),
+        stake
+    );
+    println!("    match {}", pick.event_id);
 }
 
 /// `edge value` : les prix des derniers relevés qui dépassent la cote juste de Pinnacle. Lecture seule.
@@ -430,30 +511,23 @@ pub fn value(paths: &Paths, options: &ValueOptions) -> Result<()> {
     if options.min_edge_pct.is_nan() || options.min_edge_pct < 0.0 {
         bail!("--min-edge doit être positif ou nul");
     }
-    if !(options.kelly_fraction > 0.0 && options.kelly_fraction <= 1.0) {
-        bail!("--kelly doit être dans ]0 ; 1]");
-    }
-    let (Some(bankroll), Some(min_stake)) = (
-        Euros::new(options.bankroll).filter(|b| b.get() > 0.0),
-        Euros::new(options.min_stake),
-    ) else {
-        bail!("--bankroll doit être strictement positif et --min-stake positif ou nul");
-    };
-
     let conn = open_database(paths)?;
     let config = Config::load(&paths.config_file)?;
-    let now = Utc::now();
-    let mut scan = live::scan(
+    let staking = staking(
         &conn,
-        config.margin_method,
-        options.min_edge_pct / 100.0,
-        now,
+        &config,
+        options.bankroll,
+        options.kelly_fraction,
+        options.min_stake,
     )?;
+    let now = Utc::now();
+    let min_edge = options.min_edge_pct / 100.0;
+    let mut scan = live::scan(&conn, config.margin_method, min_edge, now)?;
     live::size_stakes(
         &mut scan.opportunities,
-        bankroll,
-        options.kelly_fraction,
-        min_stake,
+        staking.bankroll,
+        staking.kelly_fraction,
+        staking.min_stake,
     )?;
 
     if scan.events == 0 {
@@ -469,47 +543,29 @@ pub fn value(paths: &Paths, options: &ValueOptions) -> Result<()> {
     );
     println!(
         "Seuil d'avantage {} % · Kelly ×{} · bankroll {} €",
-        french(options.min_edge_pct, 1),
-        french(options.kelly_fraction, 2),
-        french(options.bankroll, 0)
+        format::decimal(options.min_edge_pct, 1),
+        format::decimal(staking.kelly_fraction, 2),
+        format::decimal(staking.bankroll.get(), 0)
     );
     if scan.opportunities.is_empty() {
         println!("\nAucun prix n'atteint le seuil.");
     }
     for found in &scan.opportunities {
-        let kickoff = found.kickoff.with_timezone(&Paris);
-        let selection = &found.selection;
-        let outcome = match selection.outcome {
-            Outcome::Home => "domicile",
-            Outcome::Draw => "nul",
-            Outcome::Away => "extérieur",
-        };
-        println!(
-            "\n{} {:02}/{:02} {:02}:{:02}  {} – {}  ({})",
-            french_weekday(kickoff.weekday()),
-            kickoff.day(),
-            kickoff.month(),
-            kickoff.hour(),
-            kickoff.minute(),
-            found.home_team,
-            found.away_team,
-            found.sport_key
-        );
-        let stake = found.stake.map_or_else(
-            || "sous la mise minimale".to_string(),
-            |s| format!("mise {} €", french(s.get(), 1)),
-        );
-        println!(
-            "    {} · {} à {} · cote juste {} · avantage {} % · cote minimale {} · {}",
-            found.bookmaker,
-            outcome,
-            french(selection.odds.get(), 2),
-            french(1.0 / selection.probability.get(), 2),
-            french_signed(selection.edge * 100.0, 1),
-            french(found.minimal_odds, 2),
-            stake
-        );
-        println!("    prix mis à jour {}", age(found.priced_at, now));
+        print_pick(&Pick {
+            kickoff: found.kickoff,
+            home: &found.home_team,
+            away: &found.away_team,
+            sport_key: &found.sport_key,
+            bookmaker: &found.bookmaker,
+            outcome: found.selection.outcome,
+            odds: found.selection.odds.get(),
+            probability: found.selection.probability.get(),
+            edge: found.selection.edge,
+            minimal_odds: found.minimal_odds,
+            stake: found.stake,
+            event_id: &found.event_id,
+        });
+        println!("    prix mis à jour {}", format::age(found.priced_at, now));
     }
     println!(
         "\nÀ lire : la probabilité est celle de Pinnacle sans marge, pas celle d'un modèle. Aucune règle n'est validée hors\n\
@@ -519,36 +575,83 @@ pub fn value(paths: &Paths, options: &ValueOptions) -> Result<()> {
     Ok(())
 }
 
-/// Nombre à la française (virgule décimale) avec `digits` décimales.
-fn french(value: f64, digits: usize) -> String {
-    format!("{value:.digits$}").replace('.', ",")
-}
-
-/// Comme [`french`], avec le signe explicite (`+1,2`).
-fn french_signed(value: f64, digits: usize) -> String {
-    format!("{value:+.digits$}").replace('.', ",")
-}
-
-fn french_weekday(day: chrono::Weekday) -> &'static str {
-    match day {
-        chrono::Weekday::Mon => "lun.",
-        chrono::Weekday::Tue => "mar.",
-        chrono::Weekday::Wed => "mer.",
-        chrono::Weekday::Thu => "jeu.",
-        chrono::Weekday::Fri => "ven.",
-        chrono::Weekday::Sat => "sam.",
-        chrono::Weekday::Sun => "dim.",
-    }
-}
-
-/// « il y a 3 h 20 » ou « il y a 12 min ».
-fn age(at: DateTime<Utc>, now: DateTime<Utc>) -> String {
-    let minutes = (now - at).num_minutes().max(0);
-    if minutes < 60 {
-        format!("il y a {minutes} min")
+/// `edge recommend` : écrit les recommandations du dernier relevé dans le journal immuable et notifie sur Discord.
+pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
+    let mut conn = open_database(paths)?;
+    let config = Config::load(&paths.config_file)?;
+    // Échouer avant d'écrire si la notification demandée est impossible : mieux vaut le savoir tout de suite.
+    let webhook = if notify {
+        Some(config.discord_webhook(std::env::var(WEBHOOK_ENV).ok().as_deref())?)
     } else {
-        format!("il y a {} h {:02}", minutes / 60, minutes % 60)
+        None
+    };
+    let staking = staking(&conn, &config, None, None, None)?;
+    let now = Utc::now();
+    let settings = recommend::Settings {
+        method: config.margin_method,
+        min_edge: recommend::RECOMMEND_MIN_EDGE,
+        kelly_fraction: staking.kelly_fraction,
+        min_stake: staking.min_stake,
+        bankroll: staking.bankroll,
+        code_version: env!("CARGO_PKG_VERSION").to_string(),
+    };
+    let report = recommend::run(&mut conn, &settings, now)?;
+
+    println!(
+        "{} match(s) à venir ; {} sans cotes complètes de Pinnacle (ignorés) ; {} prix aberrant(s) écarté(s).",
+        report.events, report.without_reference, report.implausible_quotes
+    );
+    println!(
+        "{} recommandation(s) nouvelle(s), {} ligne(s) de journal fantôme, {} déjà connue(s).",
+        report.recommended().count(),
+        report.shadow().count(),
+        report.already_known
+    );
+    for found in report.recommended() {
+        let r = &found.record;
+        print_pick(&Pick {
+            kickoff: r.kickoff,
+            home: &r.home_team,
+            away: &r.away_team,
+            sport_key: &r.sport_key,
+            bookmaker: &r.bookmaker,
+            outcome: r.outcome,
+            odds: r.odds.get(),
+            probability: r.probability.get(),
+            edge: r.edge,
+            minimal_odds: r.minimal_odds,
+            stake: r.stake,
+            event_id: &r.event_id,
+        });
+        println!("    recommandation n° {}", found.id);
     }
+
+    let recommended: Vec<_> = report.recommended().collect();
+    let (Some(webhook), Some(text)) = (webhook, notify::message::recommendations(&recommended))
+    else {
+        return Ok(());
+    };
+    let data = recommend_report::build(
+        &report,
+        recommend::RECOMMEND_MIN_EDGE,
+        staking.kelly_fraction,
+        staking.bankroll.get(),
+        now,
+    );
+    let html = render_recommend_report(&data)?;
+    let filename = format!("recommandations-{}.html", now.format("%Y-%m-%d"));
+    discord::send(
+        &webhook,
+        &text,
+        Some(discord::Attachment {
+            filename: &filename,
+            content_type: "text/html; charset=utf-8",
+            bytes: html.as_bytes(),
+        }),
+        &mut discord::http_post,
+    )?;
+    println!("Notification envoyée sur Discord.");
+    Ok(())
 }
 
 fn percent_or_dash(value: Option<f64>) -> String {

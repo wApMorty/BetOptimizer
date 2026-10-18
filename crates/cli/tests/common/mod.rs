@@ -5,11 +5,12 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
-/// Lance `edge --home <dossier> <args>` sans clé API dans l'environnement, sauf si précisée.
+/// Lance `edge --home <dossier> <args>` sans clé API ni webhook dans l'environnement, sauf clé précisée.
 pub fn run_edge(home: &Path, args: &[&str], api_key: Option<&str>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_edge"));
     command.arg("--home").arg(home).args(args);
     command.env_remove("EDGE_ODDS_API_KEY");
+    command.env_remove("EDGE_DISCORD_WEBHOOK");
     if let Some(key) = api_key {
         command.env("EDGE_ODDS_API_KEY", key);
     }

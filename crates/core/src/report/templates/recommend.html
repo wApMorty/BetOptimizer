@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recommandations — edge</title>
+<style>
+  :root { --bg:#fafaf8; --fg:#1d1d1b; --muted:#6b6b66; --card:#ffffff; --line:#e3e2dc; --accent:#1f5eaa; --warn:#8a5a00; --warnbg:#fff4d6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ececea; --muted:#a3a39d; --card:#201f1e; --line:#34332f; --accent:#7fb2ee; --warn:#f2c46b; --warnbg:#3a2f12; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.5rem; margin: .4em 0 .1em; }
+  .meta { color: var(--muted); font-size: .9rem; }
+  .warn { background: var(--warnbg); color: var(--warn); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+  .card h2 { font-size: 1.05rem; margin: 0 0 .2em; }
+  .line { display: flex; flex-wrap: wrap; gap: 4px 16px; font-variant-numeric: tabular-nums; }
+  .line span b { font-weight: 600; }
+  .id { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+<h1>Recommandations</h1>
+<p class="meta">{{ generated_at }} (heure de Paris) · {{ events }} match(s) examiné(s) · seuil d'avantage {{ min_edge }} % · Kelly ×{{ kelly_fraction }} · bankroll {{ bankroll }} €</p>
+
+<div class="warn"><strong>Expérimental.</strong> La probabilité est celle de Pinnacle sans marge, pas celle d'un modèle. Aucune règle n'est validée hors échantillon (voir <code>edge backtest report</code>). Vérifie la cote sur le site de l'opérateur : en dessous de la cote minimale, ne parie pas.</div>
+
+{% for r in rows %}
+<div class="card">
+  <h2>{{ r.fixture }}</h2>
+  <div class="meta">{{ r.kickoff }} · {{ r.league }} · <span class="id">recommandation n° {{ r.id }}</span></div>
+  <div class="line">
+    <span><b>{{ r.bookmaker }}</b></span>
+    <span>{{ r.outcome }} à <b>{{ r.odds }}</b></span>
+    <span>cote juste {{ r.fair_odds }}</span>
+    <span>avantage <b>{{ r.edge }}</b></span>
+  </div>
+  <div class="line">
+    <span>cote minimale <b>{{ r.minimal_odds }}</b></span>
+    <span>mise suggérée <b>{{ r.stake }}</b></span>
+  </div>
+</div>
+{% else %}
+<div class="card">Aucune nouvelle recommandation.</div>
+{% endfor %}
+
+<p class="meta">{{ shadow_count }} ligne(s) ajoutée(s) au journal fantôme (avantage positif sous le seuil, aucune mise) ; {{ without_reference }} match(s) sans cotes complètes de Pinnacle, ignorés.</p>
+</main>
+</body>
+</html>

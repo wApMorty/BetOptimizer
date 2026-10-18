@@ -169,3 +169,117 @@ fn value_refuses_a_kelly_fraction_above_one() {
     assert!(!output.status.success());
     assert!(text(&output.stderr).contains("--kelly"));
 }
+
+/// Données de test écrites directement dans la base (`unwrap` toléré dans un module de test).
+#[cfg(test)]
+mod archive {
+    use super::run_edge;
+
+    /// Écrit dans la base du dossier un relevé récent où Pinnacle donne 2,00 à la victoire à domicile et Betclic 2,30 :
+    /// un avantage d'environ 12 % sur cette issue, pour un match dans deux jours.
+    pub fn one_value_match(home: &std::path::Path) {
+        use chrono::{Duration, Utc};
+        use edge_core::domain::{Event, Odds, Quota, Quote};
+        use edge_core::store::archive::{Endpoint, NewApiCall, record_api_call, record_snapshot};
+        use edge_core::store::{migrate, open};
+
+        assert!(run_edge(home, &["init"], None).status.success());
+        let mut conn = open(&home.join("edge.db")).unwrap();
+        migrate::migrate(&mut conn).unwrap();
+
+        let called_at = Utc::now() - Duration::hours(1);
+        let mut quotes = Vec::new();
+        for (bookmaker, home_odds, draw_odds, away_odds) in
+            [("pinnacle", 2.0, 3.6, 4.0), ("betclic_fr", 2.3, 3.2, 3.4)]
+        {
+            for (name, price) in [
+                ("Falkirk", home_odds),
+                ("Draw", draw_odds),
+                ("Kilmarnock", away_odds),
+            ] {
+                quotes.push(Quote {
+                    bookmaker_key: bookmaker.to_string(),
+                    market_key: "h2h".to_string(),
+                    updated_at: called_at,
+                    outcome: name.to_string(),
+                    point: None,
+                    price: Odds::new(price).unwrap(),
+                });
+            }
+        }
+        let event = Event {
+            id: "match-cli".to_string(),
+            sport_key: "soccer_spl".to_string(),
+            commence_time: Utc::now() + Duration::days(2),
+            home_team: "Falkirk".to_string(),
+            away_team: "Kilmarnock".to_string(),
+            quotes,
+        };
+        let call = NewApiCall {
+            called_at,
+            endpoint: Endpoint::Odds,
+            sport_key: Some("soccer_spl"),
+            params: "markets=h2h",
+            http_status: 200,
+            quota: Quota::default(),
+            body: None,
+        };
+        let id = record_api_call(&conn, &call).unwrap();
+        record_snapshot(&mut conn, id, &[event]).unwrap();
+    }
+}
+
+#[test]
+fn recommend_writes_the_journal_once_and_a_second_run_adds_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    archive::one_value_match(home.path());
+
+    let first = run_edge(home.path(), &["recommend"], None);
+    let second = run_edge(home.path(), &["recommend"], None);
+
+    assert!(first.status.success(), "{}", text(&first.stderr));
+    let first_out = text(&first.stdout);
+    assert!(
+        first_out.contains("1 recommandation(s) nouvelle(s)"),
+        "{first_out}"
+    );
+    assert!(
+        first_out.contains("betclic_fr · domicile à 2,30"),
+        "{first_out}"
+    );
+    assert!(first_out.contains("recommandation n° 1"));
+    let second_out = text(&second.stdout);
+    assert!(
+        second_out.contains("0 recommandation(s) nouvelle(s)"),
+        "{second_out}"
+    );
+    assert!(second_out.contains("1 déjà connue(s)"), "{second_out}");
+}
+
+#[test]
+fn recommend_with_notify_but_no_webhook_fails_before_writing_anything() {
+    let home = tempfile::tempdir().unwrap();
+    archive::one_value_match(home.path());
+
+    let refused = run_edge(home.path(), &["recommend", "--notify"], None);
+    let plain = run_edge(home.path(), &["recommend"], None);
+
+    assert!(!refused.status.success());
+    assert!(text(&refused.stderr).contains("EDGE_DISCORD_WEBHOOK"));
+    // La tentative refusée n'a rien écrit : la commande suivante crée bien la première recommandation.
+    assert!(text(&plain.stdout).contains("1 recommandation(s) nouvelle(s)"));
+}
+
+#[test]
+fn value_shows_the_pick_without_writing_to_the_journal() {
+    let home = tempfile::tempdir().unwrap();
+    archive::one_value_match(home.path());
+
+    let shown = run_edge(home.path(), &["value"], None);
+    let recommended = run_edge(home.path(), &["recommend"], None);
+
+    assert!(shown.status.success(), "{}", text(&shown.stderr));
+    assert!(text(&shown.stdout).contains("betclic_fr · domicile à 2,30"));
+    assert!(text(&shown.stdout).contains("match match-cli"));
+    assert!(text(&recommended.stdout).contains("1 recommandation(s) nouvelle(s)"));
+}

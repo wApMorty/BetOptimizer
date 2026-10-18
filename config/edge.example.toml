@@ -38,3 +38,14 @@ margin_method = "power"
 # Clé API. Ne jamais la mettre dans git. Si elle est écrite ici, le fichier doit être en permissions 0600.
 # La variable d'environnement EDGE_ODDS_API_KEY a priorité sur cette valeur.
 # odds_api_key = "..."
+
+# Mises. La bankroll courante part de initial_bankroll, ajoute les gains et retire les mises de TES paris enregistrés
+# (`edge bet log`). Kelly complet (1,0) est le choix du projet ; les rapports comparent aussi ½ et ¼.
+initial_bankroll = 1000.0
+kelly_fraction = 1.0
+# Mise minimale en euros : un pari plus petit n'est pas suggéré. Les mises sont arrondies au dixième inférieur.
+min_stake = 1.0
+
+# Webhook Discord pour les notifications. Secret (il porte le jeton du salon) : ne jamais le mettre dans git ;
+# s'il est écrit ici, le fichier doit être en permissions 0600. La variable EDGE_DISCORD_WEBHOOK a priorité.
+# discord_webhook_url = "https://discord.com/api/webhooks/..."

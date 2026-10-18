@@ -3,6 +3,7 @@
 pub mod archive;
 pub mod backtests;
 pub mod history;
+pub mod journal;
 pub mod migrate;
 pub mod predictions;
 
