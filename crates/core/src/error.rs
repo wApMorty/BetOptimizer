@@ -39,6 +39,31 @@ pub enum Error {
     )]
     MissingApiKey,
 
+    /// Erreur renvoyée par SQLite. `#[from]` écrit pour nous `impl From<rusqlite::Error> for Error` :
+    /// c'est ce qui permet d'écrire `?` sur un résultat rusqlite dans une fonction qui renvoie notre `Result`.
+    #[error("erreur SQLite : {0}")]
+    Sqlite(#[from] rusqlite::Error),
+
+    /// La base n'a pas pu être ouverte (dossier manquant, droits insuffisants…).
+    #[error("impossible d'ouvrir la base {path} : {source}")]
+    OpenDatabase {
+        /// Fichier de base de données.
+        path: PathBuf,
+        /// Erreur SQLite d'origine.
+        source: rusqlite::Error,
+    },
+
+    /// La base a été créée par une version plus récente d'edge : on refuse de la modifier.
+    #[error(
+        "la base est en version {found} mais ce programme ne connaît que la version {supported} : mets edge à jour"
+    )]
+    DatabaseTooNew {
+        /// Version du schéma trouvée dans la base.
+        found: u32,
+        /// Dernière version connue de ce programme.
+        supported: u32,
+    },
+
     /// Le fichier de configuration contient un secret mais d'autres utilisateurs peuvent le lire.
     #[error(
         "permissions trop ouvertes sur {path} ({mode:o}) : il contient un secret, exécute `chmod 600 {path}`"
