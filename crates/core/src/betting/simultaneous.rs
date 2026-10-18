@@ -24,6 +24,10 @@ use crate::error::{Error, Result};
 /// Nombre maximal de paris traités par énumération exacte (2¹² = 4 096 combinaisons).
 pub const EXACT_LIMIT: usize = 12;
 
+/// Part maximale de la bankroll engagée sur un lot. L'optimum exact reste toujours sous 1 (sinon la perte de tous les
+/// paris ruinerait la bankroll et `ln` vaudrait −∞) ; l'approximation, elle, doit être ramenée sous ce plafond.
+const MAX_TOTAL: f64 = 0.95;
+
 /// Un pari candidat : probabilité estimée et cote proposée.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bet {
@@ -47,7 +51,7 @@ pub fn fractions(bets: &[Bet]) -> Result<Vec<f64>> {
     let optimum = if selected.len() <= EXACT_LIMIT {
         exact_fractions(&selected)?
     } else {
-        approximate_fractions(&selected)
+        cap_total(approximate_fractions(&selected))
     };
     let mut result = vec![0.0; bets.len()];
     for (slot, fraction) in positive.iter().zip(optimum) {
@@ -187,7 +191,8 @@ pub(crate) fn exact_fractions(bets: &[Bet]) -> Result<Vec<f64>> {
 /// ```
 ///
 /// Le premier facteur est la mise de Kelly approchée du pari seul ; le diviseur `1 + Q` la réduit d'autant plus que
-/// l'avantage total du lot est grand (le risque est partagé). La somme reste inférieure à 1.
+/// l'avantage total du lot est grand (le risque est partagé). Rien ne garantit toutefois que la somme reste sous 1
+/// quand le lot est grand et que les avantages annoncés sont élevés : [`cap_total`] s'en charge.
 pub(crate) fn approximate_fractions(bets: &[Bet]) -> Vec<f64> {
     let moments: Vec<(f64, f64)> = bets
         .iter()
@@ -204,6 +209,18 @@ pub(crate) fn approximate_fractions(bets: &[Bet]) -> Vec<f64> {
         .iter()
         .map(|(mu, variance)| (mu / variance) / (1.0 + q))
         .collect()
+}
+
+/// Ramène la somme des fractions à [`MAX_TOTAL`] au plus, proportionnellement (les rapports entre mises sont conservés).
+fn cap_total(mut fractions: Vec<f64>) -> Vec<f64> {
+    let total: f64 = fractions.iter().sum();
+    if total > MAX_TOTAL {
+        let scale = MAX_TOTAL / total;
+        for fraction in &mut fractions {
+            *fraction *= scale;
+        }
+    }
+    fractions
 }
 
 #[cfg(test)]
@@ -334,11 +351,30 @@ mod tests {
         assert_eq!(f.len(), 15);
         assert!(f.iter().all(|x| *x > 0.0));
         assert!(f.iter().sum::<f64>() < 1.0);
-        // Même lot que `approximate_fractions` directement.
-        let direct = approximate_fractions(&bets);
+        // Même lot que l'approximation plafonnée, calculée directement.
+        let direct = cap_total(approximate_fractions(&bets));
         for (a, b) in f.iter().zip(&direct) {
             assert_abs_diff_eq!(a, b, epsilon = 1e-12);
         }
+    }
+
+    #[test]
+    fn a_large_batch_with_large_edges_is_capped_below_the_whole_bankroll() {
+        // Quarante paris à fort avantage : l'approximation brute dépasse 1 (≈ 2,1), le plafond la ramène à 0,95.
+        let bets: Vec<Bet> = (0..40).map(|_| bet(0.55, 2.2)).collect();
+        let raw: f64 = approximate_fractions(&bets).iter().sum();
+        assert!(
+            raw > 1.0,
+            "le cas de test doit dépasser 1 sans plafond : {raw}"
+        );
+
+        let f = fractions(&bets).unwrap();
+
+        assert_abs_diff_eq!(f.iter().sum::<f64>(), MAX_TOTAL, epsilon = 1e-12);
+        assert!(
+            f.iter().all(|x| (*x - f[0]).abs() < 1e-12),
+            "mises égales conservées"
+        );
     }
 
     #[test]
