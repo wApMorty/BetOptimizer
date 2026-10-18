@@ -68,6 +68,21 @@ pub enum Error {
         supported: u32,
     },
 
+    /// Le corps d'une réponse de l'API n'a pas le format attendu.
+    #[error("réponse de l'API illisible : {0}")]
+    ResponseFormat(#[from] serde_json::Error),
+
+    /// L'API a répondu par une erreur (clé invalide, paramètre refusé, limite de débit…).
+    #[error("l'API a refusé la requête (HTTP {status}, {code}) : {message}")]
+    Api {
+        /// Code de statut HTTP.
+        status: u16,
+        /// Code d'erreur de l'API (`INVALID_KEY`…), `?` s'il est absent.
+        code: String,
+        /// Message de l'API.
+        message: String,
+    },
+
     /// Le fichier de configuration contient un secret mais d'autres utilisateurs peuvent le lire.
     #[error(
         "permissions trop ouvertes sur {path} ({mode:o}) : il contient un secret, exécute `chmod 600 {path}`"

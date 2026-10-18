@@ -1,0 +1,72 @@
+[
+  {
+    "id": "f0153980fbafeb84f5bcdb2780fbf8f2",
+    "sport_key": "soccer_spl",
+    "sport_title": "Premiership - Scotland",
+    "commence_time": "2026-10-18T14:00:00Z",
+    "home_team": "Celtic",
+    "away_team": "Hearts",
+    "bookmakers": [
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2026-10-18T10:58:27Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:58:27Z",
+            "outcomes": [
+              {
+                "name": "Celtic",
+                "price": 1.56
+              },
+              {
+                "name": "Hearts",
+                "price": 5.21
+              },
+              {
+                "name": "Draw",
+                "price": 4.92
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "71d1217eded8cf9c31de4ee9b08786e1",
+    "sport_key": "soccer_spl",
+    "sport_title": "Premiership - Scotland",
+    "commence_time": "2026-10-24T14:00:00Z",
+    "home_team": "Dundee United",
+    "away_team": "Aberdeen",
+    "bookmakers": [
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2026-10-18T10:58:27Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:58:27Z",
+            "outcomes": [
+              {
+                "name": "Aberdeen",
+                "price": 3.29
+              },
+              {
+                "name": "Dundee United",
+                "price": 2.19
+              },
+              {
+                "name": "Draw",
+                "price": 3.44
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

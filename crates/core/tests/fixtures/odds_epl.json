@@ -1,0 +1,232 @@
+[
+  {
+    "id": "dfd5d6648be46426e418801584d46a68",
+    "sport_key": "soccer_epl",
+    "sport_title": "EPL",
+    "commence_time": "2026-10-18T13:00:00Z",
+    "home_team": "Bournemouth",
+    "away_team": "Sunderland",
+    "bookmakers": [
+      {
+        "key": "winamax_fr",
+        "title": "Winamax (FR)",
+        "last_update": "2026-10-18T10:57:26Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:57:25Z",
+            "outcomes": [
+              {
+                "name": "Bournemouth",
+                "price": 2.1
+              },
+              {
+                "name": "Sunderland",
+                "price": 3.15
+              },
+              {
+                "name": "Draw",
+                "price": 3.3
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "betclic_fr",
+        "title": "Betclic (FR)",
+        "last_update": "2026-10-18T10:57:54Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:57:54Z",
+            "outcomes": [
+              {
+                "name": "Bournemouth",
+                "price": 2.13
+              },
+              {
+                "name": "Sunderland",
+                "price": 3.37
+              },
+              {
+                "name": "Draw",
+                "price": 3.3
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2026-10-18T10:58:01Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:58:01Z",
+            "outcomes": [
+              {
+                "name": "Bournemouth",
+                "price": 2.22
+              },
+              {
+                "name": "Sunderland",
+                "price": 3.55
+              },
+              {
+                "name": "Draw",
+                "price": 3.38
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "9fc08b390a49c4434f7cf631a0bb88fb",
+    "sport_key": "soccer_epl",
+    "sport_title": "EPL",
+    "commence_time": "2026-10-18T13:00:00Z",
+    "home_team": "Brighton and Hove Albion",
+    "away_team": "Crystal Palace",
+    "bookmakers": [
+      {
+        "key": "winamax_fr",
+        "title": "Winamax (FR)",
+        "last_update": "2026-10-18T10:57:26Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:57:25Z",
+            "outcomes": [
+              {
+                "name": "Brighton and Hove Albion",
+                "price": 1.43
+              },
+              {
+                "name": "Crystal Palace",
+                "price": 5.4
+              },
+              {
+                "name": "Draw",
+                "price": 4.7
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "betclic_fr",
+        "title": "Betclic (FR)",
+        "last_update": "2026-10-18T10:57:54Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:57:54Z",
+            "outcomes": [
+              {
+                "name": "Brighton and Hove Albion",
+                "price": 1.44
+              },
+              {
+                "name": "Crystal Palace",
+                "price": 6.0
+              },
+              {
+                "name": "Draw",
+                "price": 4.75
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2026-10-18T10:58:01Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:58:01Z",
+            "outcomes": [
+              {
+                "name": "Brighton and Hove Albion",
+                "price": 1.48
+              },
+              {
+                "name": "Crystal Palace",
+                "price": 6.64
+              },
+              {
+                "name": "Draw",
+                "price": 4.82
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "6601f69175a02f03fb7065aacb538e01",
+    "sport_key": "soccer_epl",
+    "sport_title": "EPL",
+    "commence_time": "2026-10-31T12:30:00Z",
+    "home_team": "Chelsea",
+    "away_team": "Manchester United",
+    "bookmakers": [
+      {
+        "key": "betclic_fr",
+        "title": "Betclic (FR)",
+        "last_update": "2026-10-18T10:57:54Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:57:54Z",
+            "outcomes": [
+              {
+                "name": "Chelsea",
+                "price": 1.95
+              },
+              {
+                "name": "Manchester United",
+                "price": 3.13
+              },
+              {
+                "name": "Draw",
+                "price": 3.47
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "winamax_fr",
+        "title": "Winamax (FR)",
+        "last_update": "2026-10-18T10:57:26Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:57:25Z",
+            "outcomes": [
+              {
+                "name": "Chelsea",
+                "price": 1.92
+              },
+              {
+                "name": "Manchester United",
+                "price": 2.95
+              },
+              {
+                "name": "Draw",
+                "price": 3.4
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

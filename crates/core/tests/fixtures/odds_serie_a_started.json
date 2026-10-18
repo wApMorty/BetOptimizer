@@ -1,0 +1,172 @@
+[
+  {
+    "id": "367da93aa21a1e13eeafb94fd2263c75",
+    "sport_key": "soccer_italy_serie_a",
+    "sport_title": "Serie A - Italy",
+    "commence_time": "2026-10-18T10:31:00Z",
+    "home_team": "Udinese",
+    "away_team": "Lecce",
+    "bookmakers": [
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2026-10-18T10:58:26Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:58:26Z",
+            "outcomes": [
+              {
+                "name": "Lecce",
+                "price": 2.13
+              },
+              {
+                "name": "Udinese",
+                "price": 3.8
+              },
+              {
+                "name": "Draw",
+                "price": 3.14
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "winamax_fr",
+        "title": "Winamax (FR)",
+        "last_update": "2026-10-18T10:58:08Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:58:08Z",
+            "outcomes": [
+              {
+                "name": "Lecce",
+                "price": 1.88
+              },
+              {
+                "name": "Udinese",
+                "price": 3.45
+              },
+              {
+                "name": "Draw",
+                "price": 3.15
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "betclic_fr",
+        "title": "Betclic (FR)",
+        "last_update": "2026-10-18T10:57:03Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:57:03Z",
+            "outcomes": [
+              {
+                "name": "Lecce",
+                "price": 1.95
+              },
+              {
+                "name": "Udinese",
+                "price": 3.4
+              },
+              {
+                "name": "Draw",
+                "price": 3.2
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "3ea32a0aa44a5f0ef7fd088155430087",
+    "sport_key": "soccer_italy_serie_a",
+    "sport_title": "Serie A - Italy",
+    "commence_time": "2026-10-18T13:00:00Z",
+    "home_team": "Fiorentina",
+    "away_team": "Como",
+    "bookmakers": [
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2026-10-18T10:58:26Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:58:26Z",
+            "outcomes": [
+              {
+                "name": "Como",
+                "price": 2.1
+              },
+              {
+                "name": "Fiorentina",
+                "price": 3.56
+              },
+              {
+                "name": "Draw",
+                "price": 3.69
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "winamax_fr",
+        "title": "Winamax (FR)",
+        "last_update": "2026-10-18T10:58:08Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:58:08Z",
+            "outcomes": [
+              {
+                "name": "Como",
+                "price": 1.98
+              },
+              {
+                "name": "Fiorentina",
+                "price": 3.25
+              },
+              {
+                "name": "Draw",
+                "price": 3.55
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "betclic_fr",
+        "title": "Betclic (FR)",
+        "last_update": "2026-10-18T10:57:03Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-10-18T10:57:03Z",
+            "outcomes": [
+              {
+                "name": "Como",
+                "price": 2.03
+              },
+              {
+                "name": "Fiorentina",
+                "price": 3.35
+              },
+              {
+                "name": "Draw",
+                "price": 3.6
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]
