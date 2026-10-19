@@ -3,6 +3,7 @@
 //! Une carte dit tout ce qu'il faut pour décider : le match et le moment, l'opérateur et l'issue, le prix contre la cote juste,
 //! la taille de l'avantage, la cote en dessous de laquelle on ne parie plus, la mise suggérée. Une seule action : « J'ai parié ».
 
+use edge_core::betting::kelly::to_units;
 use edge_core::betting::live::Opportunity;
 use edge_core::betting::recommend::RECOMMEND_MIN_EDGE;
 use edge_core::format;
@@ -219,7 +220,7 @@ fn opportunity_card(
         ui.add_space(space::SM);
         split(
             ui,
-            190.0,
+            240.0,
             |ui| {
                 ui.horizontal_wrapped(|ui| {
                     chip(ui, &found.bookmaker, Tone::Neutral);
@@ -236,9 +237,17 @@ fn opportunity_card(
             |ui| {
                 match found.stake {
                     Some(stake) => {
+                        // L'unité (1 % de la bankroll) se calcule avec la bankroll du jour de la recommandation, si elle existe.
+                        let bankroll =
+                            recorded.map_or(data.curve.available, |r| r.record.bankroll.get());
+                        let in_units = format::units(to_units(stake.get() / bankroll));
                         ui.label(
-                            RichText::new(format!("Mise suggérée {}", euros(stake.get(), 1)))
-                                .semibold(),
+                            RichText::new(format!(
+                                "Mise suggérée {} ({})",
+                                in_units,
+                                euros(stake.get(), 1)
+                            ))
+                            .semibold(),
                         );
                     }
                     None if notified => {

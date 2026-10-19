@@ -2,8 +2,9 @@
 
 use chrono::{DateTime, Utc};
 
+use crate::betting::kelly::{kelly_fraction, to_units};
 use crate::betting::live::Opportunity;
-use crate::format::{decimal, kickoff_label, long_date, outcome_label, signed};
+use crate::format::{decimal, kickoff_label, long_date, outcome_label, signed, units};
 use crate::store::journal::StoredRecommendation;
 
 /// Longueur maximale d'un message Discord (caractères).
@@ -25,6 +26,10 @@ pub struct Daily<'a> {
     pub without_reference: usize,
     /// Avantage minimal d'une recommandation.
     pub min_edge: f64,
+    /// Fraction de Kelly choisie (1 = Kelly complet).
+    pub kelly_fraction: f64,
+    /// Bankroll courante, en euros : l'unité « u » en vaut 1 %.
+    pub bankroll: f64,
     /// Nouvelles recommandations de l'exécution.
     pub recommended: &'a [&'a StoredRecommendation],
     /// Meilleur prix de chaque match, du plus proche de la valeur au plus éloigné (voir `recommend::Report::priced`).
@@ -68,12 +73,23 @@ pub fn daily(daily: &Daily) -> String {
             "\n\n**Prix les plus proches de la valeur** (pour information, ce ne sont pas des recommandations) :",
         );
         for (index, found) in shown.iter().enumerate() {
-            tail.push_str(&closest_entry(index + 1, found, daily.min_edge));
+            tail.push_str(&closest_entry(
+                index + 1,
+                found,
+                daily.min_edge,
+                daily.kelly_fraction,
+            ));
         }
         tail.push_str(
             "\n\n_Avantage = cote × probabilité de Pinnacle sans marge − 1. Négatif : le prix est moins bon que le marché. Liste complète dans le rapport joint._",
         );
     }
+    // Sans cette ligne, « 9,1 u » ne veut rien dire : l'unité est dite à chaque message.
+    tail.push_str(&format!(
+        "\n_1 u = 1 % de la bankroll ({} €) · Kelly ×{}._",
+        decimal(daily.bankroll, 0),
+        decimal(daily.kelly_fraction, 2)
+    ));
 
     let mut text = head;
     if daily.recommended.is_empty() {
@@ -104,15 +120,32 @@ pub fn daily(daily: &Daily) -> String {
     text
 }
 
-fn closest_entry(rank: usize, found: &Opportunity, min_edge: f64) -> String {
+/// Mise Kelly d'un pari seul, en unités, pour un prix donné : nulle sans avantage.
+fn kelly_units(found: &Opportunity, fraction: f64) -> f64 {
+    let s = &found.selection;
+    to_units(kelly_fraction(s.probability, s.odds) * fraction)
+}
+
+fn closest_entry(rank: usize, found: &Opportunity, min_edge: f64, fraction: f64) -> String {
     let s = &found.selection;
     let above = if s.edge >= min_edge {
         " ✔ au-dessus du seuil"
     } else {
         ""
     };
+    // Sous le seuil, la mise Kelly n'est qu'indicative : « ne pas miser » le dit, pour qu'elle ne passe pas pour un conseil.
+    let kelly = if s.edge <= 0.0 {
+        "Kelly 0 u (rien à miser)".to_string()
+    } else if s.edge >= min_edge {
+        format!("Kelly {}", units(kelly_units(found, fraction)))
+    } else {
+        format!(
+            "Kelly {} (sous le seuil : ne pas miser)",
+            units(kelly_units(found, fraction))
+        )
+    };
     format!(
-        "\n{rank}. **{}** · {} – {}\n   {} · {} à {} · cote juste {} · cote minimale {} · avantage **{} %**{above}",
+        "\n{rank}. **{}** · {} – {}\n   {} · {} à {} · cote juste {} · cote minimale {} · avantage **{} %** · {kelly}{above}",
         kickoff_label(found.kickoff),
         found.home_team,
         found.away_team,
@@ -127,9 +160,16 @@ fn closest_entry(rank: usize, found: &Opportunity, min_edge: f64) -> String {
 
 fn entry(found: &StoredRecommendation) -> String {
     let r = &found.record;
+    // La mise est celle du Kelly simultané du lot, arrondie à 0,1 € : l'unité s'en déduit avec la bankroll du jour de la recommandation.
     let stake = r.stake.map_or_else(
         || "mise sous le minimum".to_string(),
-        |s| format!("mise {} €", decimal(s.get(), 1)),
+        |s| {
+            format!(
+                "mise **{}** ({} €)",
+                units(to_units(s.get() / r.bankroll.get())),
+                decimal(s.get(), 1)
+            )
+        },
     );
     format!(
         "\n\n**{}** · {} – {}\n{} · {} à {} · cote minimale {} · avantage {} % · {}",
@@ -214,6 +254,8 @@ mod tests {
             events,
             without_reference,
             min_edge: 0.03,
+            kelly_fraction: 1.0,
+            bankroll: 1000.0,
             recommended,
             priced,
         }
@@ -232,6 +274,25 @@ mod tests {
         assert!(text.contains("pas des recommandations"));
         assert!(text.contains("betclic_fr · domicile à 2,10 · cote juste 2,13 · cote minimale 2,19 · avantage **-1,3 %**"), "{text}");
         assert!(!text.contains('⚠'));
+        assert!(text.contains("Kelly 0 u (rien à miser)"), "{text}");
+    }
+
+    #[test]
+    fn the_kelly_stake_is_given_in_units_and_a_stake_below_the_threshold_says_not_to_bet() {
+        // +1,3 % à 3,10 : Kelly = 0,013 / 2,1 = 0,62 % de la bankroll = 0,6 u, mais sous le seuil de 3 %.
+        // +11,9 % à 2,30 : Kelly = 0,119 / 1,3 = 9,1 % de la bankroll = 9,1 u.
+        let close = [
+            priced("small", "winamax_fr", 3.10, 1.013 / 3.10),
+            priced("big", "betclic_fr", 2.30, 0.4865),
+        ];
+
+        let text = daily(&day(&[], &close, 20, 0));
+
+        assert!(
+            text.contains("Kelly 0,6 u (sous le seuil : ne pas miser)"),
+            "{text}"
+        );
+        assert!(text.contains("Kelly 9,1 u ✔ au-dessus du seuil"), "{text}");
     }
 
     #[test]
@@ -289,7 +350,11 @@ mod tests {
         assert!(text.contains("betclic_fr · domicile à 2,30"));
         assert!(text.contains("cote minimale 2,12"));
         assert!(text.contains("avantage +11,9 %"));
-        assert!(text.contains("mise 91,4 €"));
+        assert!(text.contains("mise **9,1 u** (91,4 €)"), "{text}");
+        assert!(
+            text.contains("1 u = 1 % de la bankroll (1000 €) · Kelly ×1,00"),
+            "{text}"
+        );
     }
 
     #[test]

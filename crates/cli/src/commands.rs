@@ -7,6 +7,7 @@ use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use edge_core::backtest::candidates::load_inputs;
 use edge_core::backtest::study;
+use edge_core::betting::kelly::{self, to_units};
 use edge_core::betting::{clv, ledger, live, recommend, settle};
 use edge_core::config::{API_KEY_ENV, Config, WEBHOOK_ENV};
 use edge_core::domain::{Euros, Outcome};
@@ -1245,7 +1246,7 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
         for found in report.priced.iter().take(notify::message::CLOSEST_PRICES) {
             let s = &found.selection;
             println!(
-                "  {} · {} – {} · {} · {} à {} · cote juste {} · avantage {} %",
+                "  {} · {} – {} · {} · {} à {} · cote juste {} · avantage {} % · Kelly {}",
                 format::kickoff_label(found.kickoff),
                 found.home_team,
                 found.away_team,
@@ -1254,6 +1255,9 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
                 format::decimal(s.odds.get(), 2),
                 format::decimal(1.0 / s.probability.get(), 2),
                 format::signed(s.edge * 100.0, 1),
+                format::units(to_units(
+                    kelly::kelly_fraction(s.probability, s.odds) * staking.kelly_fraction
+                )),
             );
         }
     }
@@ -1273,7 +1277,11 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
             stake: r.stake,
             event_id: &r.event_id,
         });
-        println!("    recommandation n° {}", found.id);
+        let stake = r.stake.map_or_else(
+            || "sous le minimum".to_string(),
+            |s| format::units(to_units(s.get() / r.bankroll.get())),
+        );
+        println!("    recommandation n° {} · mise {stake}", found.id);
     }
 
     // Le message part chaque jour, même sans recommandation : il montre ce que l'algorithme a regardé (et alerte si Pinnacle manque).
@@ -1286,6 +1294,8 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
         events: report.events,
         without_reference: report.without_reference,
         min_edge: recommend::RECOMMEND_MIN_EDGE,
+        kelly_fraction: staking.kelly_fraction,
+        bankroll: staking.bankroll.get(),
         recommended: &recommended,
         priced: &report.priced,
     });

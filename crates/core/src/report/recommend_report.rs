@@ -6,9 +6,10 @@ use chrono::{DateTime, Utc};
 use chrono_tz::Europe::Paris;
 use serde::Serialize;
 
+use crate::betting::kelly::{kelly_fraction as kelly_fraction_of, to_units};
 use crate::betting::live::Opportunity;
 use crate::betting::recommend::Report;
-use crate::format::{decimal, kickoff_label, outcome_label, signed};
+use crate::format::{decimal, kickoff_label, outcome_label, signed, units};
 use crate::ingest::football_data::LEAGUES;
 use crate::store::journal::StoredRecommendation;
 
@@ -58,6 +59,8 @@ pub struct PriceRow {
     pub fair_odds: String,
     /// Avantage en pourcentage signé.
     pub edge: String,
+    /// Mise Kelly d'un pari seul, en unités (0 sans avantage). Indicative sous le seuil.
+    pub kelly: String,
     /// L'avantage atteint-il le seuil ?
     pub above_threshold: bool,
 }
@@ -87,7 +90,7 @@ pub struct RecommendReport {
     pub reference_missing: bool,
 }
 
-fn price_row(found: &Opportunity, min_edge: f64) -> PriceRow {
+fn price_row(found: &Opportunity, min_edge: f64, kelly: f64) -> PriceRow {
     let s = &found.selection;
     PriceRow {
         kickoff: kickoff_label(found.kickoff),
@@ -98,6 +101,7 @@ fn price_row(found: &Opportunity, min_edge: f64) -> PriceRow {
         odds: decimal(s.odds.get(), 2),
         fair_odds: decimal(1.0 / s.probability.get(), 2),
         edge: format!("{} %", signed(s.edge * 100.0, 1)),
+        kelly: units(to_units(kelly_fraction_of(s.probability, s.odds) * kelly)),
         above_threshold: s.edge >= min_edge,
     }
 }
@@ -124,7 +128,13 @@ fn row(found: &StoredRecommendation) -> Row {
         minimal_odds: decimal(r.minimal_odds, 2),
         stake: r.stake.map_or_else(
             || "sous le minimum".to_string(),
-            |s| format!("{} €", decimal(s.get(), 1)),
+            |s| {
+                format!(
+                    "{} ({} €)",
+                    units(to_units(s.get() / r.bankroll.get())),
+                    decimal(s.get(), 1)
+                )
+            },
         ),
     }
 }
@@ -152,7 +162,7 @@ pub fn build(
         prices: report
             .priced
             .iter()
-            .map(|o| price_row(o, min_edge))
+            .map(|o| price_row(o, min_edge, kelly_fraction))
             .collect(),
         reference_missing: report.events == 0 || report.without_reference * 2 >= report.events,
     }
@@ -193,7 +203,10 @@ mod tests {
         assert!(html.contains("Falkirk – Kilmarnock"));
         assert!(html.contains("betclic_fr"));
         assert!(html.contains("+11,9 %"));
-        assert!(html.contains("91,4 €"));
+        assert!(
+            html.contains("9,1 u (91,4 €)"),
+            "mise en unités puis en euros"
+        );
         assert!(html.contains("Expérimental"));
         // Le gabarit échappe `/` en `&#x2f;` (affiché normalement par le navigateur) : on ne teste que l'heure.
         assert!(html.contains("17:00"), "heure de Paris (UTC+2)");
@@ -250,6 +263,7 @@ mod tests {
 
         assert_eq!(data.prices.len(), 1);
         assert!(!data.prices[0].above_threshold);
+        assert_eq!(data.prices[0].kelly, "0,0 u", "pas d'avantage, pas de mise");
         assert!(
             data.prices[0].edge.starts_with('-'),
             "{}",

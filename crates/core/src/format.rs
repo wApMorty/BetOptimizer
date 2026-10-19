@@ -15,6 +15,11 @@ pub fn signed(value: f64, digits: usize) -> String {
     format!("{value:+.digits$}").replace('.', ",")
 }
 
+/// Mise en unités : `9,1 u`. Les unités sont celles de [`crate::betting::kelly::UNIT`] (1 u = 1 % de la bankroll).
+pub fn units(value: f64) -> String {
+    format!("{} u", decimal(value, 1))
+}
+
 /// Coup d'envoi en heure de Paris : `sam. 24/10 15:00`.
 pub fn kickoff_label(at: DateTime<Utc>) -> String {
     let local = at.with_timezone(&Paris);
@@ -112,6 +117,8 @@ mod tests {
         assert_eq!(decimal(1000.0, 0), "1000");
         assert_eq!(signed(11.89, 1), "+11,9");
         assert_eq!(signed(-0.44, 1), "-0,4");
+        assert_eq!(units(9.14), "9,1 u");
+        assert_eq!(units(0.0), "0,0 u");
     }
 
     #[test]

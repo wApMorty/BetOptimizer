@@ -20,6 +20,15 @@ pub fn kelly_fraction(probability: Probability, odds: Odds) -> f64 {
     (edge / (odds.get() - 1.0)).min(MAX_FRACTION)
 }
 
+/// Une unité (« 1 u ») vaut 1 % de la bankroll : convention courante des pronostiqueurs, qui rend une mise lisible quelle que soit
+/// la bankroll (Kelly à 9 % de la bankroll = 9 u).
+pub const UNIT: f64 = 0.01;
+
+/// Fraction de bankroll exprimée en unités : `0,091` donne `9,1`.
+pub fn to_units(fraction: f64) -> f64 {
+    fraction / UNIT
+}
+
 /// Mise en euros pour une fraction de bankroll, arrondie **à la baisse** au dixième d'euro, ou `None` si elle
 /// tombe sous la mise minimale (un pari trop petit n'est pas placé).
 pub fn stake(bankroll: Euros, fraction: f64, min_stake: Euros) -> Option<Euros> {
@@ -45,6 +54,12 @@ mod tests {
     /// Croissance logarithmique attendue d'un pari seul pour une fraction `f`.
     fn growth(p: f64, odds: f64, f: f64) -> f64 {
         p * (1.0 + f * (odds - 1.0)).ln() + (1.0 - p) * (1.0 - f).ln()
+    }
+
+    #[test]
+    fn a_fraction_of_the_bankroll_is_read_in_units_of_one_percent() {
+        assert_abs_diff_eq!(to_units(0.091), 9.1, epsilon = 1e-12);
+        assert_abs_diff_eq!(to_units(0.0), 0.0);
     }
 
     #[test]

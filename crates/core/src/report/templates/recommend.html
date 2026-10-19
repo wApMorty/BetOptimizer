@@ -33,7 +33,7 @@
 <body>
 <main>
 <h1>Recommandations</h1>
-<p class="meta">{{ generated_at }} (heure de Paris) · {{ events }} match(s) examiné(s) · seuil d'avantage {{ min_edge }} % · Kelly ×{{ kelly_fraction }} · bankroll {{ bankroll }} €</p>
+<p class="meta">{{ generated_at }} (heure de Paris) · {{ events }} match(s) examiné(s) · seuil d'avantage {{ min_edge }} % · Kelly ×{{ kelly_fraction }} · bankroll {{ bankroll }} € · 1 u = 1 % de la bankroll</p>
 
 {% if reference_missing %}<div class="bad"><strong>Pinnacle manque sur {{ without_reference }} match(s) sur {{ events }}.</strong> Le relevé est inutilisable pour ces matchs (panne de l'API ?) : rien n'a pu être évalué.</div>{% endif %}
 <div class="warn"><strong>Expérimental.</strong> La probabilité est celle de Pinnacle sans marge, pas celle d'un modèle. Aucune règle n'est validée hors échantillon (voir <code>edge backtest report</code>). Vérifie la cote sur le site de l'opérateur : en dessous de la cote minimale, ne parie pas.</div>
@@ -59,12 +59,12 @@
 
 {% if prices %}
 <h2>Tous les matchs examinés</h2>
-<p class="meta">Le meilleur prix de chaque match parmi les opérateurs, du plus proche de la valeur au plus éloigné. <strong>Avantage = cote × probabilité de Pinnacle sans marge − 1</strong> : négatif, le prix est moins bon que le marché ; la ligne surlignée atteint le seuil. Ce tableau est informatif, il ne recommande rien.</p>
+<p class="meta">Le meilleur prix de chaque match parmi les opérateurs, du plus proche de la valeur au plus éloigné. <strong>Avantage = cote × probabilité de Pinnacle sans marge − 1</strong> : négatif, le prix est moins bon que le marché ; la ligne surlignée atteint le seuil. <strong>Kelly</strong> : mise d'un pari seul, en unités ; sous le seuil, elle n'est qu'indicative (ne pas miser). Ce tableau est informatif, il ne recommande rien.</p>
 <div class="scroll">
 <table>
-<thead><tr><th>Coup d'envoi</th><th>Match</th><th>Opérateur</th><th>Issue</th><th class="num">Cote</th><th class="num">Cote juste</th><th class="num">Avantage</th></tr></thead>
+<thead><tr><th>Coup d'envoi</th><th>Match</th><th>Opérateur</th><th>Issue</th><th class="num">Cote</th><th class="num">Cote juste</th><th class="num">Avantage</th><th class="num">Kelly</th></tr></thead>
 <tbody>
-{% for p in prices %}<tr{% if p.above_threshold %} class="up"{% endif %}><td>{{ p.kickoff }}</td><td>{{ p.fixture }}<br><span class="meta">{{ p.league }}</span></td><td>{{ p.bookmaker }}</td><td>{{ p.outcome }}</td><td class="num">{{ p.odds }}</td><td class="num">{{ p.fair_odds }}</td><td class="num"><b>{{ p.edge }}</b></td></tr>
+{% for p in prices %}<tr{% if p.above_threshold %} class="up"{% endif %}><td>{{ p.kickoff }}</td><td>{{ p.fixture }}<br><span class="meta">{{ p.league }}</span></td><td>{{ p.bookmaker }}</td><td>{{ p.outcome }}</td><td class="num">{{ p.odds }}</td><td class="num">{{ p.fair_odds }}</td><td class="num"><b>{{ p.edge }}</b></td><td class="num">{{ p.kelly }}</td></tr>
 {% endfor %}
 </tbody>
 </table>
