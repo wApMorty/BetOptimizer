@@ -59,6 +59,9 @@ pub struct Report {
     pub created: Vec<StoredRecommendation>,
     /// Candidats déjà présents dans le journal : rien n'a été réécrit.
     pub already_known: usize,
+    /// Pour chaque match comparé à Pinnacle, le meilleur prix d'un opérateur, **même moins bon que le marché**, du plus proche
+    /// de la valeur au plus éloigné. Ce n'est pas un journal : cela sert à montrer ce que l'algorithme a regardé.
+    pub priced: Vec<Opportunity>,
 }
 
 impl Report {
@@ -79,13 +82,24 @@ impl Report {
 
 /// Lit le dernier relevé et écrit les nouvelles recommandations dans le journal, en une seule transaction.
 pub fn run(conn: &mut Connection, settings: &Settings, now: DateTime<Utc>) -> Result<Report> {
-    // Seuil à 0 : on veut toutes les meilleures sélections positives, puis on les répartit entre les deux paliers.
-    let scan = live::scan(conn, settings.method, 0.0, now)?;
+    // Seuil à −1 (= aucun) : le meilleur prix de chaque match, même négatif, pour pouvoir le montrer ; les deux paliers du
+    // journal n'en retiennent ensuite que les avantages positifs.
+    let scan = live::scan(conn, settings.method, -1.0, now)?;
+    let mut priced = scan.opportunities.clone();
+    for opportunity in &mut priced {
+        // Le scan a été fait sans seuil : la cote minimale qu'il a calculée n'a pas de sens, on la recalcule pour le seuil du jour.
+        opportunity.minimal_odds =
+            minimal_odds(opportunity.selection.probability, settings.min_edge);
+    }
+    priced.sort_by(|a, b| b.selection.edge.total_cmp(&a.selection.edge));
 
     let mut fresh_recommended: Vec<Opportunity> = Vec::new();
     let mut fresh_shadow: Vec<Opportunity> = Vec::new();
     let mut already_known = 0;
     for opportunity in scan.opportunities {
+        if opportunity.selection.edge < 0.0 {
+            continue;
+        }
         let tier = if opportunity.selection.edge >= settings.min_edge {
             Tier::Recommended
         } else {
@@ -163,6 +177,7 @@ pub fn run(conn: &mut Connection, settings: &Settings, now: DateTime<Utc>) -> Re
         implausible_quotes: scan.implausible_quotes,
         created,
         already_known,
+        priced,
     })
 }
 
@@ -311,6 +326,47 @@ mod tests {
         assert_eq!(recommended.len(), 1);
         // 9,1 % de 5 € = 0,4 € < 1 €.
         assert_eq!(recommended[0].record.stake, None);
+    }
+
+    #[test]
+    fn every_priced_match_is_reported_even_below_the_market_best_first_with_the_minimal_odds_of_the_day()
+     {
+        let mut conn = database();
+        store(
+            &mut conn,
+            "2026-10-18T14:00:00Z",
+            &[
+                event_named(
+                    "down",
+                    "2026-10-24T14:00:00Z",
+                    &[PINNACLE, ("betclic_fr", 1.95, 3.5, 3.9)],
+                ),
+                event_named(
+                    "up",
+                    "2026-10-25T14:00:00Z",
+                    &[PINNACLE, ("pmu_fr", 2.08, 3.5, 3.8)],
+                ),
+            ],
+        );
+
+        let report = run(&mut conn, &settings(), at(NOW)).unwrap();
+
+        let ids: Vec<&str> = report.priced.iter().map(|o| o.event_id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["up", "down"],
+            "du plus proche de la valeur au plus éloigné"
+        );
+        assert!(report.priced[1].selection.edge < 0.0);
+        for o in &report.priced {
+            assert!(
+                (o.minimal_odds - (1.0 + RECOMMEND_MIN_EDGE) / o.selection.probability.get()).abs()
+                    < 1e-9
+            );
+        }
+        // Le journal, lui, n'a retenu que l'avantage positif.
+        assert_eq!(report.created.len(), 1);
+        assert_eq!(report.created[0].record.event_id, "up");
     }
 
     #[test]

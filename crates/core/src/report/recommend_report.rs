@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use chrono_tz::Europe::Paris;
 use serde::Serialize;
 
+use crate::betting::live::Opportunity;
 use crate::betting::recommend::Report;
 use crate::format::{decimal, kickoff_label, outcome_label, signed};
 use crate::ingest::football_data::LEAGUES;
@@ -38,6 +39,29 @@ pub struct Row {
     pub stake: String,
 }
 
+/// Le meilleur prix d'un match, même moins bon que le marché : une ligne du tableau « tous les matchs ».
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PriceRow {
+    /// Coup d'envoi, heure de Paris.
+    pub kickoff: String,
+    /// Compétition.
+    pub league: String,
+    /// `Domicile – Extérieur`.
+    pub fixture: String,
+    /// Bookmaker du meilleur prix.
+    pub bookmaker: String,
+    /// Issue concernée.
+    pub outcome: String,
+    /// Cote proposée.
+    pub odds: String,
+    /// Cote juste selon Pinnacle sans marge.
+    pub fair_odds: String,
+    /// Avantage en pourcentage signé.
+    pub edge: String,
+    /// L'avantage atteint-il le seuil ?
+    pub above_threshold: bool,
+}
+
 /// Tout ce que le rapport affiche.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RecommendReport {
@@ -57,6 +81,32 @@ pub struct RecommendReport {
     pub kelly_fraction: String,
     /// Bankroll utilisée pour les mises.
     pub bankroll: String,
+    /// Le meilleur prix de chaque match comparé à Pinnacle, du plus proche de la valeur au plus éloigné.
+    pub prices: Vec<PriceRow>,
+    /// Pinnacle manque sur la moitié des matchs ou plus : le relevé n'a pas pu être évalué.
+    pub reference_missing: bool,
+}
+
+fn price_row(found: &Opportunity, min_edge: f64) -> PriceRow {
+    let s = &found.selection;
+    PriceRow {
+        kickoff: kickoff_label(found.kickoff),
+        league: league_name(&found.sport_key),
+        fixture: format!("{} – {}", found.home_team, found.away_team),
+        bookmaker: found.bookmaker.clone(),
+        outcome: outcome_label(s.outcome).to_string(),
+        odds: decimal(s.odds.get(), 2),
+        fair_odds: decimal(1.0 / s.probability.get(), 2),
+        edge: format!("{} %", signed(s.edge * 100.0, 1)),
+        above_threshold: s.edge >= min_edge,
+    }
+}
+
+fn league_name(sport_key: &str) -> String {
+    LEAGUES
+        .iter()
+        .find(|league| league.sport_key == sport_key)
+        .map_or_else(|| sport_key.to_string(), |league| league.name.to_string())
 }
 
 fn row(found: &StoredRecommendation) -> Row {
@@ -64,10 +114,7 @@ fn row(found: &StoredRecommendation) -> Row {
     Row {
         id: found.id,
         kickoff: kickoff_label(r.kickoff),
-        league: LEAGUES
-            .iter()
-            .find(|league| league.sport_key == r.sport_key)
-            .map_or_else(|| r.sport_key.clone(), |league| league.name.to_string()),
+        league: league_name(&r.sport_key),
         fixture: format!("{} – {}", r.home_team, r.away_team),
         bookmaker: r.bookmaker.clone(),
         outcome: outcome_label(r.outcome).to_string(),
@@ -102,6 +149,12 @@ pub fn build(
         min_edge: decimal(min_edge * 100.0, 1),
         kelly_fraction: decimal(kelly_fraction, 2),
         bankroll: decimal(bankroll, 0),
+        prices: report
+            .priced
+            .iter()
+            .map(|o| price_row(o, min_edge))
+            .collect(),
+        reference_missing: report.events == 0 || report.without_reference * 2 >= report.events,
     }
 }
 
@@ -158,11 +211,61 @@ mod tests {
             min_edge: "3,0".into(),
             kelly_fraction: "1,00".into(),
             bankroll: "1000".into(),
+            prices: Vec::new(),
+            reference_missing: false,
         };
 
         let html = render_recommend_report(&data).unwrap();
 
         assert!(html.contains("Aucune nouvelle recommandation"));
         assert!(html.contains("2 ligne(s) ajoutée(s) au journal fantôme"));
+        assert!(
+            !html.contains("Tous les matchs examinés"),
+            "pas de tableau sans prix"
+        );
+    }
+
+    #[test]
+    fn the_report_lists_every_match_even_below_the_market_and_flags_a_missing_pinnacle() {
+        let mut conn = database();
+        // Betclic à 1,95 (cote juste 2,00 contre Pinnacle) : avantage négatif, mais le match doit figurer au tableau.
+        store(
+            &mut conn,
+            "2026-10-18T14:00:00Z",
+            &[event(&[PINNACLE, ("betclic_fr", 1.95, 3.1, 3.3)])],
+        );
+        let settings = Settings {
+            method: MarginMethod::Multiplicative,
+            min_edge: RECOMMEND_MIN_EDGE,
+            kelly_fraction: 1.0,
+            min_stake: Euros::new(1.0).unwrap(),
+            bankroll: Euros::new(1000.0).unwrap(),
+            code_version: "test".into(),
+        };
+        let report = run(&mut conn, &settings, at(NOW)).unwrap();
+        assert!(report.created.is_empty(), "rien n'est journalisé sous 0 %");
+
+        let data = build(&report, RECOMMEND_MIN_EDGE, 1.0, 1000.0, at(NOW));
+        let html = render_recommend_report(&data).unwrap();
+
+        assert_eq!(data.prices.len(), 1);
+        assert!(!data.prices[0].above_threshold);
+        assert!(
+            data.prices[0].edge.starts_with('-'),
+            "{}",
+            data.prices[0].edge
+        );
+        assert!(html.contains("Tous les matchs examinés"));
+        assert!(html.contains("Falkirk – Kilmarnock"));
+        assert!(!html.contains("Pinnacle manque"));
+
+        let mut broken = data.clone();
+        broken.reference_missing = true;
+        broken.without_reference = 60;
+        assert!(
+            render_recommend_report(&broken)
+                .unwrap()
+                .contains("Pinnacle manque sur 60 match(s)")
+        );
     }
 }

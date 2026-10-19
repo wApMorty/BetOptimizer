@@ -1240,6 +1240,23 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
         report.shadow().count(),
         report.already_known
     );
+    if !report.priced.is_empty() {
+        println!("Prix les plus proches de la valeur (information, pas des recommandations) :");
+        for found in report.priced.iter().take(notify::message::CLOSEST_PRICES) {
+            let s = &found.selection;
+            println!(
+                "  {} · {} – {} · {} · {} à {} · cote juste {} · avantage {} %",
+                format::kickoff_label(found.kickoff),
+                found.home_team,
+                found.away_team,
+                found.bookmaker,
+                format::outcome_label(s.outcome),
+                format::decimal(s.odds.get(), 2),
+                format::decimal(1.0 / s.probability.get(), 2),
+                format::signed(s.edge * 100.0, 1),
+            );
+        }
+    }
     for found in report.recommended() {
         let r = &found.record;
         print_pick(&Pick {
@@ -1259,11 +1276,19 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
         println!("    recommandation n° {}", found.id);
     }
 
-    let recommended: Vec<_> = report.recommended().collect();
-    let (Some(webhook), Some(text)) = (webhook, notify::message::recommendations(&recommended))
-    else {
+    // Le message part chaque jour, même sans recommandation : il montre ce que l'algorithme a regardé (et alerte si Pinnacle manque).
+    let Some(webhook) = webhook else {
         return Ok(());
     };
+    let recommended: Vec<_> = report.recommended().collect();
+    let text = notify::message::daily(&notify::message::Daily {
+        now,
+        events: report.events,
+        without_reference: report.without_reference,
+        min_edge: recommend::RECOMMEND_MIN_EDGE,
+        recommended: &recommended,
+        priced: &report.priced,
+    });
     let data = recommend_report::build(
         &report,
         recommend::RECOMMEND_MIN_EDGE,

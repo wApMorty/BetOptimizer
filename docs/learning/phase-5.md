@@ -88,3 +88,12 @@ pari reste ouvert (`betting/settle.rs`). Mieux vaut un pari non réglé qu'un pa
    simultané sur le lot, transaction unique.
 3. `crates/core/src/ingest/closing.rs` — quand, et à quel prix, on va chercher la clôture ; c'est le seul endroit où le programme
    dépense des crédits sans qu'on le lui demande, d'où la garde de budget et la limite d'essais.
+
+## Mise à jour du 2026-10-19 : un bilan chaque jour, pas seulement des recommandations
+
+Paul trouvait que l'algorithme « ne faisait rien » : sans prix à 3 %, aucun message ne partait. `edge recommend --notify` envoie maintenant un
+**bilan quotidien** (`notify::message::daily`) : combien de matchs ont été comparés à Pinnacle, un avertissement `⚠` si Pinnacle manque (panne de
+l'API), les recommandations s'il y en a, puis les **cinq prix les plus proches de la valeur**, même négatifs, donnés pour information. Le rapport HTML
+joint contient le tableau de tous les matchs (`PriceRow`). Pour cela `recommend::Report` porte `priced` : le scan se fait sans seuil (−1) et le journal
+ne retient toujours que les avantages positifs. Concept Rust : `scan` est paramétré par un seuil, donc « tout voir » n'est qu'une valeur d'argument,
+pas une nouvelle fonction.

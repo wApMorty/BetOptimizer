@@ -20,6 +20,14 @@
   .line { display: flex; flex-wrap: wrap; gap: 4px 16px; font-variant-numeric: tabular-nums; }
   .line span b { font-weight: 600; }
   .id { color: var(--muted); font-size: .85rem; }
+  .bad { background: #fde2e2; color: #8a1c1c; border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
+  @media (prefers-color-scheme: dark) { .bad { background: #3b1a1a; color: #f2a0a0; } }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  td.num { text-align: right; }
+  tr.up td { background: var(--warnbg); }
 </style>
 </head>
 <body>
@@ -27,6 +35,7 @@
 <h1>Recommandations</h1>
 <p class="meta">{{ generated_at }} (heure de Paris) · {{ events }} match(s) examiné(s) · seuil d'avantage {{ min_edge }} % · Kelly ×{{ kelly_fraction }} · bankroll {{ bankroll }} €</p>
 
+{% if reference_missing %}<div class="bad"><strong>Pinnacle manque sur {{ without_reference }} match(s) sur {{ events }}.</strong> Le relevé est inutilisable pour ces matchs (panne de l'API ?) : rien n'a pu être évalué.</div>{% endif %}
 <div class="warn"><strong>Expérimental.</strong> La probabilité est celle de Pinnacle sans marge, pas celle d'un modèle. Aucune règle n'est validée hors échantillon (voir <code>edge backtest report</code>). Vérifie la cote sur le site de l'opérateur : en dessous de la cote minimale, ne parie pas.</div>
 
 {% for r in rows %}
@@ -47,6 +56,20 @@
 {% else %}
 <div class="card">Aucune nouvelle recommandation.</div>
 {% endfor %}
+
+{% if prices %}
+<h2>Tous les matchs examinés</h2>
+<p class="meta">Le meilleur prix de chaque match parmi les opérateurs, du plus proche de la valeur au plus éloigné. <strong>Avantage = cote × probabilité de Pinnacle sans marge − 1</strong> : négatif, le prix est moins bon que le marché ; la ligne surlignée atteint le seuil. Ce tableau est informatif, il ne recommande rien.</p>
+<div class="scroll">
+<table>
+<thead><tr><th>Coup d'envoi</th><th>Match</th><th>Opérateur</th><th>Issue</th><th class="num">Cote</th><th class="num">Cote juste</th><th class="num">Avantage</th></tr></thead>
+<tbody>
+{% for p in prices %}<tr{% if p.above_threshold %} class="up"{% endif %}><td>{{ p.kickoff }}</td><td>{{ p.fixture }}<br><span class="meta">{{ p.league }}</span></td><td>{{ p.bookmaker }}</td><td>{{ p.outcome }}</td><td class="num">{{ p.odds }}</td><td class="num">{{ p.fair_odds }}</td><td class="num"><b>{{ p.edge }}</b></td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% endif %}
 
 <p class="meta">{{ shadow_count }} ligne(s) ajoutée(s) au journal fantôme (avantage positif sous le seuil, aucune mise) ; {{ without_reference }} match(s) sans cotes complètes de Pinnacle, ignorés.</p>
 </main>
