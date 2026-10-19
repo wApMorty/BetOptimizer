@@ -649,7 +649,28 @@ avant la NBA (`nba_reserve_credits` = 120 retirés de son plafond). Estimation m
 clôtures 15 à 45, soit 375 à 405 sur 450. Premier relevé réel (2026-10-19) : 46 matchs, 378 cotes, 5 crédits. Fenêtres du modèle fixées dans
 le code avant les données : validation du 2026-11-15 au 2027-02-01, test ensuite ; `edge nba tune` est refusé avant le 2027-02-01.
 
-## 24. Reste à vérifier
+## 24. Phase 9 — refonte de l'interface (2026-10-19)
+
+**Police.** Inter 4.0 (Rasmus Andersson), https://github.com/rsms/inter, tag `v4.0`, fichiers `Inter-Regular.ttf` et
+`Inter-SemiBold.ttf` (environ 410 Ko chacun) dans `crates/gui/assets/fonts/`. Licence SIL Open Font License 1.1 (texte `OFL.txt`
+joint) : l'incorporation dans un programme est autorisée, les fichiers ne sont pas modifiés. Aucune nouvelle dépendance Cargo.
+
+**Principes de design.** Ils viennent de connaissances générales et de lectures secondaires faites pendant la session, **sans
+vérification à la source** : durées de mouvement d'interface de l'ordre de 150 à 300 ms, décalage d'apparition en cascade, surfaces
+sombres teintées plutôt que noir pur, une seule couleur d'accent. Les valeurs chiffrées attribuées à Material Design 3 n'ont pas été
+relues dans sa documentation. Toutes les valeurs de l'interface (palette, espacements 4-8-12-16-24-32, rayons 14 et 9, durées de 0,28 s,
+0,7 s et 0,9 s) sont des **choix du projet**, réglés à l'œil sur des captures d'écran.
+
+**Contraste.** Seule mesure vérifiable : le rapport de contraste WCAG 2.x (formule de la luminance relative ci-dessus, dans
+`design/tokens.rs`), exigé à 4,5 :1 par un test pour chaque couleur de texte et chaque surface, dans les deux thèmes. Le seuil de 4,5 :1
+pour le texte courant (niveau AA) est une valeur que je cite de mémoire ; elle n'a pas été relue dans le texte de la norme.
+
+**egui 0.36.2 / egui_plot 0.37.0.** API vérifiée dans les sources des crates installées : `ViewportCommand::Screenshot` et
+`Event::Screenshot`, `Ui::new_child` avec `UiBuilder`, `Context::globally_used_rect`, `Plot::grid_color` / `grid_spacing`,
+`FontDefinitions`. Un `horizontal_wrapped` ne passe à la ligne que devant un composant simple (comportement constaté par le test de
+non-débordement, pas documenté).
+
+## 25. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
   (non vérifié). La garde ne l'utilise pas ; `edge snapshot` signale toute baisse de `x-requests-used`.
@@ -684,3 +705,5 @@ le code avant les données : validation du 2026-11-15 au 2027-02-01, test ensuit
   Pinnacle à 24 h et à 2 h du coup d'envoi ; date de début des lignes de handicap et de total chez Pinnacle.
 - Phase 8 : lignes de handicap et de total de Pinnacle sur les matchs lointains (14 matchs sur 46 le 2026-10-19) ; effet du passage à l'heure
   d'hiver américaine (17 h au lieu de 18 h à New York) sur la proximité des cotes avec la clôture ; traitement des séries éliminatoires.
+- Phase 9 : seuil AA de 4,5 :1 et formule de luminance à relire dans la norme WCAG ; durées de mouvement et valeurs de Material Design 3 ;
+  rendu des animations à l'œil sur une session réelle (Paul) ; comportement sous X11 et sur écran à forte densité de pixels.

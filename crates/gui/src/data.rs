@@ -19,6 +19,7 @@ use edge_core::ingest::aliases::Aliases;
 use edge_core::paths::Paths;
 use edge_core::store::journal::{self, StoredBet, StoredRecommendation};
 use edge_core::store::open_migrated;
+use edge_core::store::{archive, history, nba, tennis};
 
 /// Nombre de tranches du diagramme de fiabilité : peu de recommandations réglées, donc peu de tranches.
 const RELIABILITY_BINS: usize = 5;
@@ -32,6 +33,26 @@ pub struct ReportFile {
     pub path: PathBuf,
     /// Dernière modification.
     pub modified: Option<SystemTime>,
+}
+
+/// Fraîcheur d'un flux d'archive (football, tennis, NBA).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Feed {
+    /// Nom affiché.
+    pub label: &'static str,
+    /// Dernier relevé réussi.
+    pub last: Option<DateTime<Utc>>,
+    /// Éléments archivés (matchs terminés ou importés), quand le flux en compte.
+    pub archived: Option<u32>,
+}
+
+/// Crédits de l'API de cotes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Credits {
+    /// Crédits utilisés dans la période de quota.
+    pub used: u32,
+    /// Plafond configuré.
+    pub cap: u32,
 }
 
 /// Matchs examinés lors de la lecture du dernier relevé.
@@ -71,6 +92,10 @@ pub struct Data {
     pub reliability: Vec<ReliabilityBin>,
     /// Rapports HTML disponibles.
     pub reports: Vec<ReportFile>,
+    /// Fraîcheur des relevés par sport.
+    pub feeds: Vec<Feed>,
+    /// Crédits de l'API, quand un relevé les a lus.
+    pub credits: Option<Credits>,
 }
 
 /// Lit le journal et l'archive.
@@ -102,8 +127,32 @@ pub fn load(paths: &Paths, now: DateTime<Utc>) -> Result<Data> {
     let mut bets = journal::bets(&conn)?;
     bets.reverse();
 
+    let feeds = vec![
+        Feed {
+            label: "Football",
+            last: archive::last_odds_call(&conn, "soccer_")?,
+            archived: Some(history::count_games(&conn)?),
+        },
+        Feed {
+            label: "Tennis",
+            last: archive::last_odds_call(&conn, "tennis_")?,
+            archived: Some(tennis::count_matches(&conn)?),
+        },
+        Feed {
+            label: "NBA",
+            last: archive::last_odds_call(&conn, "basketball_")?,
+            archived: Some(nba::count_games(&conn)?),
+        },
+    ];
+    let credits = archive::last_known_usage(&conn)?.map(|used| Credits {
+        used,
+        cap: config.monthly_credit_cap,
+    });
+
     Ok(Data {
         now,
+        feeds,
+        credits,
         scan: summary,
         notified,
         below,

@@ -1,5 +1,8 @@
 # Phase 6 — Application egui
 
+> Les onglets (`tabs/`) et le thème (`theme.rs`) cités ci-dessous ont été remplacés par `pages/` et `design/` à la phase 9 ; les
+> concepts restent valables, les numéros de ligne non.
+
 Ce qui a été construit : une application de bureau (`edge-gui`) avec cinq onglets — Recommandations, Paris, Bankroll, CLV et
 calibration, Rapports. Elle lit et écrit le journal par l'API d'`edge-core`, n'appelle jamais l'API de cotes (aucun crédit
 dépensé) et ne parie jamais. Avant elle, la logique de saisie des paris a quitté la CLI pour `core` (`betting/ledger.rs`), et la
