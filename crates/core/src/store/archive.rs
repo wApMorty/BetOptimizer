@@ -143,6 +143,21 @@ pub fn record_snapshot(
     Ok(counts)
 }
 
+/// Instant du dernier relevé de cotes réussi d'une famille de compétitions (`soccer_`, `tennis_`, `basketball_`).
+///
+/// Les appels « un match » (clôtures, paramètres `eventId=…`) ne comptent pas : ils ne disent rien de la fraîcheur du relevé.
+pub fn last_odds_call(conn: &Connection, prefix: &str) -> Result<Option<DateTime<Utc>>> {
+    let at: Option<String> = conn.query_row(
+        "SELECT MAX(called_at) FROM api_call
+         WHERE endpoint = 'odds' AND http_status = 200 AND sport_key IS NOT NULL
+           AND substr(sport_key, 1, length(?1)) = ?1 AND params NOT LIKE 'eventId=%'",
+        [prefix],
+        |row| row.get(0),
+    )?;
+    at.map(|text| super::journal::parse_timestamp(&text))
+        .transpose()
+}
+
 /// Dernier nombre de crédits consommés (`x-requests-used`) connu, tous appels confondus.
 ///
 /// `None` si aucun appel n'a encore renvoyé cet en-tête. Les appels sans en-tête (401) sont ignorés.
@@ -218,6 +233,28 @@ mod tests {
             row.get(0)
         })
         .unwrap()
+    }
+
+    #[test]
+    fn the_last_odds_call_of_a_family_ignores_other_families_failures_and_single_match_calls() {
+        let conn = database();
+        assert_eq!(last_odds_call(&conn, "soccer_").unwrap(), None);
+        conn.execute_batch(
+            "INSERT INTO api_call (called_at, endpoint, sport_key, params, http_status) VALUES
+               ('2026-10-18T12:00:00Z', 'odds', 'soccer_epl', 'markets=h2h', 200),
+               ('2026-10-19T12:00:00Z', 'odds', 'soccer_spl', 'markets=h2h', 500),
+               ('2026-10-20T12:00:00Z', 'odds', 'soccer_epl', 'eventId=abc&markets=h2h', 200),
+               ('2026-10-19T14:00:00Z', 'odds', 'tennis_wta_x', 'markets=h2h', 200),
+               ('2026-10-17T12:00:00Z', 'odds', 'soccer_spl', 'markets=h2h', 200)",
+        )
+        .unwrap();
+
+        let football = last_odds_call(&conn, "soccer_").unwrap().unwrap();
+        let tennis = last_odds_call(&conn, "tennis_").unwrap().unwrap();
+
+        assert_eq!(football, at("2026-10-18T12:00:00Z"));
+        assert_eq!(tennis, at("2026-10-19T14:00:00Z"));
+        assert_eq!(last_odds_call(&conn, "basketball_").unwrap(), None);
     }
 
     #[test]

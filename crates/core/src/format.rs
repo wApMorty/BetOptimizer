@@ -36,6 +36,35 @@ pub fn kickoff_label(at: DateTime<Utc>) -> String {
     )
 }
 
+/// Date en toutes lettres, en heure de Paris : `lundi 19 octobre`.
+pub fn long_date(at: DateTime<Utc>) -> String {
+    let local = at.with_timezone(&Paris);
+    let day = match local.weekday() {
+        Weekday::Mon => "lundi",
+        Weekday::Tue => "mardi",
+        Weekday::Wed => "mercredi",
+        Weekday::Thu => "jeudi",
+        Weekday::Fri => "vendredi",
+        Weekday::Sat => "samedi",
+        Weekday::Sun => "dimanche",
+    };
+    let month = [
+        "janvier",
+        "février",
+        "mars",
+        "avril",
+        "mai",
+        "juin",
+        "juillet",
+        "août",
+        "septembre",
+        "octobre",
+        "novembre",
+        "décembre",
+    ][local.month0() as usize];
+    format!("{day} {} {month}", local.day())
+}
+
 /// Âge d'une date : `il y a 12 min` ou `il y a 3 h 20`.
 pub fn age(at: DateTime<Utc>, now: DateTime<Utc>) -> String {
     let minutes = (now - at).num_minutes().max(0);
@@ -43,6 +72,20 @@ pub fn age(at: DateTime<Utc>, now: DateTime<Utc>) -> String {
         format!("il y a {minutes} min")
     } else {
         format!("il y a {} h {:02}", minutes / 60, minutes % 60)
+    }
+}
+
+/// Délai avant une date future : `dans 45 min`, `dans 3 h 20`, `dans 2 j`. Une date passée donne `maintenant`.
+pub fn until(at: DateTime<Utc>, now: DateTime<Utc>) -> String {
+    let minutes = (at - now).num_minutes();
+    if minutes <= 0 {
+        "maintenant".to_string()
+    } else if minutes < 60 {
+        format!("dans {minutes} min")
+    } else if minutes < 48 * 60 {
+        format!("dans {} h {:02}", minutes / 60, minutes % 60)
+    } else {
+        format!("dans {} j", minutes / (24 * 60))
     }
 }
 
@@ -92,6 +135,23 @@ mod tests {
         assert_eq!(age(at("2026-10-18T11:05:00Z"), now), "il y a 3 h 55");
         // Une date dans le futur ne donne pas un âge négatif.
         assert_eq!(age(at("2026-10-18T16:00:00Z"), now), "il y a 0 min");
+    }
+
+    #[test]
+    fn the_long_date_uses_paris_time_and_french_names() {
+        assert_eq!(long_date(at("2026-10-19T12:00:00Z")), "lundi 19 octobre");
+        // 23 h UTC le 31 décembre : déjà le 1er janvier à Paris.
+        assert_eq!(long_date(at("2026-12-31T23:30:00Z")), "vendredi 1 janvier");
+    }
+
+    #[test]
+    fn the_time_until_a_date_is_written_in_minutes_hours_then_days() {
+        let now = at("2026-10-18T15:00:00Z");
+
+        assert_eq!(until(at("2026-10-18T15:45:00Z"), now), "dans 45 min");
+        assert_eq!(until(at("2026-10-18T18:20:00Z"), now), "dans 3 h 20");
+        assert_eq!(until(at("2026-10-21T15:00:00Z"), now), "dans 3 j");
+        assert_eq!(until(at("2026-10-18T14:00:00Z"), now), "maintenant");
     }
 
     #[test]
