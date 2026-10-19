@@ -670,7 +670,42 @@ pour le texte courant (niveau AA) est une valeur que je cite de mémoire ; elle 
 `FontDefinitions`. Un `horizontal_wrapped` ne passe à la ligne que devant un composant simple (comportement constaté par le test de
 non-débordement, pas documenté).
 
-## 25. Reste à vérifier
+## 25. Pinnacle après janvier 2026 : pistes et mesure de Betfair Exchange (2026-10-19)
+
+**Constat dans notre base.** Pinnacle (`PS`) : 19 109 cotes d'avant-match de 2016-08-06 au **2026-01-15**, puis plus rien (957 matchs sur 1 980 en
+2025/26, 0 en 2026/27). Pinnacle a fermé son API publique en juillet 2025 (source secondaire : odds-api.io, « pinnacle-api-shutdown-alternatives ») ;
+je n'ai pas trouvé d'annonce de football-data.co.uk sur l'arrêt de ses colonnes `PS*` (la page `notes.txt` répond HTTP 429).
+
+**Sources de cotes historiques Pinnacle trouvées (rien n'a été téléchargé).**
+- Kaggle « Football Odds Movements 2018-2026 » (archangel0x01, 63 597 matchs, juillet 2018 à juin 2026, Pinnacle ouverture et clôture) : **licence et
+  provenance non vérifiables** (la page ne se charge pas pour un programme). Même règle que pour le jeu Kaggle de la NBA (§23) : sans licence lue,
+  on ne l'utilise pas ; Paul peut la lire lui-même. Les cotes viennent probablement d'un relevé automatique du site de Pinnacle, dont les conditions
+  ne sont pas vérifiées.
+- TipsAudit (tipsaudit.com/data), **CC-BY-4.0** : 5 202 pronostics de juin à octobre 2026 avec cotes d'ouverture et de clôture de Pinnacle, sans clé ni
+  inscription. Inutilisable comme base de backtest : ce sont **leurs** pronostics (sélection biaisée), pas tous les matchs.
+- Offres payantes (The Odds API historique à 10 fois le coût, Apify, API de cotes commerciales) : hors budget (CLAUDE.md : gratuit uniquement).
+- Notre propre archive en direct : Pinnacle depuis le 2026-10-18 (ligne de départ de la seule source licite et gratuite).
+
+**Mesure : Betfair Exchange (`BFE`) remplace-t-il Pinnacle comme référence ?** Football-data publie encore `BFE*` (exchange Betfair) et `Avg*`
+jusqu'à aujourd'hui. Sur les **2 936 matchs** où `PS` et `BFE` existent (2024/25 et 2025/26 jusqu'au 2026-01-15), retrait de marge par la méthode
+puissance, `scripts/bfe_vs_pinnacle.py` (lecture seule) : écart absolu moyen des probabilités 0,63 point (médiane 0,50) à l'avant-match, 0,58 à la
+clôture ; log loss PS 0,9640 et BFE 0,9640 à l'avant-match (Δ +0,0001 [−0,0024 ; +0,0025]) ; à la clôture PS 0,9628, BFE 0,9619 (Δ −0,0009
+[−0,0019 ; +0,0001]) ; `Avg` fait de même (0,9638 et 0,9618). Surronde moyenne : PS 1,037, BFE 1,013 (maximum 2,35 : quelques lignes aberrantes
+à écarter). Intervalle : approximation normale sur les matchs pris comme indépendants (pas de bootstrap par blocs). Conclusion mesurée : sur ces
+matchs, BFE est **indiscernable de Pinnacle** comme référence sans marge. Non établi : que cela tienne hors des grandes ligues, ni que BFE soit
+aussi « tranchant » que Pinnacle pour repérer un prix mou.
+
+**Diagnostic sur la validation seule (2024/25, 1 980 matchs, Pinnacle présent partout ; `scripts/soft_refs_validation.py`, lecture seule).** Prix mou
+dépassant la référence d'au moins 3 % (meilleure issue du match, marge retirée par la méthode puissance), CLV contre la clôture de Pinnacle :
+Bet365 contre Pinnacle **12 paris**, CLV −4,0 % (± 7,9) ; contre Betfair Exchange (lignes avec surronde ≤ 1,10) **3 paris**, −30,6 % ; contre la moyenne du
+marché 4 paris, −3,0 % ; Bwin contre Pinnacle 2 paris (+2,8 %), contre Betfair 3 (−20,1 %). Sur 2019/20 à 2023/24 : Bet365 contre Pinnacle 103 paris
+(+0,85 % ± 2,2), contre la moyenne 40 (−1,15 %). Le nombre de paris de Bet365 au seuil de 3 % contre Pinnacle baisse de saison en saison dans le rapport
+de backtest (59 en 2016/17, 36 en 2019/20, 12 en 2024/25). **Conclusion mesurée : l'écart « prix mou contre Pinnacle » s'est tari sur ces relevés ;
+l'absence de Pinnacle après janvier 2026 n'est pas la cause principale du faible nombre de paris au test, et Betfair n'en ajoute pas.** Aucune session de
+réglage supplémentaire n'a été lancée : Paul avait dit « go » sur le plan, mais le diagnostic montre qu'elle n'apporterait rien, et le choix lui a été rendu.
+Limite : les cotes « avant-match » de football-data sont relevées plusieurs jours avant le match (§17 : 137 h en moyenne), pas au moment où un parieur les verrait.
+
+## 26. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
   (non vérifié). La garde ne l'utilise pas ; `edge snapshot` signale toute baisse de `x-requests-used`.
@@ -707,3 +742,5 @@ non-débordement, pas documenté).
   d'hiver américaine (17 h au lieu de 18 h à New York) sur la proximité des cotes avec la clôture ; traitement des séries éliminatoires.
 - Phase 9 : seuil AA de 4,5 :1 et formule de luminance à relire dans la norme WCAG ; durées de mouvement et valeurs de Material Design 3 ;
   rendu des animations à l'œil sur une session réelle (Paul) ; comportement sous X11 et sur écran à forte densité de pixels.
+- Phase 9 (suite) : licence et provenance du jeu Kaggle « Football Odds Movements 2018-2026 » ; annonce de football-data sur l'arrêt des colonnes Pinnacle ;
+  commission et horodatage exacts des colonnes `BFE` (non documentés dans ce que j'ai pu lire).
