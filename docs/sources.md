@@ -705,7 +705,26 @@ l'absence de Pinnacle après janvier 2026 n'est pas la cause principale du faibl
 réglage supplémentaire n'a été lancée : Paul avait dit « go » sur le plan, mais le diagnostic montre qu'elle n'apporterait rien, et le choix lui a été rendu.
 Limite : les cotes « avant-match » de football-data sont relevées plusieurs jours avant le match (§17 : 137 h en moyenne), pas au moment où un parieur les verrait.
 
-## 26. Reste à vérifier
+## 26. Scores exacts : disponibilité des cotes et ordre de grandeur de la variance (2026-10-19)
+
+**Documentation** (the-odds-api.com/sports-odds-data/betting-markets.html) : pour le football, les marchés `correct_score` (« Correct Score at Regulation Time »)
+et `correct_score_h1` existent ; ils ne se lisent pas dans `/odds` mais match par match (`/events/{id}/odds`), au coût de 1 crédit par marché et par
+région. Les bookmakers qui les proposent ne sont pas listés par la page.
+
+**Sonde réelle (`scripts/probe_correct_score.py`, 1 crédit, un seul match : Tottenham – Coventry, région `eu`).** Trois bookmakers seulement : Pinnacle
+(30 scores, somme des 1/cote = 1,214), William Hill (46 scores, 1,526), MyBookie (25 scores, 1,401). **Aucun opérateur français** n'a répondu pour ce
+match (non généralisable : un seul match sondé). La marge d'un score exact est donc de l'ordre de 20 % chez Pinnacle (sur les 30 scores listés) et de
+40 à 50 % ailleurs, contre 3 à 4 % pour le 1X2 de Pinnacle.
+
+**Historique : aucun.** football-data.co.uk ne publie pas de cotes de scores exacts (colonnes de l'en-tête `E0_2526.csv`) ; The Odds API historique est payant.
+Seule une archive en direct permettrait de juger, à raison d'au moins 1 crédit par match et par relevé : tout relevé de tous les matchs du jour (environ
+100) dépasserait de loin le plafond gratuit de 500 crédits par mois (déjà environ 360 estimés).
+
+**Variance d'un pari de score exact sans aucun avantage** (calcul, approximation normale) : probabilité 0,11, cote 7,58 (cote juste 9,09 moins 20 % de marge),
+espérance −16,7 %, écart-type d'un pari 2,37 mises. Écart-type du rendement après 100 paris : 23,7 points (probabilité de finir positif sans avantage : 24 %) ;
+300 paris : 13,7 points (11 %) ; 1 000 paris : 7,5 points (1,3 %). Quelques centaines de paris de scores exacts ne distinguent donc pas un avantage de la chance.
+
+## 27. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
   (non vérifié). La garde ne l'utilise pas ; `edge snapshot` signale toute baisse de `x-requests-used`.
@@ -744,3 +763,4 @@ Limite : les cotes « avant-match » de football-data sont relevées plusieurs j
   rendu des animations à l'œil sur une session réelle (Paul) ; comportement sous X11 et sur écran à forte densité de pixels.
 - Phase 9 (suite) : licence et provenance du jeu Kaggle « Football Odds Movements 2018-2026 » ; annonce de football-data sur l'arrêt des colonnes Pinnacle ;
   commission et horodatage exacts des colonnes `BFE` (non documentés dans ce que j'ai pu lire).
+- Scores exacts : couverture de `correct_score` par bookmaker et par ligue (un seul match sondé) ; présence ou non des opérateurs français dans l'API.
