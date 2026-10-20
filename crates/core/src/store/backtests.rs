@@ -42,6 +42,8 @@ pub struct FrozenThreshold {
     pub criterion: Criterion,
     /// Croissance logarithmique totale attendue sur la période de réglage (critère `expected_growth` seulement).
     pub selection_growth: Option<f64>,
+    /// Fraction de Kelly de cette croissance (critère `expected_growth` seulement).
+    pub selection_kelly: Option<f64>,
 }
 
 /// Enregistre un seuil gelé.
@@ -52,8 +54,8 @@ pub fn insert_selection(
 ) -> Result<()> {
     conn.execute(
         "INSERT INTO backtest_selection (created_at, source, threshold, selection_clv, selection_bets, configs_tried,
-                                         criterion, selection_growth)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                                         criterion, selection_growth, selection_kelly)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             created_at.to_rfc3339_opts(SecondsFormat::Secs, true),
             record.source,
@@ -63,6 +65,7 @@ pub fn insert_selection(
             record.configs_tried as i64,
             record.criterion.as_str(),
             record.selection_growth,
+            record.selection_kelly,
         ],
     )?;
     Ok(())
@@ -72,7 +75,8 @@ pub fn insert_selection(
 pub fn latest_selection(conn: &Connection, source: &str) -> Result<Option<FrozenThreshold>> {
     let record = conn
         .query_row(
-            "SELECT threshold, selection_clv, selection_bets, configs_tried, criterion, selection_growth
+            "SELECT threshold, selection_clv, selection_bets, configs_tried, criterion, selection_growth,
+                    selection_kelly
                FROM backtest_selection WHERE source = ?1 ORDER BY id DESC LIMIT 1",
             [source],
             |row| {
@@ -89,6 +93,7 @@ pub fn latest_selection(conn: &Connection, source: &str) -> Result<Option<Frozen
                         Criterion::MeanClv
                     },
                     selection_growth: row.get(5)?,
+                    selection_kelly: row.get(6)?,
                 })
             },
         )
@@ -290,6 +295,7 @@ mod tests {
             configs_tried: 54,
             criterion: Criterion::MeanClv,
             selection_growth: None,
+            selection_kelly: None,
         };
         insert_selection(&conn, &record, "2026-10-19T10:00:00Z".parse().unwrap()).unwrap();
         let newer = FrozenThreshold {
@@ -297,6 +303,7 @@ mod tests {
             configs_tried: 648,
             criterion: Criterion::ExpectedGrowth,
             selection_growth: Some(0.21),
+            selection_kelly: Some(0.5),
             ..record.clone()
         };
         insert_selection(&conn, &newer, "2026-10-20T10:00:00Z".parse().unwrap()).unwrap();

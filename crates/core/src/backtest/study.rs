@@ -221,6 +221,7 @@ pub fn tune(
                     configs_tried,
                     criterion: Criterion::MeanClv,
                     selection_growth: None,
+                    selection_kelly: None,
                 },
                 now,
             )?;

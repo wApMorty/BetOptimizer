@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use super::svg::{threshold_clv_chart, threshold_growth_chart};
 use crate::backtest::candidates::load_inputs;
-use crate::backtest::curve::{self, CurvePoint, SourceCurve};
+use crate::backtest::curve::{self, CurvePoint, FREEZE_KELLY, FREEZE_KELLY_INDEX, SourceCurve};
 use crate::backtest::study::{Criterion, KELLY_FRACTIONS, MIN_SELECTION_BETS};
 use crate::betting::clv::{self, Split};
 use crate::betting::recommend::RECOMMEND_MIN_EDGE;
@@ -22,7 +22,8 @@ const TABLE_STEPS: [usize; 11] = [0, 2, 5, 10, 15, 20, 30, 40, 50, 60, 80];
 pub struct Row {
     /// Le point.
     pub point: CurvePoint,
-    /// `exp(G)` en Kelly complet : par combien la bankroll serait multipliée sur toute la période si la clôture dit vrai.
+    /// `exp(G)` en demi-Kelly (la fraction du gel) : par combien la bankroll serait multipliée sur toute la période si la
+    /// clôture dit vrai.
     pub multiplier: f64,
     /// Même chose, ramenée à une saison : `exp(G / saisons)`.
     pub per_season: f64,
@@ -71,6 +72,8 @@ pub struct ThresholdsReport {
     pub min_selection_bets: usize,
     /// Fractions de Kelly tracées.
     pub kelly_fractions: Vec<f64>,
+    /// Fraction de Kelly du critère de gel.
+    pub freeze_kelly: f64,
     /// Seuil des recommandations notifiées en production.
     pub production_threshold: f64,
     /// Une vue par bookmaker de l'historique.
@@ -82,7 +85,7 @@ pub struct ThresholdsReport {
 }
 
 fn row(point: &CurvePoint, seasons: usize) -> Row {
-    let growth = point.growth[0];
+    let growth = point.growth[FREEZE_KELLY_INDEX];
     Row {
         point: point.clone(),
         multiplier: growth.exp(),
@@ -146,6 +149,7 @@ pub fn build(
         configs_all_sessions: backtests::configs_tried_all_sessions(conn)?,
         min_selection_bets: MIN_SELECTION_BETS,
         kelly_fractions: KELLY_FRACTIONS.to_vec(),
+        freeze_kelly: FREEZE_KELLY,
         production_threshold: RECOMMEND_MIN_EDGE,
         sources,
         live_by_bookmaker: live.by_bookmaker,
@@ -213,6 +217,7 @@ mod tests {
             configs_all_sessions: 54,
             min_selection_bets: 50,
             kelly_fractions: KELLY_FRACTIONS.to_vec(),
+            freeze_kelly: 0.5,
             production_threshold: 0.03,
             sources: vec![SourceView {
                 best: curve.best_point().map(|p| row(p, 9)),
@@ -248,8 +253,9 @@ mod tests {
 
     #[test]
     fn the_multiplier_is_the_exponential_of_the_total_growth() {
+        // Demi-Kelly : `point` y met 0,75 × 0,3 = 0,225.
         let r = row(&point(0, 100, 0.3), 3);
-        assert!((r.multiplier - 0.3_f64.exp()).abs() < 1e-12);
-        assert!((r.per_season - 0.1_f64.exp()).abs() < 1e-12);
+        assert!((r.multiplier - 0.225_f64.exp()).abs() < 1e-12);
+        assert!((r.per_season - 0.075_f64.exp()).abs() < 1e-12);
     }
 }

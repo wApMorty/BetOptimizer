@@ -48,7 +48,7 @@
   <strong>En bref.</strong>
   <ul>
     <li>Pour chaque seuil de 0 à 8 % (pas de 0,1 point), on rejoue la règle « parier là où le prix du bookmaker dépasse la cote juste de Pinnacle d'au moins le seuil » et on mesure la <strong>croissance logarithmique totale attendue</strong> de la bankroll : mises de Kelly simultané calculées sur Pinnacle d'avant-match, issues tenues pour distribuées comme le dit la <strong>clôture</strong> de Pinnacle.</li>
-    <li>Le seuil retenu est celui de plus forte croissance en Kelly complet, parmi ceux qui gardent au moins {{ min_selection_bets }} paris. Contrairement au CLV moyen (critère de la première session), ce critère compte le <em>total</em> gagné : beaucoup de petits avantages réels peuvent valoir plus que quelques gros.</li>
+    <li>Le seuil retenu est celui de plus forte croissance en <strong>Kelly ×{{ freeze_kelly|num(1) }}</strong>, parmi ceux qui gardent au moins {{ min_selection_bets }} paris. Contrairement au CLV moyen (critère de la première session), ce critère compte le <em>total</em> gagné : beaucoup de petits avantages réels peuvent valoir plus que quelques gros.</li>
     <li>En production, les recommandations notifiées exigent aujourd'hui {{ production_threshold|pct(1) }}. Ce rapport ne change rien à ce seuil.</li>
   </ul>
 </div>
@@ -57,7 +57,7 @@
 <ul>
   <li><strong>Avantage</strong> : <code>p_Pinnacle × cote − 1</code>, l'espérance d'un euro misé selon Pinnacle d'avant-match sans marge.</li>
   <li><strong>CLV</strong> : <code>cote × p_clôture − 1</code>, l'espérance du même euro selon la clôture. C'est la mesure qui dit si l'avantage était réel.</li>
-  <li><strong>Croissance totale attendue</strong> <code>G = Σ_lots E_clôture[ln(bankroll après / avant)]</code>. <code>exp(G)</code> est le multiplicateur de bankroll attendu sur toute la période (colonne « × bankroll ») ; ramené à une saison, <code>exp(G / saisons)</code>. Une valeur négative signifie que la règle détruit de la bankroll.</li>
+  <li><strong>Croissance totale attendue</strong> <code>G = Σ_lots E_clôture[ln(bankroll après / avant)]</code>. <code>exp(G)</code> est le multiplicateur de bankroll attendu sur toute la période en demi-Kelly (colonne « × bankroll ») ; ramené à une saison, <code>exp(G / saisons)</code>. Une valeur négative signifie que la règle détruit de la bankroll.</li>
   <li>Avec Kelly, un avantage de 0,2 % reçoit une mise minuscule : abaisser le seuil coûte peu si ces petits avantages sont faux, et rapporte peu s'ils sont justes. La courbe de croissance est donc souvent plate à gauche ; c'est attendu.</li>
   <li>Une session de l'abaque, c'est {{ configs_tried }} configurations (8 bookmakers × 81 seuils). Sessions de réglage déjà enregistrées : {{ sessions }}, pour {{ configs_all_sessions }} configurations au total.</li>
 </ul>
@@ -71,15 +71,15 @@
 {% if s.best %}Seuil de plus forte croissance : <strong>{{ s.best.point.threshold|pct(1) }}</strong> ({{ s.best.point.bets }} paris, CLV moyen {{ clv(s.best.point.clv) }}, bankroll × {{ s.best.multiplier|num(2) }} sur la période).{% else %}Aucun seuil ne garde {{ min_selection_bets }} paris.{% endif %}
 {% if s.frozen %} Seuil gelé actuellement : {{ s.frozen.threshold|pct(1) }} ({{ criterion(s.frozen.criterion) }}).{% endif %}</p>
 <div class="charts">
-  <div>{{ s.growth_chart|safe }}<p class="note">Trait vertical : seuil de plus forte croissance (Kelly ×1).</p></div>
+  <div>{{ s.growth_chart|safe }}<p class="note">Trait vertical : seuil de plus forte croissance (Kelly ×{{ freeze_kelly|num(1) }}).</p></div>
   <div>{{ s.clv_chart|safe }}<p class="note">Bande : intervalle à 95 % du CLV moyen (bootstrap par blocs ligue × semaine).</p></div>
 </div>
 <div class="card scroll"><table>
-  <tr><th>Seuil</th><th>Paris</th><th>CLV moyen</th><th>Croissance ×1 <span class="ci">[95 %]</span></th><th>× bankroll</th><th>par saison</th><th>×½</th><th>×¼</th><th>Rendement à plat</th></tr>
+  <tr><th>Seuil</th><th>Paris</th><th>CLV moyen</th><th>Croissance ×½ <span class="ci">[95 %]</span></th><th>× bankroll</th><th>par saison</th><th>×1</th><th>×¼</th><th>Rendement à plat</th></tr>
   {% for r in s.rows %}
   <tr{% if s.best and r.point.threshold == s.best.point.threshold %} class="best"{% endif %}><td>{{ r.point.threshold|pct(1) }}</td><td>{{ r.point.bets }}</td><td>{{ clv(r.point.clv) }}</td>
-    <td>{{ r.point.growth[0]|num(3) }}{% if r.point.growth_ci %} <span class="ci">[{{ r.point.growth_ci[0]|num(2) }} ; {{ r.point.growth_ci[1]|num(2) }}]</span>{% endif %}</td>
-    <td>{{ r.multiplier|num(2) }}</td><td>{{ r.per_season|num(3) }}</td><td>{{ r.point.growth[1]|num(3) }}</td><td>{{ r.point.growth[2]|num(3) }}</td><td>{{ opt(r.point.flat_roi, 1) }}</td></tr>
+    <td>{{ r.point.growth[1]|num(3) }}{% if r.point.growth_ci %} <span class="ci">[{{ r.point.growth_ci[0]|num(2) }} ; {{ r.point.growth_ci[1]|num(2) }}]</span>{% endif %}</td>
+    <td>{{ r.multiplier|num(2) }}</td><td>{{ r.per_season|num(3) }}</td><td>{{ r.point.growth[0]|num(3) }}</td><td>{{ r.point.growth[2]|num(3) }}</td><td>{{ opt(r.point.flat_roi, 1) }}</td></tr>
   {% endfor %}
 </table></div>
 

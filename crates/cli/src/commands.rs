@@ -1371,9 +1371,9 @@ pub fn backtest_run(paths: &Paths) -> Result<()> {
         let test = study.periods.last();
         let (bets, clv) = test.map_or((0, None), |p| (p.bets, p.clv));
         println!(
-            "{} (seuil {:.0} %) : {} paris au test, CLV {}",
+            "{} (seuil {} %) : {} paris au test, CLV {}",
             study.label,
-            study.threshold * 100.0,
+            format::decimal(study.threshold * 100.0, 1),
             bets,
             clv.map_or("—".to_string(), |c| format!(
                 "{:+.2} % [{:+.2} ; {:+.2}]",
@@ -1438,12 +1438,12 @@ pub fn backtest_curve(paths: &Paths, out: Option<&std::path::Path>) -> Result<()
         let zero = &source.curve.points[0];
         match &source.best {
             Some(best) => println!(
-                "{:<10} {:>5} paris à 0 % · meilleur seuil {} % : {} paris, croissance ×1 {} (bankroll × {})",
+                "{:<10} {:>5} paris à 0 % · meilleur seuil {} % : {} paris, croissance ×½ {} (bankroll × {})",
                 source.curve.label,
                 zero.bets,
                 format::decimal(best.point.threshold * 100.0, 1),
                 best.point.bets,
-                format::decimal(best.point.growth[0], 3),
+                format::decimal(best.point.growth[curve::FREEZE_KELLY_INDEX], 3),
                 format::decimal(best.multiplier, 2)
             ),
             None => println!(
@@ -1477,7 +1477,7 @@ pub fn backtest_freeze(paths: &Paths) -> Result<()> {
     let frozen = curve::freeze(&conn, &curves, Utc::now())?;
     for record in &frozen {
         println!(
-            "{:<10} seuil gelé à {} % ({} paris au réglage, croissance ×1 {})",
+            "{:<10} seuil gelé à {} % ({} paris au réglage, croissance ×½ {})",
             record.source,
             format::decimal(record.threshold * 100.0, 1),
             record.selection_bets,

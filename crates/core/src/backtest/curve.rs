@@ -2,7 +2,7 @@
 //! contre Pinnacle » : nombre de paris, CLV moyen et **croissance logarithmique totale attendue** de la bankroll.
 //!
 //! Tracée sur l'entraînement et la validation seulement : le test reste aveugle jusqu'au gel (invariant 8). Le seuil gelé
-//! est celui qui maximise la croissance totale attendue en Kelly complet, et non plus le CLV moyen.
+//! est celui qui maximise la croissance totale attendue en demi-Kelly ([`FREEZE_KELLY`]), et non plus le CLV moyen.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -32,6 +32,15 @@ pub const STEPS: u32 = 80;
 /// Périodes sur lesquelles l'abaque est tracée et le seuil choisi. Jamais le test.
 pub const TUNING_PERIODS: [Period; 2] = [Period::Train, Period::Validation];
 
+/// Position, dans [`KELLY_FRACTIONS`] (×1, ½, ¼), de la fraction de Kelly qui choisit le seuil gelé : ½.
+///
+/// Décision du 2026-10-20 : en Kelly complet, la croissance de Bet365 est négative à **tous** les seuils (l'avantage annoncé
+/// vaut environ trois fois l'avantage réel, Kelly complet mise donc trop) ; son maximum ne désignerait qu'un « moins mauvais ».
+pub const FREEZE_KELLY_INDEX: usize = 1;
+
+/// Fraction de Kelly du critère de gel.
+pub const FREEZE_KELLY: f64 = KELLY_FRACTIONS[FREEZE_KELLY_INDEX];
+
 /// Seuils auxquels le détail par issue (domicile, nul, extérieur) est donné.
 pub const OUTCOME_THRESHOLDS: [f64; 5] = [0.0, 0.005, 0.01, 0.02, 0.03];
 
@@ -53,7 +62,7 @@ pub struct CurvePoint {
     pub flat_roi: Option<f64>,
     /// Croissance logarithmique totale attendue sur la période, une valeur par fraction de Kelly (×1, ½, ¼).
     pub growth: Vec<f64>,
-    /// Intervalle à 95 % de la croissance totale en Kelly complet (bootstrap par lots de décision).
+    /// Intervalle à 95 % de la croissance totale en demi-Kelly, la fraction du gel (bootstrap par lots de décision).
     pub growth_ci: Option<(f64, f64)>,
 }
 
@@ -102,7 +111,7 @@ pub struct SourceCurve {
     pub seasons: usize,
     /// Un point par seuil.
     pub points: Vec<CurvePoint>,
-    /// Seuil de plus forte croissance attendue en Kelly complet, parmi ceux qui gardent au moins
+    /// Seuil de plus forte croissance attendue en demi-Kelly ([`FREEZE_KELLY`]), parmi ceux qui gardent au moins
     /// [`MIN_SELECTION_BETS`] paris. `None` si aucun ne les garde.
     pub best: Option<f64>,
     /// Détail par issue aux seuils [`OUTCOME_THRESHOLDS`].
@@ -210,7 +219,7 @@ fn point(batches: &[Batch], threshold: f64) -> CurvePoint {
         for (total, value) in growth.iter_mut().zip(&batch.growth[k]) {
             *total += value;
         }
-        per_batch.push((index as u32, batch.growth[k][0]));
+        per_batch.push((index as u32, batch.growth[k][FREEZE_KELLY_INDEX]));
     }
     // Intervalle du total = nombre de lots × intervalle de la moyenne par lot (les lots sont rééchantillonnés entiers).
     let lots = batches.len() as f64;
@@ -320,7 +329,7 @@ pub fn source_curve(
     let best = points
         .iter()
         .filter(|p| p.bets >= MIN_SELECTION_BETS)
-        .max_by(|a, b| a.growth[0].total_cmp(&b.growth[0]))
+        .max_by(|a, b| a.growth[FREEZE_KELLY_INDEX].total_cmp(&b.growth[FREEZE_KELLY_INDEX]))
         .map(|p| p.threshold);
     Ok(SourceCurve {
         label: format!("soft:{book}"),
@@ -380,7 +389,8 @@ pub fn freeze(
             selection_bets: point.bets,
             configs_tried: configs_tried(),
             criterion: Criterion::ExpectedGrowth,
-            selection_growth: Some(point.growth[0]),
+            selection_growth: Some(point.growth[FREEZE_KELLY_INDEX]),
+            selection_kelly: Some(FREEZE_KELLY),
         };
         backtests::insert_selection(conn, &record, now)?;
         frozen.push(record);
@@ -514,7 +524,8 @@ mod tests {
         assert!(point.growth[1] > point.growth[2]);
         assert!(point.growth[2] > 0.0);
         let (low, high) = point.growth_ci.unwrap();
-        assert!(low <= point.growth[0] && point.growth[0] <= high);
+        let half = point.growth[FREEZE_KELLY_INDEX];
+        assert!(low <= half && half <= high);
     }
 
     #[test]
@@ -568,6 +579,7 @@ mod tests {
         assert_eq!(stored.configs_tried, 8 * 81);
         assert_eq!(Some(stored.threshold), curves[0].best);
         assert!(stored.selection_growth.unwrap() > 0.0);
+        assert_eq!(stored.selection_kelly, Some(0.5));
         assert!(freeze(&conn, &curves, Utc::now()).is_err());
         assert_eq!(backtests::selection_session_count(&conn).unwrap(), 1);
     }
