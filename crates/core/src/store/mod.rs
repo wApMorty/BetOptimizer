@@ -10,6 +10,9 @@ pub mod predictions;
 pub mod tennis;
 
 use std::path::Path;
+use std::time::Duration;
+
+use rusqlite::OpenFlags;
 
 /// Connexion SQLite, ré-exportée : la CLI passe par l'API de `core` sans dépendre de `rusqlite`.
 pub use rusqlite::Connection;
@@ -40,6 +43,22 @@ pub fn open_migrated(path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
+/// Ouvre une base existante **en lecture seule** : pour `edge serve`, qui ne doit rien pouvoir écrire.
+///
+/// Ni création, ni migration : une base absente est une erreur. Une écriture tentée par erreur serait refusée par SQLite.
+pub fn open_read_only(path: &Path) -> Result<Connection> {
+    let conn =
+        Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|source| {
+            Error::OpenDatabase {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?;
+    // Le relevé planifié peut écrire au même moment : attendre son verrou plutôt que d'échouer.
+    conn.busy_timeout(Duration::from_secs(5))?;
+    Ok(conn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,6 +75,22 @@ mod tests {
             .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
             .unwrap();
         assert_eq!(enabled, 1);
+    }
+
+    #[test]
+    fn a_read_only_connection_reads_but_cannot_write_nor_create() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.db");
+        open_migrated(&path).unwrap();
+
+        let conn = open_read_only(&path).unwrap();
+
+        let version: u32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert!(version > 0, "la base migrée se lit");
+        assert!(conn.execute_batch("CREATE TABLE t (x INTEGER)").is_err());
+        assert!(open_read_only(&dir.path().join("absente.db")).is_err());
     }
 
     #[test]

@@ -1,0 +1,16 @@
+[Unit]
+Description=Site de rapports d'edge (lecture seule, réseau local)
+Documentation=file://%h/Documents/Workspace/BetOptimizer/deploy/systemd/README.md
+
+[Service]
+# Un service permanent, pas un timer : il répond aux navigateurs tant que le portable est allumé.
+Type=simple
+# Adresse d'écoute : `serve_bind` dans ~/.config/edge/edge.toml (127.0.0.1 par défaut ; 0.0.0.0 pour le réseau local).
+ExecStart=%h/.local/bin/edge serve
+# Une erreur (base verrouillée trop longtemps, port pris au démarrage) relance le service dix secondes plus tard.
+Restart=on-failure
+RestartSec=10
+
+[Install]
+# Démarre avec le gestionnaire de l'utilisateur, donc au démarrage du portable grâce au lingering.
+WantedBy=default.target

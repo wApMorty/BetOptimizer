@@ -7,6 +7,7 @@
 use std::fmt;
 use std::fs;
 use std::io::ErrorKind;
+use std::net::SocketAddr;
 use std::path::Path;
 
 use serde::Deserialize;
@@ -134,6 +135,12 @@ pub struct Config {
     pub min_stake: f64,
     /// URL du webhook Discord (alternative à la variable d'environnement). Secret : fichier en permissions 0600.
     pub discord_webhook_url: Option<WebhookUrl>,
+    /// Adresse et port d'écoute de `edge serve`. `127.0.0.1` : ce poste seul ; `0.0.0.0` : tout le réseau local.
+    /// Le type `SocketAddr` fait valider l'adresse par `serde` dès la lecture du fichier.
+    pub serve_bind: SocketAddr,
+    /// Adresse du site telle qu'un autre appareil la tape (`http://portable.local:8737/`) : rappelée dans le message
+    /// Discord, qui ne joint alors plus le rapport HTML. Absente : le rapport reste joint.
+    pub site_url: Option<String>,
 }
 
 impl Default for Config {
@@ -172,6 +179,8 @@ impl Default for Config {
             kelly_fraction: 0.5,
             min_stake: 1.0,
             discord_webhook_url: None,
+            serve_bind: SocketAddr::from(([127, 0, 0, 1], 8737)),
+            site_url: None,
         }
     }
 }
@@ -245,6 +254,13 @@ impl Config {
                 )));
             }
         }
+        if let Some(url) = &self.site_url
+            && !is_site_url(url)
+        {
+            return Err(Error::InvalidConfig(format!(
+                "site_url : « {url} » doit commencer par http:// ou https:// et ne contenir aucun espace"
+            )));
+        }
         if let Some(bad) = self
             .excluded_bookmakers
             .iter()
@@ -295,6 +311,12 @@ fn is_api_name(name: &str) -> bool {
         && name
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
+/// L'URL du site part dans un message Discord : un lien web, sans espace ni caractère de contrôle.
+fn is_site_url(url: &str) -> bool {
+    (url.starts_with("http://") || url.starts_with("https://"))
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 
 /// Refuse un fichier de secrets lisible ou modifiable par le groupe ou les autres.
@@ -476,6 +498,25 @@ mod tests {
             let config = Config::parse(text).unwrap();
             assert!(config.validate().is_err(), "{text}");
         }
+    }
+
+    #[test]
+    fn the_site_listens_on_this_machine_only_by_default_and_its_url_is_checked() {
+        let config = Config::default();
+        assert_eq!(config.serve_bind.to_string(), "127.0.0.1:8737");
+        assert_eq!(config.site_url, None);
+
+        let lan = Config::parse(
+            "serve_bind = \"0.0.0.0:8737\"\nsite_url = \"http://portable.local:8737/\"",
+        )
+        .unwrap();
+        assert!(lan.validate().is_ok());
+        assert!(
+            Config::parse("serve_bind = \"portable:8737\"").is_err(),
+            "une adresse IP est exigée"
+        );
+        let bad = Config::parse("site_url = \"portable.local:8737\"").unwrap();
+        assert!(bad.validate().unwrap_err().to_string().contains("site_url"));
     }
 
     #[test]

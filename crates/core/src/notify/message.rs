@@ -34,6 +34,9 @@ pub struct Daily<'a> {
     pub recommended: &'a [&'a StoredRecommendation],
     /// Meilleur prix de chaque match, du plus proche de la valeur au plus éloigné (voir `recommend::Report::priced`).
     pub priced: &'a [Opportunity],
+    /// Adresse du site de rapports (`site_url` de la configuration) : rappelée en fin de message. Sans elle, le rapport
+    /// est joint au message.
+    pub site_url: Option<&'a str>,
 }
 
 /// Message du jour : toujours envoyé, même sans recommandation, pour montrer ce que l'algorithme a regardé.
@@ -80,9 +83,10 @@ pub fn daily(daily: &Daily) -> String {
                 daily.kelly_fraction,
             ));
         }
-        tail.push_str(
-            "\n\n_Avantage = cote × probabilité de Pinnacle sans marge − 1. Négatif : le prix est moins bon que le marché. Liste complète dans le rapport joint._",
-        );
+        tail.push_str(&format!(
+            "\n\n_Avantage = cote × probabilité de Pinnacle sans marge − 1. Négatif : le prix est moins bon que le marché. Liste complète {}._",
+            where_report(daily.site_url)
+        ));
     }
     // Sans cette ligne, « 9,1 u » ne veut rien dire : l'unité est dite à chaque message.
     tail.push_str(&format!(
@@ -90,6 +94,12 @@ pub fn daily(daily: &Daily) -> String {
         decimal(daily.bankroll, 0),
         decimal(daily.kelly_fraction, 2)
     ));
+    if let Some(url) = daily.site_url {
+        // Les chevrons empêchent Discord d'ajouter un aperçu du lien sous le message.
+        tail.push_str(&format!(
+            "\nRapport, opportunités actives et paper trading : <{url}>"
+        ));
+    }
 
     let mut text = head;
     if daily.recommended.is_empty() {
@@ -108,8 +118,9 @@ pub fn daily(daily: &Daily) -> String {
             let entry = entry(found);
             if text.chars().count() + entry.chars().count() > room {
                 text.push_str(&format!(
-                    "\n… et {} autre(s) : voir le rapport joint.",
-                    daily.recommended.len() - index
+                    "\n… et {} autre(s) {}.",
+                    daily.recommended.len() - index,
+                    where_report(daily.site_url)
                 ));
                 break;
             }
@@ -118,6 +129,15 @@ pub fn daily(daily: &Daily) -> String {
     }
     text.push_str(&tail);
     text
+}
+
+/// Où lire le rapport complet : sur le site s'il est configuré, sinon dans la pièce jointe.
+fn where_report(site_url: Option<&str>) -> &'static str {
+    if site_url.is_some() {
+        "sur le site"
+    } else {
+        "dans le rapport joint"
+    }
 }
 
 /// Mise Kelly d'un pari seul, en unités, pour un prix donné : nulle sans avantage.
@@ -258,6 +278,7 @@ mod tests {
             bankroll: 1000.0,
             recommended,
             priced,
+            site_url: None,
         }
     }
 
@@ -379,10 +400,18 @@ mod tests {
             "{}",
             text.chars().count()
         );
-        assert!(text.contains("autre(s) : voir le rapport joint"));
+        assert!(text.contains("autre(s) dans le rapport joint."));
         assert!(
             text.contains("Prix les plus proches de la valeur"),
             "les prix du bas restent"
         );
+
+        let mut with_site = day(&refs, &close, 60, 0);
+        with_site.site_url = Some("http://portable.local:8737/");
+        let text = daily(&with_site);
+        assert!(text.chars().count() <= MAX_CHARS);
+        assert!(text.contains("autre(s) sur le site."));
+        assert!(text.ends_with("paper trading : <http://portable.local:8737/>"));
+        assert!(!text.contains("rapport joint"));
     }
 }

@@ -208,6 +208,57 @@ pub fn threshold_clv_chart(points: &[CurvePoint], title: &str) -> Result<String>
     Ok(svg)
 }
 
+/// Gain cumulé du paper trading, en unités, après chaque pari réglé (abscisse : rang du pari), avec la ligne du zéro.
+pub fn cumulative_units_chart(curve: &[f64], title: &str) -> Result<String> {
+    // Le départ (0 pari, 0 u) est tracé : la première marche part de zéro.
+    let points: Vec<(f64, f64)> = std::iter::once((0.0, 0.0))
+        .chain(curve.iter().enumerate().map(|(i, v)| ((i + 1) as f64, *v)))
+        .collect();
+    let x_max = (curve.len() as f64).max(1.0);
+    let (y_low, y_high) = vertical_range(curve.iter().copied());
+    let mut svg = String::new();
+    {
+        let root = SVGBackend::with_string(&mut svg, (640, 300)).into_drawing_area();
+        root.fill(&WHITE).map_err(draw_error)?;
+        let mut chart = ChartBuilder::on(&root)
+            .caption(title, ("sans-serif", 15))
+            .margin(8)
+            .x_label_area_size(34)
+            .y_label_area_size(48)
+            .build_cartesian_2d(0f64..x_max, y_low..y_high)
+            .map_err(draw_error)?;
+        chart
+            .configure_mesh()
+            .x_desc("paris réglés")
+            .y_desc("gain cumulé (u)")
+            // Un rang de pari est entier : les graduations fractionnaires (0,5…) restent sans étiquette.
+            .x_label_formatter(&|x| {
+                if x.fract() == 0.0 {
+                    format!("{x:.0}")
+                } else {
+                    String::new()
+                }
+            })
+            .light_line_style(RGBColor(235, 235, 235))
+            .draw()
+            .map_err(draw_error)?;
+        chart
+            .draw_series(LineSeries::new(
+                [(0.0, 0.0), (x_max, 0.0)],
+                &RGBColor(130, 130, 130),
+            ))
+            .map_err(draw_error)?;
+        chart
+            .draw_series(LineSeries::new(
+                points,
+                RGBColor(31, 94, 170).stroke_width(2),
+            ))
+            .map_err(draw_error)?;
+        root.present().map_err(draw_error)?;
+    }
+    Ok(svg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,6 +287,20 @@ mod tests {
                 .contains("<svg")
         );
         assert!(threshold_clv_chart(&[], "vide").unwrap().contains("<svg"));
+        assert!(
+            cumulative_units_chart(&[], "vide")
+                .unwrap()
+                .contains("<svg")
+        );
+    }
+
+    #[test]
+    fn the_cumulative_chart_is_a_self_contained_line_with_its_axis_names() {
+        let svg = cumulative_units_chart(&[2.6, 1.6, -0.4], "Paper trading").unwrap();
+
+        assert!(svg.contains("gain cumulé (u)"));
+        assert!(svg.contains("<polyline"), "une ligne");
+        assert!(!svg.contains("href"));
     }
 
     #[test]

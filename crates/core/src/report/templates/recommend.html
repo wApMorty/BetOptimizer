@@ -1,37 +1,6 @@
-<!doctype html>
-<html lang="fr">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Recommandations — edge</title>
-<style>
-  :root { --bg:#fafaf8; --fg:#1d1d1b; --muted:#6b6b66; --card:#ffffff; --line:#e3e2dc; --accent:#1f5eaa; --warn:#8a5a00; --warnbg:#fff4d6; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#161615; --fg:#ececea; --muted:#a3a39d; --card:#201f1e; --line:#34332f; --accent:#7fb2ee; --warn:#f2c46b; --warnbg:#3a2f12; }
-  }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
-  main { max-width: 760px; margin: 0 auto; padding: 16px; }
-  h1 { font-size: 1.5rem; margin: .4em 0 .1em; }
-  .meta { color: var(--muted); font-size: .9rem; }
-  .warn { background: var(--warnbg); color: var(--warn); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
-  .card h2 { font-size: 1.05rem; margin: 0 0 .2em; }
-  .line { display: flex; flex-wrap: wrap; gap: 4px 16px; font-variant-numeric: tabular-nums; }
-  .line span b { font-weight: 600; }
-  .id { color: var(--muted); font-size: .85rem; }
-  .bad { background: #fde2e2; color: #8a1c1c; border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
-  @media (prefers-color-scheme: dark) { .bad { background: #3b1a1a; color: #f2a0a0; } }
-  .scroll { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  th { color: var(--muted); font-weight: 600; }
-  td.num { text-align: right; }
-  tr.up td { background: var(--warnbg); }
-</style>
-</head>
-<body>
-<main>
+{% extends "site_base.html" %}
+{% block title %}Recommandations du {{ generated_at }}{% endblock %}
+{% block content %}
 <h1>Recommandations</h1>
 <p class="meta">{{ generated_at }} (heure de Paris) · {{ events }} match(s) examiné(s) · seuil d'avantage {{ min_edge }} % · Kelly ×{{ kelly_fraction }} · bankroll {{ bankroll }} € · 1 u = 1 % de la bankroll</p>
 
@@ -71,7 +40,6 @@
 </div>
 {% endif %}
 
+{% if already_known %}<p class="meta">{{ already_known }} candidat(s) déjà inscrit(s) au journal par une exécution précédente : non répété(s) ici{% if nav %}, voir <a href="/opportunites">Opportunités</a>{% endif %}.</p>{% endif %}
 <p class="meta">{{ shadow_count }} ligne(s) ajoutée(s) au journal fantôme (avantage positif sous le seuil, aucune mise) ; {{ without_reference }} match(s) sans cotes complètes de Pinnacle, ignorés.</p>
-</main>
-</body>
-</html>
+{% endblock %}

@@ -1,0 +1,25 @@
+{% extends "site_base.html" %}
+{% block title %}Opportunités{% endblock %}
+{% block content %}
+<h1>Opportunités actives</h1>
+<p class="meta">{{ generated_at }} (heure de Paris) · recommandations notifiées et misées dont le match n'a pas commencé · 1 u = 1 % de la bankroll du jour de la recommandation</p>
+<div class="warn"><strong>Cotes du relevé de la recommandation</strong>, pas des cotes en direct. Vérifie la cote sur le site de l'opérateur : en dessous de la cote minimale, ne parie pas.</div>
+{% for o in rows %}
+<div class="card">
+  <h2>{{ o.rec.fixture }}</h2>
+  <div class="meta">{{ o.rec.kickoff }} ({{ o.until }}) · {{ o.rec.league }} · <span class="id">recommandation n° {{ o.rec.id }}, émise {{ o.seen }}</span></div>
+  <div class="line">
+    <span><b>{{ o.rec.bookmaker }}</b></span>
+    <span>{{ o.rec.outcome }} à <b>{{ o.rec.odds }}</b></span>
+    <span>cote juste {{ o.rec.fair_odds }}</span>
+    <span>avantage <b>{{ o.rec.edge }}</b></span>
+  </div>
+  <div class="line">
+    <span>cote minimale <b>{{ o.rec.minimal_odds }}</b></span>
+    <span>mise suggérée <b>{{ o.rec.stake }}</b></span>
+  </div>
+</div>
+{% else %}
+<div class="card">Aucune opportunité active.</div>
+{% endfor %}
+{% endblock %}

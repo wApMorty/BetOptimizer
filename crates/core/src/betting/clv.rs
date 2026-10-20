@@ -312,7 +312,7 @@ fn unit() -> Probability {
     Probability::new(0.5).expect("0,5 est une probabilité")
 }
 
-fn candidate(
+pub(crate) fn candidate(
     id: i64,
     kickoff: DateTime<Utc>,
     outcome: Outcome,

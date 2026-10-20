@@ -67,3 +67,10 @@ min_stake = 1.0
 # Webhook Discord pour les notifications. Secret (il porte le jeton du salon) : ne jamais le mettre dans git ;
 # s'il est écrit ici, le fichier doit être en permissions 0600. La variable EDGE_DISCORD_WEBHOOK a priorité.
 # discord_webhook_url = "https://discord.com/api/webhooks/..."
+
+# Site de rapports (`edge serve`) : rapport du jour, rapports précédents, opportunités actives, paper trading.
+# Lecture seule, sans mot de passe. "127.0.0.1:8737" : visible de ce poste seulement ; "0.0.0.0:8737" : de tout le
+# réseau local (le pare-feu doit laisser passer le port).
+serve_bind = "127.0.0.1:8737"
+# Adresse du site vue depuis un autre appareil, rappelée dans le message Discord (qui ne joint alors plus le rapport).
+# site_url = "http://portable.local:8737/"

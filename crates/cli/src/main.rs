@@ -4,6 +4,7 @@
 //! vit dans la bibliothèque `edge-core`.
 
 mod commands;
+mod serve;
 
 use std::path::PathBuf;
 
@@ -59,12 +60,15 @@ enum Command {
     },
     /// Envoie un message de test sur Discord pour vérifier le webhook.
     NotifyTest,
-    /// Écrit les recommandations du dernier relevé dans le journal immuable (et notifie sur Discord avec --notify).
+    /// Écrit les recommandations du dernier relevé dans le journal immuable, archive le rapport du jour pour le site
+    /// (et notifie sur Discord avec --notify).
     Recommend {
-        /// Envoie les nouvelles recommandations sur Discord, rapport HTML joint.
+        /// Envoie le bilan sur Discord : lien vers le site si `site_url` est configuré, sinon rapport HTML joint.
         #[arg(long)]
         notify: bool,
     },
+    /// Publie le site de rapports (rapport du jour, rapports précédents, opportunités, paper trading), en lecture seule.
+    Serve,
     /// NBA : archive des cotes et des résultats.
     Nba {
         #[command(subcommand)]
@@ -302,6 +306,7 @@ fn main() -> Result<()> {
         Command::Closing { dry_run } => commands::closing(&paths, dry_run),
         Command::NotifyTest => commands::notify_test(&paths),
         Command::Recommend { notify } => commands::recommend(&paths, notify),
+        Command::Serve => commands::serve(&paths),
         Command::Backtest { command } => match command {
             BacktestCommand::Tune => commands::backtest_tune(&paths),
             BacktestCommand::Run => commands::backtest_run(&paths),

@@ -88,6 +88,10 @@ pub struct RecommendReport {
     pub prices: Vec<PriceRow>,
     /// Pinnacle manque sur la moitié des matchs ou plus : le relevé n'a pas pu être évalué.
     pub reference_missing: bool,
+    /// Candidats déjà inscrits au journal par une exécution précédente (non répétés dans ce rapport).
+    pub already_known: usize,
+    /// Afficher la barre de navigation du site : vrai pour la copie archivée, faux pour la pièce jointe Discord.
+    pub nav: bool,
 }
 
 fn price_row(found: &Opportunity, min_edge: f64, kelly: f64) -> PriceRow {
@@ -106,14 +110,15 @@ fn price_row(found: &Opportunity, min_edge: f64, kelly: f64) -> PriceRow {
     }
 }
 
-fn league_name(sport_key: &str) -> String {
+pub(crate) fn league_name(sport_key: &str) -> String {
     LEAGUES
         .iter()
         .find(|league| league.sport_key == sport_key)
         .map_or_else(|| sport_key.to_string(), |league| league.name.to_string())
 }
 
-fn row(found: &StoredRecommendation) -> Row {
+/// Une recommandation du journal, mise en forme.
+pub(crate) fn row(found: &StoredRecommendation) -> Row {
     let r = &found.record;
     Row {
         id: found.id,
@@ -165,6 +170,8 @@ pub fn build(
             .map(|o| price_row(o, min_edge, kelly_fraction))
             .collect(),
         reference_missing: report.events == 0 || report.without_reference * 2 >= report.events,
+        already_known: report.already_known,
+        nav: false,
     }
 }
 
@@ -227,6 +234,8 @@ mod tests {
             bankroll: "1000".into(),
             prices: Vec::new(),
             reference_missing: false,
+            already_known: 0,
+            nav: false,
         };
 
         let html = render_recommend_report(&data).unwrap();

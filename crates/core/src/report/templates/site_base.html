@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{% endblock %} — edge</title>
+<style>
+  :root { --bg:#fafaf8; --fg:#1d1d1b; --muted:#6b6b66; --card:#ffffff; --line:#e3e2dc; --accent:#1f5eaa; --warn:#8a5a00; --warnbg:#fff4d6; --good:#1a7f4b; --badfg:#8a1c1c; --badbg:#fde2e2; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ececea; --muted:#a3a39d; --card:#201f1e; --line:#34332f; --accent:#7fb2ee; --warn:#f2c46b; --warnbg:#3a2f12; --good:#6fd39c; --badfg:#f2a0a0; --badbg:#3b1a1a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  nav { border-bottom: 1px solid var(--line); background: var(--card); }
+  nav div { max-width: 760px; margin: 0 auto; padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+  nav a { color: var(--muted); text-decoration: none; padding: 4px 0; }
+  nav a.on { color: var(--fg); font-weight: 600; border-bottom: 2px solid var(--accent); }
+  nav b { margin-right: 6px; }
+  a { color: var(--accent); }
+  h1 { font-size: 1.5rem; margin: .4em 0 .1em; }
+  h2 { font-size: 1.15rem; margin: 1.4em 0 .4em; }
+  .meta { color: var(--muted); font-size: .9rem; }
+  .warn { background: var(--warnbg); color: var(--warn); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
+  .bad { background: var(--badbg); color: var(--badfg); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+  .card h2 { font-size: 1.05rem; margin: 0 0 .2em; }
+  .line { display: flex; flex-wrap: wrap; gap: 4px 16px; font-variant-numeric: tabular-nums; }
+  .line span b { font-weight: 600; }
+  .id { color: var(--muted); font-size: .85rem; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .tile .k { color: var(--muted); font-size: .85rem; }
+  .tile .v { font-size: 1.25rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .chart svg { width: 100%; height: auto; border-radius: 10px; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  td.num { text-align: right; }
+  tr.up td { background: var(--warnbg); }
+  .won { color: var(--good); font-weight: 600; }
+  .lost { color: var(--badfg); font-weight: 600; }
+  .open { color: var(--muted); }
+  ul.reports { list-style: none; padding: 0; }
+  ul.reports li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+</style>
+</head>
+<body>
+{% if nav %}<nav><div><b>edge</b>
+  <a href="/"{% if active == "today" %} class="on"{% endif %}>Rapport du jour</a>
+  <a href="/rapports"{% if active == "reports" %} class="on"{% endif %}>Rapports précédents</a>
+  <a href="/opportunites"{% if active == "opportunities" %} class="on"{% endif %}>Opportunités</a>
+  <a href="/paper"{% if active == "paper" %} class="on"{% endif %}>Paper trading</a>
+</div></nav>{% endif %}
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

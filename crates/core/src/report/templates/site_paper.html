@@ -1,0 +1,35 @@
+{% extends "site_base.html" %}
+{% block title %}Paper trading{% endblock %}
+{% block content %}
+<h1>Paper trading</h1>
+<p class="meta">{{ generated_at }} (heure de Paris) · chaque recommandation notifiée et misée, suivie comme si elle avait été jouée à la cote et à la mise annoncées. Le journal fantôme et les recommandations sous la mise minimale n'y figurent pas. Mises en unités (1 u = 1 % de la bankroll du jour de la recommandation). Tes paris réels sont suivis à part (<code>edge clv</code>, application).</p>
+
+<div class="tiles">
+  <div class="tile"><div class="k">Paris</div><div class="v">{{ n }}</div><div class="meta">{{ settled }} réglé(s) · {{ pending }} en attente · {{ upcoming }} à venir</div></div>
+  <div class="tile"><div class="k">Gain net</div><div class="v">{{ profit }}</div><div class="meta">sur {{ staked }} misées</div></div>
+  <div class="tile"><div class="k">Rendement des mises</div><div class="v">{{ roi }}</div><div class="meta">gain net / mises réglées</div></div>
+  <div class="tile"><div class="k">CLV moyen</div><div class="v">{{ clv }}</div><div class="meta">IC 95 % {{ clv_ci }} · {{ with_closing }} clôture(s)</div></div>
+  <div class="tile"><div class="k">Rendement à mise fixe</div><div class="v">{{ flat_roi }}</div><div class="meta">IC 95 % {{ flat_roi_ci }} · {{ settled }} réglé(s)</div></div>
+  <div class="tile"><div class="k">Baisse maximale</div><div class="v">{{ drawdown }}</div><div class="meta">depuis un sommet du gain cumulé</div></div>
+</div>
+{% if few_closings %}<div class="warn">Moins de 30 clôtures de Pinnacle : la CLV n'est encore qu'indicative. Le rendement demande bien davantage de paris que la CLV pour se prononcer.</div>{% endif %}
+<p class="meta"><strong>CLV</strong> = cote obtenue × probabilité de clôture de Pinnacle sans marge − 1 : la mesure principale. Le résultat d'un match arrive avec l'historique de football-data (<code>edge fd fetch</code>), quelques jours après.</p>
+
+{% if chart %}<h2>Gain cumulé</h2>
+<div class="chart">{{ chart|safe }}</div>{% endif %}
+
+<h2>Paris</h2>
+{% if rows %}
+<div class="scroll">
+<table>
+<thead><tr><th>Coup d'envoi</th><th>Match</th><th>Opérateur</th><th>Issue</th><th class="num">Cote</th><th class="num">Avantage</th><th class="num">Mise</th><th class="num">CLV</th><th>Résultat</th></tr></thead>
+<tbody>
+{% for r in rows %}<tr><td>{{ r.kickoff }}</td><td>{{ r.fixture }}<br><span class="meta">{{ r.league }} · n° {{ r.id }}</span></td><td>{{ r.bookmaker }}</td><td>{{ r.outcome }}</td><td class="num">{{ r.odds }}</td><td class="num">{{ r.edge }}</td><td class="num">{{ r.stake }}</td><td class="num">{{ r.clv }}</td><td class="{{ r.css }}">{{ r.result }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% else %}
+<div class="card">Aucune recommandation misée pour l'instant.</div>
+{% endif %}
+{% endblock %}

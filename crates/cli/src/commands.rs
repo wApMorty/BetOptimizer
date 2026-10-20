@@ -28,6 +28,7 @@ use edge_core::models::{elo_tuning, nba_tuning};
 use edge_core::notify::{self, discord};
 use edge_core::paths::Paths;
 use edge_core::report::backtest_report;
+use edge_core::report::daily;
 use edge_core::report::market_report;
 use edge_core::report::models_report;
 use edge_core::report::nba_report;
@@ -36,6 +37,7 @@ use edge_core::report::render::{
     render_backtest_report, render_market_report, render_models_report, render_nba_report,
     render_recommend_report, render_tennis_report, render_thresholds_report,
 };
+use edge_core::report::site::Site;
 use edge_core::report::tennis_report;
 use edge_core::report::thresholds_report;
 use edge_core::store::archive::last_known_usage;
@@ -1309,6 +1311,23 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
         println!("    recommandation n° {} · mise {stake}", found.id);
     }
 
+    // Chaque exécution laisse son rapport dans l'archive du site, notification ou non, avant tout envoi réseau :
+    // une panne de Discord ne fait pas perdre le rapport.
+    let mut data = recommend_report::build(
+        &report,
+        recommend::RECOMMEND_MIN_EDGE,
+        staking.kelly_fraction,
+        staking.bankroll.get(),
+        now,
+    );
+    data.nav = true;
+    let archived = daily::save(
+        &paths.daily_reports_dir,
+        now,
+        &render_recommend_report(&data)?,
+    )?;
+    println!("Rapport archivé : {}", archived.display());
+
     // Le message part chaque jour, même sans recommandation : il montre ce que l'algorithme a regardé (et alerte si Pinnacle manque).
     let Some(webhook) = webhook else {
         return Ok(());
@@ -1323,20 +1342,21 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
         bankroll: staking.bankroll.get(),
         recommended: &recommended,
         priced: &report.priced,
+        site_url: config.site_url.as_deref(),
     });
-    let data = recommend_report::build(
-        &report,
-        recommend::RECOMMEND_MIN_EDGE,
-        staking.kelly_fraction,
-        staking.bankroll.get(),
-        now,
-    );
-    let html = render_recommend_report(&data)?;
+    // Avec un site configuré, le message en donne l'adresse : plus de pièce jointe. Sinon, le rapport reste joint
+    // (sans barre de navigation : ses liens ne mèneraient nulle part hors du site).
+    let attached = if config.site_url.is_some() {
+        None
+    } else {
+        data.nav = false;
+        Some(render_recommend_report(&data)?)
+    };
     let filename = format!("recommandations-{}.html", now.format("%Y-%m-%d"));
     discord::send(
         &webhook,
         &text,
-        Some(discord::Attachment {
+        attached.as_deref().map(|html| discord::Attachment {
             filename: &filename,
             content_type: "text/html; charset=utf-8",
             bytes: html.as_bytes(),
@@ -1344,6 +1364,34 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
         &mut discord::http_post,
     )?;
     println!("Notification envoyée sur Discord.");
+    Ok(())
+}
+
+/// `edge serve` : publie le site de rapports (lecture seule) à l'adresse `serve_bind` de la configuration.
+pub fn serve(paths: &Paths) -> Result<()> {
+    let config = Config::load(&paths.config_file)?;
+    // Échouer tout de suite si la base manque, plutôt qu'à chaque page.
+    store::open_read_only(&paths.db_file)
+        .context("base inaccessible : lance d'abord `edge init`")?;
+    let site = Site {
+        db_file: paths.db_file.clone(),
+        daily_dir: paths.daily_reports_dir.clone(),
+        aliases: Aliases::bundled()?,
+        method: config.margin_method,
+    };
+    // L'erreur de `tiny_http` est une `Box<dyn Error + Send + Sync>` : `anyhow!` l'enveloppe avec son message.
+    let server = tiny_http::Server::http(config.serve_bind)
+        .map_err(|e| anyhow::anyhow!("écoute impossible sur {} : {e}", config.serve_bind))?;
+    println!(
+        "Site de rapports : http://{}/ (lecture seule ; Ctrl+C pour arrêter).",
+        config.serve_bind
+    );
+    if config.serve_bind.ip().is_unspecified() {
+        println!(
+            "Écoute sur toutes les interfaces : depuis un autre appareil, utilise l'adresse de ce poste sur le réseau local."
+        );
+    }
+    crate::serve::run(&server, &site);
     Ok(())
 }
 

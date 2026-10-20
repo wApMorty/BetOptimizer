@@ -9,6 +9,7 @@ pub mod kelly;
 pub mod ledger;
 pub mod live;
 pub mod overview;
+pub mod paper;
 pub mod recommend;
 pub mod settle;
 pub mod simultaneous;

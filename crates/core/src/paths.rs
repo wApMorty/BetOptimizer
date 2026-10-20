@@ -22,6 +22,8 @@ pub struct Paths {
     pub tennis_data_dir: PathBuf,
     /// Rapports HTML générés.
     pub reports_dir: PathBuf,
+    /// Rapports quotidiens de `edge recommend`, un fichier par exécution, jamais écrasés : publiés par `edge serve`.
+    pub daily_reports_dir: PathBuf,
 }
 
 impl Paths {
@@ -35,6 +37,7 @@ impl Paths {
             football_data_dir: dirs.data_dir().join("football-data"),
             tennis_data_dir: dirs.data_dir().join("tennis-data"),
             reports_dir: dirs.data_dir().join("reports"),
+            daily_reports_dir: dirs.data_dir().join("reports").join("daily"),
         })
     }
 
@@ -46,6 +49,7 @@ impl Paths {
             football_data_dir: root.join("football-data"),
             tennis_data_dir: root.join("tennis-data"),
             reports_dir: root.join("reports"),
+            daily_reports_dir: root.join("reports").join("daily"),
         }
     }
 }
@@ -64,6 +68,10 @@ mod tests {
             Path::new("/tmp/racine/football-data")
         );
         assert_eq!(paths.reports_dir, Path::new("/tmp/racine/reports"));
+        assert_eq!(
+            paths.daily_reports_dir,
+            Path::new("/tmp/racine/reports/daily")
+        );
     }
 
     #[test]

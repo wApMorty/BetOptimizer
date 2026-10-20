@@ -1,4 +1,4 @@
-//! Rendu HTML du rapport « marché » avec `minijinja` (gabarit embarqué dans le binaire).
+//! Rendu HTML des rapports et des pages du site avec `minijinja` (gabarits embarqués dans le binaire).
 //!
 //! Le fichier produit est autonome : styles et graphiques SVG sont dans le HTML, aucune ressource externe,
 //! et la mise en page s'adapte à un écran de téléphone.
@@ -12,6 +12,7 @@ use super::market_report::MarketReport;
 use super::models_report::ModelsReport;
 use super::nba_report::NbaReport;
 use super::recommend_report::RecommendReport;
+use super::site::{MessagePage, OpportunitiesPage, PaperPage, ReportsPage};
 use super::tennis_report::TennisReport;
 use super::thresholds_report::ThresholdsReport;
 use crate::error::{Error, Result};
@@ -23,6 +24,12 @@ const RECOMMEND_TEMPLATE: &str = include_str!("templates/recommend.html");
 const TENNIS_TEMPLATE: &str = include_str!("templates/tennis.html");
 const NBA_TEMPLATE: &str = include_str!("templates/nba.html");
 const THRESHOLDS_TEMPLATE: &str = include_str!("templates/thresholds.html");
+/// Base commune (styles, barre de navigation) dont héritent le rapport quotidien et les pages du site.
+const SITE_BASE_TEMPLATE: &str = include_str!("templates/site_base.html");
+const SITE_REPORTS_TEMPLATE: &str = include_str!("templates/site_reports.html");
+const SITE_OPPORTUNITIES_TEMPLATE: &str = include_str!("templates/site_opportunities.html");
+const SITE_PAPER_TEMPLATE: &str = include_str!("templates/site_paper.html");
+const SITE_MESSAGE_TEMPLATE: &str = include_str!("templates/site_message.html");
 
 /// Nombre au format français (virgule décimale), `digits` décimales.
 fn number(value: f64, digits: Option<usize>) -> String {
@@ -88,6 +95,26 @@ pub fn render_thresholds_report(report: &ThresholdsReport) -> Result<String> {
     render_template("thresholds.html", THRESHOLDS_TEMPLATE, report)
 }
 
+/// Génère la page « rapports précédents » du site.
+pub fn render_site_reports(page: &ReportsPage) -> Result<String> {
+    render_template("site_reports.html", SITE_REPORTS_TEMPLATE, page)
+}
+
+/// Génère la page « opportunités actives » du site.
+pub fn render_site_opportunities(page: &OpportunitiesPage) -> Result<String> {
+    render_template("site_opportunities.html", SITE_OPPORTUNITIES_TEMPLATE, page)
+}
+
+/// Génère la page « paper trading » du site.
+pub fn render_site_paper(page: &PaperPage) -> Result<String> {
+    render_template("site_paper.html", SITE_PAPER_TEMPLATE, page)
+}
+
+/// Génère une page de message du site (aucun rapport, page introuvable, erreur).
+pub fn render_site_message(page: &MessagePage) -> Result<String> {
+    render_template("site_message.html", SITE_MESSAGE_TEMPLATE, page)
+}
+
 /// Rend un gabarit avec les filtres `num` et `pct`.
 ///
 /// Le nom se termine par `.html` : l'échappement automatique est actif (les graphiques SVG sont
@@ -98,6 +125,9 @@ fn render_template<T: Serialize>(
     data: &T,
 ) -> Result<String> {
     let mut env = Environment::new();
+    // La base est chargée à chaque rendu : un gabarit qui l'étend (`{% extends "site_base.html" %}`) la trouve.
+    env.add_template("site_base.html", SITE_BASE_TEMPLATE)
+        .map_err(|e| Error::Data(format!("gabarit du rapport : {e}")))?;
     env.add_template(name, source)
         .map_err(|e| Error::Data(format!("gabarit du rapport : {e}")))?;
     env.add_filter("num", number);
