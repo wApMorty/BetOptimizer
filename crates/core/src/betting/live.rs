@@ -96,11 +96,13 @@ impl BookQuotes {
 /// Lit les derniers relevés et cherche les prix qui dépassent la cote juste de Pinnacle d'au moins `min_edge`.
 ///
 /// Un match n'est lu que dans son relevé le plus récent, et seulement si ce relevé a moins de
-/// [`MAX_SNAPSHOT_AGE_HOURS`] heures et si le coup d'envoi est dans le futur.
+/// [`MAX_SNAPSHOT_AGE_HOURS`] heures et si le coup d'envoi est dans le futur. Les bookmakers de `excluded`
+/// (`excluded_bookmakers` de la configuration) ne sont jamais retenus : leurs prix restent dans l'archive, c'est tout.
 pub fn scan(
     conn: &Connection,
     method: MarginMethod,
     min_edge: f64,
+    excluded: &[String],
     now: DateTime<Utc>,
 ) -> Result<Scan> {
     let oldest_snapshot = now - Duration::hours(MAX_SNAPSHOT_AGE_HOURS);
@@ -175,7 +177,7 @@ pub fn scan(
 
         let mut best: Option<Opportunity> = None;
         for (bookmaker, book) in &books {
-            if bookmaker == SHARP_BOOKMAKER {
+            if bookmaker == SHARP_BOOKMAKER || excluded.contains(bookmaker) {
                 continue;
             }
             let (Some(odds), Some(priced_at)) = (book.complete(), book.oldest_update) else {
@@ -254,7 +256,7 @@ mod tests {
         tennis.sport_key = "tennis_wta_ningbo_open".into();
         store(&mut conn, "2026-10-18T14:00:00Z", &[tennis]);
 
-        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, at(NOW)).unwrap();
+        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, &[], at(NOW)).unwrap();
 
         assert_eq!(scan.events, 0);
         assert_eq!(scan.without_reference, 0);
@@ -270,7 +272,7 @@ mod tests {
             &[event(&[PINNACLE, ("betclic_fr", 2.3, 3.2, 3.4)])],
         );
 
-        let scan = scan(&conn, MarginMethod::Multiplicative, 0.03, at(NOW)).unwrap();
+        let scan = scan(&conn, MarginMethod::Multiplicative, 0.03, &[], at(NOW)).unwrap();
 
         assert_eq!(scan.events, 1);
         assert_eq!(scan.opportunities.len(), 1);
@@ -297,10 +299,30 @@ mod tests {
             ])],
         );
 
-        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, at(NOW)).unwrap();
+        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, &[], at(NOW)).unwrap();
 
         assert_eq!(scan.opportunities.len(), 1);
         assert_eq!(scan.opportunities[0].bookmaker, "winamax_fr");
+    }
+
+    #[test]
+    fn an_excluded_bookmaker_is_never_retained_even_with_the_best_price() {
+        let mut conn = database();
+        store(
+            &mut conn,
+            "2026-10-18T14:00:00Z",
+            &[event(&[
+                PINNACLE,
+                ("betclic_fr", 2.3, 3.2, 3.4),
+                ("netbet_fr", 2.6, 3.2, 3.4),
+            ])],
+        );
+
+        let excluded = ["netbet_fr".to_string()];
+        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, &excluded, at(NOW)).unwrap();
+
+        assert_eq!(scan.opportunities.len(), 1);
+        assert_eq!(scan.opportunities[0].bookmaker, "betclic_fr");
     }
 
     #[test]
@@ -313,7 +335,7 @@ mod tests {
             &[event(&[PINNACLE, ("betclic_fr", 1.95, 3.5, 3.9)])],
         );
 
-        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, at(NOW)).unwrap();
+        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, &[], at(NOW)).unwrap();
 
         assert_eq!(scan.events, 1);
         assert!(scan.opportunities.is_empty());
@@ -328,7 +350,7 @@ mod tests {
             &[event(&[("betclic_fr", 2.3, 3.2, 3.4)])],
         );
 
-        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, at(NOW)).unwrap();
+        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, &[], at(NOW)).unwrap();
 
         assert_eq!(scan.without_reference, 1);
         assert!(scan.opportunities.is_empty());
@@ -344,7 +366,7 @@ mod tests {
             &[event(&[PINNACLE, ("betclic_fr", 4.0, 6.0, 8.0)])],
         );
 
-        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, at(NOW)).unwrap();
+        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, &[], at(NOW)).unwrap();
 
         assert_eq!(scan.implausible_quotes, 1);
         assert!(scan.opportunities.is_empty());
@@ -360,7 +382,7 @@ mod tests {
             &[event(&[PINNACLE, ("betclic_fr", 2.3, 3.2, 3.4)])],
         );
 
-        let stale = scan(&conn, MarginMethod::Multiplicative, 0.0, at(NOW)).unwrap();
+        let stale = scan(&conn, MarginMethod::Multiplicative, 0.0, &[], at(NOW)).unwrap();
         assert_eq!(stale.events, 0);
 
         // Relevé récent, mais on se place après le coup d'envoi.
@@ -374,6 +396,7 @@ mod tests {
             &conn,
             MarginMethod::Multiplicative,
             0.0,
+            &[],
             at("2026-10-24T14:30:00Z"),
         )
         .unwrap();
@@ -395,7 +418,7 @@ mod tests {
             &[event(&[PINNACLE, ("betclic_fr", 1.95, 3.5, 3.9)])],
         );
 
-        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, at(NOW)).unwrap();
+        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, &[], at(NOW)).unwrap();
 
         assert_eq!(scan.events, 1);
         assert!(scan.opportunities.is_empty());
@@ -409,7 +432,7 @@ mod tests {
             "2026-10-18T14:00:00Z",
             &[event(&[PINNACLE, ("betclic_fr", 2.3, 3.2, 3.4)])],
         );
-        let mut found = scan(&conn, MarginMethod::Multiplicative, 0.03, at(NOW))
+        let mut found = scan(&conn, MarginMethod::Multiplicative, 0.03, &[], at(NOW))
             .unwrap()
             .opportunities;
         let bankroll = Euros::new(1000.0).unwrap();

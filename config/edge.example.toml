@@ -27,6 +27,10 @@ bookmakers = [
     "netbet_fr",
 ]
 
+# Bookmakers archivés (leurs cotes restent dans l'archive, sans coût supplémentaire) mais jamais recommandés,
+# jamais montrés dans le bilan Discord, l'application ni les rapports. Liste vide : aucun opérateur écarté.
+excluded_bookmakers = ["netbet_fr"]
+
 # Marchés interrogés (chaque marché supplémentaire multiplie le coût d'un appel).
 markets = ["h2h"]
 

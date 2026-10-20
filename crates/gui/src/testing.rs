@@ -62,6 +62,7 @@ pub fn sample() -> Sample {
     let settings = recommend::Settings {
         method: MarginMethod::Power,
         min_edge: RECOMMEND_MIN_EDGE,
+        excluded_bookmakers: Vec::new(),
         kelly_fraction: 1.0,
         min_stake: Euros::new(1.0).unwrap(),
         bankroll: Euros::new(1000.0).unwrap(),

@@ -110,7 +110,13 @@ pub fn load(paths: &Paths, now: DateTime<Utc>) -> Result<Data> {
     let available = Euros::new(curve.available).context("bankroll disponible invalide")?;
     let min_stake = Euros::new(config.min_stake).context("min_stake invalide")?;
 
-    let scan = live::scan(&conn, config.margin_method, 0.0, now)?;
+    let scan = live::scan(
+        &conn,
+        config.margin_method,
+        0.0,
+        &config.excluded_bookmakers,
+        now,
+    )?;
     let summary = ScanSummary {
         events: scan.events,
         without_reference: scan.without_reference,

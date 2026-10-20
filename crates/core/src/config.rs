@@ -107,6 +107,8 @@ pub struct Config {
     pub leagues: Vec<String>,
     /// Bookmakers interrogés (`pinnacle`, `winamax_fr`…).
     pub bookmakers: Vec<String>,
+    /// Bookmakers archivés mais jamais recommandés ni montrés (choix personnel : opérateur écarté). Peut être vide.
+    pub excluded_bookmakers: Vec<String>,
     /// Marchés interrogés (`h2h` = victoire / nul / défaite).
     pub markets: Vec<String>,
     /// Méthode de retrait de la marge des cotes. `power` : log loss le plus bas sur 19 138 matchs Pinnacle
@@ -157,6 +159,7 @@ impl Default for Config {
                 "pmu_fr",
                 "netbet_fr",
             ]),
+            excluded_bookmakers: owned(&["netbet_fr"]),
             markets: owned(&["h2h"]),
             margin_method: MarginMethod::Power,
             odds_api_key: None,
@@ -241,6 +244,15 @@ impl Config {
                     "{field} : « {bad} » n'est pas un identifiant valide (minuscules, chiffres et _ uniquement)"
                 )));
             }
+        }
+        if let Some(bad) = self
+            .excluded_bookmakers
+            .iter()
+            .find(|name| !is_api_name(name))
+        {
+            return Err(Error::InvalidConfig(format!(
+                "excluded_bookmakers : « {bad} » n'est pas un identifiant valide (minuscules, chiffres et _ uniquement)"
+            )));
         }
         Ok(())
     }
@@ -394,6 +406,23 @@ mod tests {
     #[test]
     fn default_config_is_valid() {
         Config::default().validate().unwrap();
+    }
+
+    #[test]
+    fn netbet_is_archived_but_excluded_by_default_and_the_exclusion_list_may_be_empty() {
+        let config = Config::default();
+        assert!(config.bookmakers.contains(&"netbet_fr".to_string()));
+        assert_eq!(config.excluded_bookmakers, ["netbet_fr"]);
+        Config::parse("excluded_bookmakers = []")
+            .unwrap()
+            .validate()
+            .unwrap();
+        assert!(
+            Config::parse(r#"excluded_bookmakers = ["NetBet"]"#)
+                .unwrap()
+                .validate()
+                .is_err()
+        );
     }
 
     #[test]

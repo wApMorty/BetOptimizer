@@ -532,7 +532,13 @@ pub fn value(paths: &Paths, options: &ValueOptions) -> Result<()> {
     )?;
     let now = Utc::now();
     let min_edge = options.min_edge_pct / 100.0;
-    let mut scan = live::scan(&conn, config.margin_method, min_edge, now)?;
+    let mut scan = live::scan(
+        &conn,
+        config.margin_method,
+        min_edge,
+        &config.excluded_bookmakers,
+        now,
+    )?;
     live::size_stakes(
         &mut scan.opportunities,
         staking.bankroll,
@@ -1224,6 +1230,8 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
     let settings = recommend::Settings {
         method: config.margin_method,
         min_edge: recommend::RECOMMEND_MIN_EDGE,
+        // Déplacement (pas de `clone`) : `config` ne sert plus après, `Settings` peut prendre possession de la liste.
+        excluded_bookmakers: config.excluded_bookmakers,
         kelly_fraction: staking.kelly_fraction,
         min_stake: staking.min_stake,
         bankroll: staking.bankroll,

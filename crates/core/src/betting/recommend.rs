@@ -36,6 +36,8 @@ pub struct Settings {
     pub method: MarginMethod,
     /// Avantage minimal d'une recommandation notifiée.
     pub min_edge: f64,
+    /// Bookmakers jamais recommandés (`excluded_bookmakers` de la configuration).
+    pub excluded_bookmakers: Vec<String>,
     /// Fraction de Kelly.
     pub kelly_fraction: f64,
     /// Mise minimale.
@@ -84,7 +86,13 @@ impl Report {
 pub fn run(conn: &mut Connection, settings: &Settings, now: DateTime<Utc>) -> Result<Report> {
     // Seuil à −1 (= aucun) : le meilleur prix de chaque match, même négatif, pour pouvoir le montrer ; les deux paliers du
     // journal n'en retiennent ensuite que les avantages positifs.
-    let scan = live::scan(conn, settings.method, -1.0, now)?;
+    let scan = live::scan(
+        conn,
+        settings.method,
+        -1.0,
+        &settings.excluded_bookmakers,
+        now,
+    )?;
     let mut priced = scan.opportunities.clone();
     for opportunity in &mut priced {
         // Le scan a été fait sans seuil : la cote minimale qu'il a calculée n'a pas de sens, on la recalcule pour le seuil du jour.
@@ -191,6 +199,7 @@ mod tests {
         Settings {
             method: MarginMethod::Multiplicative,
             min_edge: RECOMMEND_MIN_EDGE,
+            excluded_bookmakers: Vec::new(),
             kelly_fraction: 1.0,
             min_stake: Euros::new(1.0).unwrap(),
             bankroll: Euros::new(1000.0).unwrap(),
