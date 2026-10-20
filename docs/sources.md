@@ -900,7 +900,73 @@ mises maximales de Winamax est celle de 2026 ; les gains de WePari montrent qu'e
 boosts. Les familles dépendant de la mi-temps (environ 400 boosts Winamax)
 ne sont pas tarifées. Aucun seuil n'est gelé : étude exploratoire.
 
-## 30. Reste à vérifier
+## 30. Paris par thème et clubs « réguliers » (étude ponctuelle, 2026-10-20)
+
+**Question de Paul.** Parier un thème (tous les matchs d'un club, tous les matchs à domicile, à l'extérieur, les nuls) en
+cherchant un taux de réussite élevé, les pertes étant censées être couvertes par la gestion des mises. Exemples cités : tous
+les matchs des Rangers sauf contre le Celtic, tous les matchs du Celtic à domicile.
+
+**Rappel de principe.** Espérance d'un pari : `p·o − 1` ; fraction de Kelly `f* = (p·o − 1)/(o − 1)` (Kelly, 1956), nulle ou
+négative dès que l'espérance l'est. Aucune gestion des mises ne rend positive une espérance négative ; une progression
+(martingale) déplace les pertes et ajoute un risque de ruine. Le taux de réussite dépend de la cote, pas de la qualité du pari.
+
+**Méthode.** Scripts Python ponctuels, en lecture seule sur la base, non versionnés (Paul n'a pas voulu de commande). Cotes
+Pinnacle d'avant-match de football-data (19 109 matchs, 2016/17 à janvier 2026 ; 2025/26 partielle, 2026/27 absente), mise
+fixe. Deux prix : Pinnacle, et Winamax obtenu par la décote mesurée ci-dessous.
+
+**Décote française par tranche de cote (archive The Odds API).** Rapport médian cote française / cote Pinnacle, même issue et
+même relevé ; 22 relevés du 2026-10-18 au 2026-10-20, 146 matchs : observations corrélées (un match revient à chaque relevé).
+
+| Cote Pinnacle | < 1,3 | 1,3–1,6 | 1,6–2,2 | 2,2–3,5 | 3,5–6 | ≥ 6 |
+|---|---|---|---|---|---|---|
+| Winamax (n) | 0,944 (15) | 0,958 (63) | 0,944 (155) | 0,913 (259) | 0,912 (317) | 0,807 (59) |
+| Betclic (n) | 0,952 (13) | 0,962 (60) | 0,953 (151) | 0,940 (257) | 0,934 (314) | 0,869 (59) |
+
+La décote n'est pas uniforme : elle est faible sur les favoris (≈ 0,95) et forte sur les outsiders. Les facteurs uniques
+provisoires du §18 (× 0,910 Winamax, × 0,957 Betclic) pénalisent donc trop les favoris de Winamax et pas assez ses outsiders.
+Première mesure seulement, à refaire quand l'archive aura quelques mois.
+
+**Thèmes généraux** (décote uniforme du §18) :
+
+| Thème | Paris | Réussite | ROI Pinnacle (± 1σ) | Betclic | Winamax |
+|---|---|---|---|---|---|
+| Tout à domicile | 19 109 | 44,0 % | −4,0 % (1,0) | −8,1 % | −12,7 % |
+| Tout à l'extérieur | 19 109 | 31,1 % | −6,3 % (1,3) | −10,4 % | −14,8 % |
+| Tous les nuls | 19 109 | 24,9 % | −2,5 % (1,3) | −6,7 % | −11,2 % |
+| Favori | 19 109 | 54,3 % | −1,0 % (0,7) | −5,3 % | −9,9 % |
+| Favori < 1,50 | 3 966 | 76,4 % | −0,2 % (0,9) | −4,5 % | −9,2 % |
+| Favori < 1,25 | 1 181 | 83,1 % | −2,5 % (1,3) | −6,7 % | −11,3 % |
+| Outsider ≥ 6 | 5 226 | 9,4 % | −15,1 % (4,0) | −18,7 % | −22,7 % |
+
+**Clubs, Winamax à la décote par tranche :**
+
+| Thème | Paris | Réussite | Réussite nécessaire chez Winamax | ROI Pinnacle | ROI Winamax |
+|---|---|---|---|---|---|
+| Rangers, tous sauf Celtic | 306 | 69,3 % | 72,7 % | −3,1 % | −8,1 % |
+| Celtic à domicile sauf Rangers | 149 | 83,9 % | 88,3 % | 0,0 % | −5,5 % |
+| Celtic à domicile | 166 | 81,3 % | 83,6 % | +0,7 % | −4,9 % |
+
+Une seule saison du Celtic à domicile (2017/18 : 53 % de réussite, ROI −36 %) efface cinq saisons positives.
+
+**Recherche automatique des clubs réguliers.** 307 combinaisons club × thème (tous, domicile, extérieur, « sauf Old Firm » pour
+les deux clubs de Glasgow), présentes au moins 6 saisons avec au moins 8 paris par saison.
+- Aux cotes Pinnacle, 19 combinaisons ont au moins 75 % de saisons positives (Fribourg à domicile 9/10, Newcastle à domicile 8/9,
+  Aston Villa 6/7…), 118 un ROI global positif. Avec la décote Winamax : 4 et 39.
+- **Hasard** : 100 historiques simulés, issues tirées selon les probabilités sans marge de Pinnacle d'avant-match (méthode
+  multiplicative, graine 1). On obtient en moyenne 10,9 combinaisons aussi régulières (maximum 20) et 115 à ROI positif. L'excédent
+  observé (19 contre 11) est compatible avec le biais favori/outsider du §14, que la méthode multiplicative ne reproduit pas ; il
+  n'est pas propre à un club.
+- **Walk-forward** (le test décisif) : chaque saison, jouer toutes les combinaisons positives sur chacune des trois saisons
+  précédentes. 2019/20 à 2025/26, 3 789 paris : **ROI −4,8 % aux cotes Pinnacle, −12,1 % chez Winamax**, positif chez Winamax une
+  saison sur sept (+0,1 %). Corrélation du ROI d'un club d'une saison à la suivante : 0,063 sur 792 paires (non significative).
+  Les 10 clubs les plus rentables d'une saison (+18 à +58 %) font −2,5 % en moyenne la saison suivante.
+
+**Conclusion.** Aucun thème ni aucun club n'est régulièrement rentable ; le marché intègre déjà la force des clubs, et un thème
+choisi sur son passé ne prédit rien. Seule piste qui recoupe une mesure indépendante : le nul chez certains opérateurs (§27, CLV
+du nul +3,2 % chez 1xBet ; lignes fantômes de l'archive toutes sur le nul), déjà couverte par le moteur de valeur. Décision de Paul
+le 2026-10-20 : aucune commande, résultat seulement documenté. Environ 320 configurations regardées en tout.
+
+## 31. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
   (non vérifié). La garde ne l'utilise pas ; `edge snapshot` signale toute baisse de `x-requests-used`.
