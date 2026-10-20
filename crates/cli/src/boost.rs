@@ -63,6 +63,7 @@ pub fn study(paths: &Paths) -> Result<()> {
         rho,
     )?;
 
+    print_settled(&pages);
     print_funnels(&result.funnels);
     print_quality(&result.rows);
     let operators: Vec<Operator> = result.funnels.iter().map(|(o, _)| *o).collect();
@@ -185,6 +186,41 @@ fn html_files(paths: &Paths) -> Result<Vec<std::path::PathBuf>> {
         bail!("aucune page .html dans {}", dir.display());
     }
     Ok(files)
+}
+
+/// Gain réel de tous les boosts réglés par WePari, tous sports, sans modèle : par opérateur et par mise maximale.
+fn print_settled(pages: &[wepari::Page]) {
+    println!(
+        "Gain réel à mise fixe, tous sports, sans modèle (boosts réglés par WePari ; blocs d'un mois)"
+    );
+    let mut groups: BTreeMap<(Operator, String), Vec<&wepari::WepariBoost>> = BTreeMap::new();
+    for boost in pages.iter().flat_map(|p| &p.boosts) {
+        let stake = match boost.max_stake {
+            Some(stake) => format!("mise max {} €", format::decimal(stake.get(), 0)),
+            None => "mise max inconnue".to_string(),
+        };
+        groups
+            .entry((boost.operator, stake))
+            .or_default()
+            .push(boost);
+    }
+    for ((operator, stake), boosts) in &groups {
+        // `copied` : l'itérateur donne des `&&WepariBoost` ; `settled_roi` attend des `&WepariBoost`.
+        let Some((count, roi)) = study::settled_roi(boosts.iter().copied()) else {
+            continue;
+        };
+        if count < MIN_GROUP {
+            continue;
+        }
+        println!(
+            "  {:<14} {:<18} {:>6} réglés   ROI {}",
+            operator.name(),
+            stake,
+            count,
+            interval(roi)
+        );
+    }
+    println!();
 }
 
 fn print_funnels(funnels: &[(Operator, study::Funnel)]) {

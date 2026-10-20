@@ -852,6 +852,21 @@ combinés « victoire + les deux équipes marquent » (|z| < 1). **Biais nets** 
 contre 39,0 % (z = +4,2) ; l'extérieur marque au moins 2 buts 34,1 % contre 35,5 % (z = +3,0). Conséquence : sur ces familles, l'avantage
 calculé d'un boost porte une erreur de modèle de l'ordre de 2 points de probabilité, soit environ 4 points d'espérance à une cote de 2.
 
+**Gain réel, tous sports, sans modèle** (tous les boosts réglés par WePari, mise fixe, bootstrap par blocs d'un mois) :
+
+| Opérateur | Mise maximale | Boosts réglés | ROI réalisé [IC 95 %] |
+|---|---|---|---|
+| Winamax | 10 € (« Grosse Cote Boostée ») | 1 147 | **+25,3 % [+19,1 ; +31,7]** |
+| Winamax | 50 € | 24 510 | **−4,3 % [−6,1 ; −2,5]** |
+| Parions Sport | 10 € | 777 | +3,4 % [−4,4 ; +10,8] |
+| Parions Sport | 25 € | 1 673 | −4,9 % [−9,6 ; +0,3] |
+| Parions Sport | 50 € | 1 432 | −5,8 % [−15,3 ; +4,0] |
+
+C'est le résultat le plus solide de l'étude, parce qu'il ne dépend ni de la grille, ni du rapprochement, ni de la traduction des
+intitulés. Jouer **toutes** les Grosses Cotes Boostées de Winamax à 10 € aurait rapporté environ 25 % des mises, soit environ 27 boosts
+par mois (2021-2025) et de l'ordre de **65 € par mois**. Les boosts ordinaires perdent en moyenne, et aucune règle ne les rend
+sûrement gagnants.
+
 **Résultats, Winamax (Big 5 + Écosse).** 3 385 boosts rapprochés (12,5 % des boosts publiés), 1 403 évaluables (les autres dépendent
 surtout de la mi-temps ou d'un buteur).
 - Ensemble : espérance **+1,3 % [−0,1 ; +2,7]** contre une marge d'origine de −14,8 % ; ROI réalisé +3,4 % [−5,5 ; +12,5]. En moyenne, le

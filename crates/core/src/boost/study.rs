@@ -502,6 +502,27 @@ impl Summary {
     }
 }
 
+/// Gain réel d'un euro misé sur chaque boost **réglé par WePari**, tous sports, sans aucun modèle ni rapprochement :
+/// `cote − 1` si gagné, `−1` si perdu. Intervalle par bootstrap par blocs d'un mois. `None` si aucun boost n'est réglé.
+pub fn settled_roi<'a>(boosts: impl Iterator<Item = &'a WepariBoost>) -> Option<(usize, MeanCi)> {
+    let profits: Vec<(u32, f64)> = boosts
+        .filter_map(|b| {
+            let profit = match b.settlement {
+                Settlement::Won => b.boosted.get() - 1.0,
+                Settlement::Lost => -1.0,
+                Settlement::Unknown => return None,
+            };
+            let date = b.closes_at.date();
+            // Bloc : le mois (année × 12 + mois), toujours positif pour des dates après l'an 0.
+            Some(((date.year() * 12) as u32 + date.month(), profit))
+        })
+        .collect();
+    Some((
+        profits.len(),
+        block_bootstrap_mean(&profits, RESAMPLES, SEED)?,
+    ))
+}
+
 /// Bilan des boosts tarifés au `moment` donné parmi `rows`. `None` si aucun ne l'est.
 ///
 /// Intervalles par bootstrap par blocs (une semaine = un bloc) : les boosts d'une même semaine ne sont pas
@@ -686,6 +707,20 @@ mod tests {
                 .games,
             0
         );
+    }
+
+    #[test]
+    fn settled_roi_ignores_unsettled_boosts() {
+        let won = boost("A gagne", "Cote Boostée : A - B");
+        let mut lost = won.clone();
+        lost.settlement = Settlement::Lost;
+        let mut open = won.clone();
+        open.settlement = Settlement::Unknown;
+        let (count, roi) = settled_roi([won, lost, open].iter()).unwrap();
+        assert_eq!(count, 2);
+        // Cote 3,00 : +2 puis −1, moyenne +0,5.
+        assert_abs_diff_eq!(roi.mean, 0.5, epsilon = 1e-12);
+        assert!(settled_roi(std::iter::empty()).is_none());
     }
 
     #[test]
