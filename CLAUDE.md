@@ -159,7 +159,9 @@ edge/
   annoncé surestimé fait décroître la bankroll : `docs/sources.md` §27). Le backtest affiche
   côte à côte 1, ½ et ¼ Kelly : croissance logarithmique, drawdown maximal, probabilité de ruine
   (Monte Carlo).
-- Au plus une sélection par match.
+- Au plus une sélection par match pour les recommandations du modèle. Les cotes boostées (seules ou cumulées avec une
+  recommandation) peuvent porter plusieurs sélections sur un même match : mises dimensionnées sur l'exposition conjointe
+  (Kelly sur scénarios de score, positions ouvertes comprises), jamais en traitant ces paris comme indépendants. Décision du 2026-10-20.
 - Paris simultanés : maximiser l'espérance du logarithme de la bankroll sur toutes les combinaisons
   d'issues (énumération exacte jusqu'à 12 paris, optimisation `argmin`) ; au-delà, approximation
   documentée. La somme des mises ne dépasse jamais la bankroll.
