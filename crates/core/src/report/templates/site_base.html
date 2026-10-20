@@ -11,9 +11,11 @@
   }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
-  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  /* Large sur un écran d'ordinateur pour que les tableaux tiennent sans défilement ; le texte courant reste à une largeur lisible. */
+  main { max-width: 1800px; margin: 0 auto; padding: 16px 24px; }
+  main > p { max-width: 110ch; }
   nav { border-bottom: 1px solid var(--line); background: var(--card); }
-  nav div { max-width: 760px; margin: 0 auto; padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+  nav div { max-width: 1800px; margin: 0 auto; padding: 8px 24px; display: flex; flex-wrap: wrap; gap: 4px 18px; }
   nav a { color: var(--muted); text-decoration: none; padding: 4px 0; }
   nav a.on { color: var(--fg); font-weight: 600; border-bottom: 2px solid var(--accent); }
   nav b { margin-right: 6px; }
@@ -23,16 +25,20 @@
   .meta { color: var(--muted); font-size: .9rem; }
   .warn { background: var(--warnbg); color: var(--warn); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
   .bad { background: var(--badbg); color: var(--badfg); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 0 14px; }
+  .warn, .bad { max-width: 110ch; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
   .card h2 { font-size: 1.05rem; margin: 0 0 .2em; }
   .line { display: flex; flex-wrap: wrap; gap: 4px 16px; font-variant-numeric: tabular-nums; }
   .line span b { font-weight: 600; }
   .id { color: var(--muted); font-size: .85rem; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 12px 0; }
   .tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
   .tile .k { color: var(--muted); font-size: .85rem; }
   .tile .v { font-size: 1.25rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .chart { max-width: 900px; }
   .chart svg { width: 100%; height: auto; border-radius: 10px; }
+  @media (max-width: 600px) { main { padding: 16px; } .cards { grid-template-columns: 1fr; } }
   .scroll { overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }

@@ -7,6 +7,7 @@
 {% if reference_missing %}<div class="bad"><strong>Pinnacle manque sur {{ without_reference }} match(s) sur {{ events }}.</strong> Le relevé est inutilisable pour ces matchs (panne de l'API ?) : rien n'a pu être évalué.</div>{% endif %}
 <div class="warn"><strong>Expérimental.</strong> La probabilité est celle de Pinnacle sans marge, pas celle d'un modèle. Aucune règle n'est validée hors échantillon (voir <code>edge backtest report</code>). Vérifie la cote sur le site de l'opérateur : en dessous de la cote minimale, ne parie pas.</div>
 
+<div class="cards">
 {% for r in rows %}
 <div class="card">
   <h2>{{ r.fixture }}</h2>
@@ -25,6 +26,7 @@
 {% else %}
 <div class="card">Aucune nouvelle recommandation.</div>
 {% endfor %}
+</div>
 
 {% if prices %}
 <h2>Tous les matchs examinés</h2>

@@ -4,6 +4,7 @@
 <h1>Opportunités actives</h1>
 <p class="meta">{{ generated_at }} (heure de Paris) · recommandations notifiées et misées dont le match n'a pas commencé · 1 u = 1 % de la bankroll du jour de la recommandation</p>
 <div class="warn"><strong>Cotes du relevé de la recommandation</strong>, pas des cotes en direct. Vérifie la cote sur le site de l'opérateur : en dessous de la cote minimale, ne parie pas.</div>
+<div class="cards">
 {% for o in rows %}
 <div class="card">
   <h2>{{ o.rec.fixture }}</h2>
@@ -22,4 +23,5 @@
 {% else %}
 <div class="card">Aucune opportunité active.</div>
 {% endfor %}
+</div>
 {% endblock %}
