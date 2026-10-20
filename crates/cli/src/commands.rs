@@ -32,6 +32,7 @@ use edge_core::report::daily;
 use edge_core::report::market_report;
 use edge_core::report::models_report;
 use edge_core::report::nba_report;
+use edge_core::report::picks_image;
 use edge_core::report::recommend_report;
 use edge_core::report::render::{
     render_backtest_report, render_market_report, render_models_report, render_nba_report,
@@ -1219,15 +1220,39 @@ pub fn nba_report(paths: &Paths, out: Option<&std::path::Path>) -> Result<()> {
 pub fn notify_test(paths: &Paths) -> Result<()> {
     let config = Config::load(&paths.config_file)?;
     let webhook = config.discord_webhook(std::env::var(WEBHOOK_ENV).ok().as_deref())?;
-    let page = "<!doctype html><meta charset=\"utf-8\"><title>Test edge</title><p>Le webhook fonctionne.</p>";
+    // Une recommandation inventée, nommée comme telle : elle montre le rendu de l'image sans rien lire du journal.
+    let example = recommend_report::Row {
+        id: 0,
+        kickoff: "sam. 24/10 16:00".into(),
+        league: "Exemple".into(),
+        fixture: "Exemple FC – Démo United".into(),
+        bookmaker: "winamax_fr".into(),
+        outcome: "domicile".into(),
+        odds: "2,30".into(),
+        fair_odds: "2,10".into(),
+        edge: "+9,5 %".into(),
+        minimal_odds: "2,12".into(),
+        stake: "4,2 u (42,0 €)".into(),
+    };
+    let png = picks_image::picks_png(&picks_image::Picks {
+        title: "Exemple d'image (test du webhook)",
+        subtitle: "Recommandation fictive : ne pas jouer",
+        rows: std::slice::from_ref(&example),
+        more_at: "sur le site",
+    })?;
+    let mut text =
+        "**edge** · test de notification : le webhook fonctionne. L'image jointe est un exemple fictif.".to_string();
+    if let Some(url) = &config.site_url {
+        text.push_str(&format!("\nSite de rapports : <{url}>"));
+    }
     discord::send(
         &webhook,
-        "**edge** · test de notification : le webhook fonctionne. Aucune recommandation.",
-        Some(discord::Attachment {
-            filename: "test-edge.html",
-            content_type: "text/html; charset=utf-8",
-            bytes: page.as_bytes(),
-        }),
+        &text,
+        &[discord::Attachment {
+            filename: "exemple-edge.png",
+            content_type: "image/png",
+            bytes: &png,
+        }],
         &mut discord::http_post,
     )?;
     println!("Message de test envoyé sur Discord.");
@@ -1344,25 +1369,63 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
         priced: &report.priced,
         site_url: config.site_url.as_deref(),
     });
-    // Avec un site configuré, le message en donne l'adresse : plus de pièce jointe. Sinon, le rapport reste joint
+    // L'image des recommandations, s'il y en a. Son échec ne doit pas empêcher le message du jour : il est signalé et le
+    // message part sans elle.
+    let more_at = if config.site_url.is_some() {
+        "sur le site"
+    } else {
+        "dans le rapport joint"
+    };
+    let image = if data.rows.is_empty() {
+        None
+    } else {
+        let title = format!("Recommandations du {}", format::long_date(now));
+        let subtitle = format!(
+            "Kelly ×{} · 1 u = 1 % de la bankroll ({} €)",
+            format::decimal(staking.kelly_fraction, 2),
+            format::decimal(staking.bankroll.get(), 0)
+        );
+        match picks_image::picks_png(&picks_image::Picks {
+            title: &title,
+            subtitle: &subtitle,
+            rows: &data.rows,
+            more_at,
+        }) {
+            Ok(png) => Some(png),
+            Err(error) => {
+                eprintln!("Image des recommandations non jointe : {error}");
+                None
+            }
+        }
+    };
+    // Avec un site configuré, le message en donne l'adresse : plus de rapport HTML joint. Sinon, il reste joint
     // (sans barre de navigation : ses liens ne mèneraient nulle part hors du site).
-    let attached = if config.site_url.is_some() {
+    let html = if config.site_url.is_some() {
         None
     } else {
         data.nav = false;
         Some(render_recommend_report(&data)?)
     };
-    let filename = format!("recommandations-{}.html", now.format("%Y-%m-%d"));
-    discord::send(
-        &webhook,
-        &text,
-        attached.as_deref().map(|html| discord::Attachment {
-            filename: &filename,
+    let day = now.format("%Y-%m-%d").to_string();
+    let image_name = format!("recommandations-{day}.png");
+    let html_name = format!("recommandations-{day}.html");
+    let mut attachments = Vec::new();
+    // `as_deref` emprunte le contenu de l'`Option<Vec<u8>>` : les pièces jointes ne copient pas les octets.
+    if let Some(png) = image.as_deref() {
+        attachments.push(discord::Attachment {
+            filename: &image_name,
+            content_type: "image/png",
+            bytes: png,
+        });
+    }
+    if let Some(html) = html.as_deref() {
+        attachments.push(discord::Attachment {
+            filename: &html_name,
             content_type: "text/html; charset=utf-8",
             bytes: html.as_bytes(),
-        }),
-        &mut discord::http_post,
-    )?;
+        });
+    }
+    discord::send(&webhook, &text, &attachments, &mut discord::http_post)?;
     println!("Notification envoyée sur Discord.");
     Ok(())
 }

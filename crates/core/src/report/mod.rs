@@ -6,6 +6,7 @@ pub mod daily;
 pub mod market_report;
 pub mod models_report;
 pub mod nba_report;
+pub mod picks_image;
 pub mod recommend_report;
 pub mod render;
 pub mod site;

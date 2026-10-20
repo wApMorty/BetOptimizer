@@ -5,6 +5,9 @@ pages : le rapport du jour, les rapports précédents, les opportunités actives
 `edge recommend` archive désormais son rapport (`reports/daily/`, un fichier par exécution, jamais écrasé). Avec `site_url` configuré,
 le message Discord rappelle l'adresse du site au lieu de joindre le HTML.
 
+Le message Discord joint aussi une **image PNG** des recommandations du jour (cartes aux couleurs du site), rendue par `resvg` ;
+`edge notify-test` en envoie un exemple fictif.
+
 Découpage : `core` sait tout calculer et tout rendre (`report/site.rs`, `report/daily.rs`, `betting/paper.rs`) ; la CLI
 (`crates/cli/src/serve.rs`) ne fait que traduire entre HTTP et une `Page { status, body }`. On teste donc les pages sans ouvrir de port,
 et le serveur avec un seul test de bout en bout.
@@ -45,6 +48,19 @@ valide l'adresse à la lecture du fichier (`"portable:8737"` est refusé tout de
 **Héritage de gabarits `minijinja`.** `crates/core/src/report/templates/recommend.html:1` et `crates/core/src/report/render.rs:129`.
 `{% extends "site_base.html" %}` réutilise les styles et la barre de navigation. La base est ajoutée à l'environnement à chaque rendu,
 sinon `extends` ne la trouverait pas.
+
+**Rendre une image sans police du système.** `crates/core/src/report/picks_image.rs:15` et `render_png`. `include_bytes!` range la
+police dans le binaire ; `fontdb::Database::load_font_data` la reçoit **par valeur** (`Vec<u8>`), d'où le `to_vec()` : la base de polices
+doit posséder ses octets, alors que la constante n'est qu'empruntée. `Arc::new(fonts)` partage ensuite la base sans la copier, comme
+l'exige `usvg::Options`. Résultat : le même PNG sous Linux et Windows, et un test qui le vérifie (le texte est bien dessiné).
+
+**Mise à jour fonctionnelle d'une structure : `..Default::default()`.** `picks_image.rs`, dans `render_png` : `usvg::Options { font_family,
+fontdb, ..usvg::Options::default() }` fixe deux champs et prend les autres dans la valeur par défaut. Ce n'est pas un builder : une seule
+expression, lisible, sans couche d'indirection.
+
+**Une liste plutôt qu'une `Option`.** `crates/core/src/notify/discord.rs`, `send(…, attachments: &[Attachment], …)` : passer de « zéro ou
+un fichier » à « zéro ou plusieurs » sans changer la forme des appels (`&[]` pour aucun). La tranche `&[T]` emprunte les pièces jointes
+de l'appelant, qui restent possédées par ses variables locales.
 
 ## 2. Concepts statistiques
 

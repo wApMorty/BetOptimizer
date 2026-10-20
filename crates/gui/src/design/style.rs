@@ -26,20 +26,20 @@ impl Semibold for RichText {
     }
 }
 
-/// Installe la police **Inter** (SIL OFL 1.1, `assets/fonts/`) en tête des familles proportionnelle et demi-gras ; les polices
+/// Installe la police **Inter** (SIL OFL 1.1, `assets/fonts/` à la racine du dépôt) en tête des familles proportionnelle et demi-gras ; les polices
 /// d'egui restent derrière pour les symboles qu'Inter n'a pas.
 pub fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     fonts.font_data.insert(
         "inter".into(),
         Arc::new(FontData::from_static(include_bytes!(
-            "../../assets/fonts/Inter-Regular.ttf"
+            "../../../../assets/fonts/Inter-Regular.ttf"
         ))),
     );
     fonts.font_data.insert(
         "inter-semibold".into(),
         Arc::new(FontData::from_static(include_bytes!(
-            "../../assets/fonts/Inter-SemiBold.ttf"
+            "../../../../assets/fonts/Inter-SemiBold.ttf"
         ))),
     );
     let fallbacks = fonts

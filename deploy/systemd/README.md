@@ -102,6 +102,9 @@ discord_webhook_url = "https://discord.com/api/webhooks/..."
 
 La variable `EDGE_DISCORD_WEBHOOK` a priorité sur le fichier. Ne la colle ni dans le chat ni dans git.
 
+`edge notify-test` envoie un message de test avec une image d'exemple (recommandation fictive) : c'est le rendu de l'image que joint
+le message du jour quand il y a des recommandations.
+
 ## Surveiller
 
 ```sh

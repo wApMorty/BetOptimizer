@@ -58,12 +58,13 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Envoie un message de test sur Discord pour vérifier le webhook.
+    /// Envoie un message de test sur Discord (avec une image d'exemple) pour vérifier le webhook.
     NotifyTest,
     /// Écrit les recommandations du dernier relevé dans le journal immuable, archive le rapport du jour pour le site
     /// (et notifie sur Discord avec --notify).
     Recommend {
-        /// Envoie le bilan sur Discord : lien vers le site si `site_url` est configuré, sinon rapport HTML joint.
+        /// Envoie le bilan sur Discord, image des recommandations jointe ; lien vers le site si `site_url` est configuré,
+        /// sinon rapport HTML joint.
         #[arg(long)]
         notify: bool,
     },

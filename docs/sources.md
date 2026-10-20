@@ -652,7 +652,7 @@ le code avant les données : validation du 2026-11-15 au 2027-02-01, test ensuit
 ## 24. Phase 9 — refonte de l'interface (2026-10-19)
 
 **Police.** Inter 4.0 (Rasmus Andersson), https://github.com/rsms/inter, tag `v4.0`, fichiers `Inter-Regular.ttf` et
-`Inter-SemiBold.ttf` (environ 410 Ko chacun) dans `crates/gui/assets/fonts/`. Licence SIL Open Font License 1.1 (texte `OFL.txt`
+`Inter-SemiBold.ttf` (environ 410 Ko chacun) dans `assets/fonts/` (à la racine du dépôt depuis la phase 10, partagée avec l'image Discord). Licence SIL Open Font License 1.1 (texte `OFL.txt`
 joint) : l'incorporation dans un programme est autorisée, les fichiers ne sont pas modifiés. Aucune nouvelle dépendance Cargo.
 
 **Principes de design.** Ils viennent de connaissances générales et de lectures secondaires faites pendant la session, **sans
@@ -792,6 +792,15 @@ Alternative écartée : un `TcpListener` écrit à la main, qui obligerait à an
   pas » les autres. Mises en unités de la bankroll du jour de la recommandation.
 - Pare-feu du portable : `ufw` actif, `avahi-daemon` actif (nom `cachyos-x8664.local`), constaté le 2026-10-20. Le port n'est pas ouvert
   par l'outil : c'est à Paul de le faire.
+
+**Image des recommandations dans Discord : `resvg` 0.48.1** (validé par Paul le 2026-10-20 ; vérifié par `cargo info` et dans les sources).
+Licence MIT ou Apache-2.0, Rust pur. Seule la fonctionnalité `text` est activée (`default-features = false`) : ni polices du système
+(`system-fonts`), ni images matricielles, ni SVG compressé. Version minimale de Rust : 1.85 pour `resvg`, `usvg`, `harfrust`, `skrifa`,
+`read-fonts` (1.71 pour `fontdb`), compatible avec les 1.89 du cœur. `tiny-skia` 0.12 encode le PNG avec ses fonctionnalités par défaut
+(`png-format`). API utilisée : `usvg::Options { font_family, fontdb, .. }`, `usvg::Tree::from_str`, `resvg::render`, `Pixmap::encode_png`.
+Police : Inter (SIL OFL 1.1), déjà embarquée par l'application, déplacée dans `assets/fonts/` à la racine pour être partagée ; environ
+820 Ko de plus dans le binaire `edge`. PNG plutôt que JPG : texte net, et Discord l'affiche directement sous le message. L'image n'est
+jointe que s'il y a au moins une recommandation ; son échec n'empêche pas l'envoi du message.
 
 ## 29. Reste à vérifier
 

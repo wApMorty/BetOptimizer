@@ -1,4 +1,4 @@
-//! Envoi d'un message Discord par webhook, avec un fichier joint (le rapport HTML).
+//! Envoi d'un message Discord par webhook, avec des fichiers joints (image des recommandations, rapport HTML).
 //!
 //! Source : documentation Discord, « Execute Webhook » (`POST /webhooks/{id}/{token}`) : `content` (2000 caractères
 //! au plus), `allowed_mentions`, et pour les fichiers un `multipart/form-data` avec `payload_json` et `files[n]`.
@@ -30,11 +30,11 @@ pub struct Attachment<'a> {
     pub bytes: &'a [u8],
 }
 
-/// Envoie `content` (tronqué à 2000 caractères) au webhook, avec un fichier joint éventuel.
+/// Envoie `content` (tronqué à 2000 caractères) au webhook, avec des fichiers joints (aucun : liste vide).
 pub fn send(
     webhook: &WebhookUrl,
     content: &str,
-    attachment: Option<Attachment<'_>>,
+    attachments: &[Attachment<'_>],
     post: Post<'_>,
 ) -> Result<()> {
     // `allowed_mentions` vide : aucun @everyone ni @rôle ne peut partir, même si un nom d'équipe en contenait.
@@ -44,15 +44,14 @@ pub fn send(
     })
     .to_string();
 
-    let (content_type, body) = match attachment {
-        Some(file) => {
-            let boundary = boundary_for(&payload, file.bytes);
-            (
-                format!("multipart/form-data; boundary={boundary}"),
-                multipart_body(&boundary, &payload, file),
-            )
-        }
-        None => ("application/json".to_string(), payload.into_bytes()),
+    let (content_type, body) = if attachments.is_empty() {
+        ("application/json".to_string(), payload.into_bytes())
+    } else {
+        let boundary = boundary_for(&payload, attachments);
+        (
+            format!("multipart/form-data; boundary={boundary}"),
+            multipart_body(&boundary, &payload, attachments),
+        )
     };
 
     let (status, answer) = post(webhook.expose(), &content_type, body)?;
@@ -77,7 +76,7 @@ fn truncate(text: &str) -> String {
 }
 
 /// Choisit une frontière `multipart` absente du contenu envoyé (sinon le serveur couperait la pièce jointe en deux).
-fn boundary_for(payload: &str, file: &[u8]) -> String {
+fn boundary_for(payload: &str, files: &[Attachment<'_>]) -> String {
     let mut counter = 0u32;
     loop {
         let candidate = format!("edge-boundary-{counter:04}-9f3c71a2");
@@ -86,7 +85,9 @@ fn boundary_for(payload: &str, file: &[u8]) -> String {
             .as_bytes()
             .windows(marker.len())
             .any(|w| w == marker)
-            || file.windows(marker.len()).any(|w| w == marker);
+            || files
+                .iter()
+                .any(|file| file.bytes.windows(marker.len()).any(|w| w == marker));
         if !clash {
             return candidate;
         }
@@ -94,21 +95,8 @@ fn boundary_for(payload: &str, file: &[u8]) -> String {
     }
 }
 
-/// Corps `multipart/form-data` : `payload_json` puis `files[0]`.
-fn multipart_body(boundary: &str, payload: &str, file: Attachment<'_>) -> Vec<u8> {
-    // Le nom de fichier va dans un en-tête : on n'y laisse que des caractères sûrs (pas de guillemet ni de saut de ligne).
-    let filename: String = file
-        .filename
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-
+/// Corps `multipart/form-data` : `payload_json`, puis `files[0]`, `files[1]`…
+fn multipart_body(boundary: &str, payload: &str, files: &[Attachment<'_>]) -> Vec<u8> {
     let mut body = Vec::new();
     body.extend_from_slice(
         format!(
@@ -116,16 +104,33 @@ fn multipart_body(boundary: &str, payload: &str, file: Attachment<'_>) -> Vec<u8
         )
         .as_bytes(),
     );
-    body.extend_from_slice(
-        format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"files[0]\"; filename=\"{filename}\"\r\nContent-Type: {}\r\n\r\n",
-            file.content_type
-        )
-        .as_bytes(),
-    );
-    body.extend_from_slice(file.bytes);
-    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    for (index, file) in files.iter().enumerate() {
+        body.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"files[{index}]\"; filename=\"{}\"\r\nContent-Type: {}\r\n\r\n",
+                safe_filename(file.filename),
+                file.content_type
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(file.bytes);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
     body
+}
+
+/// Le nom de fichier va dans un en-tête : on n'y laisse que des caractères sûrs (pas de guillemet ni de saut de ligne).
+fn safe_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// `POST` réel avec `ureq`. L'URL (donc le jeton) est expurgée de toute erreur réseau.
@@ -184,7 +189,7 @@ mod tests {
             Ok((204, String::new()))
         };
 
-        send(&webhook(), "Bonjour @everyone", None, &mut post).unwrap();
+        send(&webhook(), "Bonjour @everyone", &[], &mut post).unwrap();
 
         let (url, content_type, body) = seen.unwrap();
         assert_eq!(url, URL);
@@ -207,7 +212,7 @@ mod tests {
             bytes: "<p>é</p>".as_bytes(),
         };
 
-        send(&webhook(), "Salut", Some(file), &mut post).unwrap();
+        send(&webhook(), "Salut", &[file], &mut post).unwrap();
 
         let (content_type, body) = seen.unwrap();
         let boundary = content_type
@@ -228,10 +233,46 @@ mod tests {
     }
 
     #[test]
+    fn several_attachments_are_numbered_in_order() {
+        let mut seen = None;
+        let mut post = |_: &str, _: &str, body: Vec<u8>| {
+            seen = Some(body);
+            Ok((200, String::new()))
+        };
+        let image = Attachment {
+            filename: "picks.png",
+            content_type: "image/png",
+            bytes: b"PNG",
+        };
+        let page = Attachment {
+            filename: "rapport.html",
+            content_type: "text/html; charset=utf-8",
+            bytes: b"<p></p>",
+        };
+
+        send(&webhook(), "Salut", &[image, page], &mut post).unwrap();
+
+        let body = text(&seen.unwrap());
+        let first = body
+            .find("name=\"files[0]\"; filename=\"picks.png\"")
+            .unwrap();
+        let second = body
+            .find("name=\"files[1]\"; filename=\"rapport.html\"")
+            .unwrap();
+        assert!(first < second);
+        assert!(body.contains("Content-Type: image/png\r\n\r\nPNG\r\n--"));
+    }
+
+    #[test]
     fn the_boundary_never_appears_inside_the_content() {
         let file = b"edge-boundary-0000-9f3c71a2 dans le fichier";
+        let attachment = Attachment {
+            filename: "a.html",
+            content_type: "text/html",
+            bytes: file,
+        };
 
-        let boundary = boundary_for("{}", file);
+        let boundary = boundary_for("{}", &[attachment]);
 
         assert_ne!(boundary, "edge-boundary-0000-9f3c71a2");
         assert!(
@@ -256,7 +297,7 @@ mod tests {
     fn a_refusal_is_reported_without_the_webhook_url() {
         let mut post = |_: &str, _: &str, _: Vec<u8>| Ok((429, "rate limited".to_string()));
 
-        let error = send(&webhook(), "x", None, &mut post)
+        let error = send(&webhook(), "x", &[], &mut post)
             .unwrap_err()
             .to_string();
 
@@ -277,7 +318,7 @@ mod tests {
     fn a_network_failure_is_passed_on_unchanged() {
         let mut post = |_: &str, _: &str, _: Vec<u8>| Err(Error::Http("réseau coupé".into()));
 
-        let error = send(&webhook(), "x", None, &mut post).unwrap_err();
+        let error = send(&webhook(), "x", &[], &mut post).unwrap_err();
 
         assert!(error.to_string().contains("réseau coupé"));
     }
