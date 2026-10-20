@@ -128,7 +128,7 @@ pub struct Config {
     pub nba_markets: Vec<String>,
     /// Crédits mis de côté pour la NBA : le tennis est refusé dès que `crédits utilisés + coût` dépasserait `plafond − réserve`.
     pub nba_reserve_credits: u32,
-    /// Fraction de Kelly appliquée aux mises suggérées (1 = Kelly complet, choix du projet ; 0,5 = demi-Kelly).
+    /// Fraction de Kelly appliquée aux mises suggérées (0,5 = demi-Kelly, choix du 2026-10-20 ; 1 = Kelly complet).
     pub kelly_fraction: f64,
     /// Mise minimale, en euros : un pari plus petit n'est pas suggéré.
     pub min_stake: f64,
@@ -169,7 +169,7 @@ impl Default for Config {
             nba_markets: owned(&["h2h", "spreads", "totals"]),
             nba_reserve_credits: 120,
             initial_bankroll: 1000.0,
-            kelly_fraction: 1.0,
+            kelly_fraction: 0.5,
             min_stake: 1.0,
             discord_webhook_url: None,
         }
@@ -459,7 +459,7 @@ mod tests {
     fn the_betting_defaults_are_the_documented_ones() {
         let config = Config::default();
         assert_eq!(config.initial_bankroll, 1000.0);
-        assert_eq!(config.kelly_fraction, 1.0);
+        assert_eq!(config.kelly_fraction, 0.5);
         assert_eq!(config.min_stake, 1.0);
         assert!(config.discord_webhook_url.is_none());
     }

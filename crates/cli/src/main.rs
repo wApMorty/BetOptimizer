@@ -38,8 +38,8 @@ enum Command {
     },
     /// Prix des derniers relevés qui dépassent la cote juste de Pinnacle (lecture seule, ne parie jamais).
     Value {
-        /// Avantage minimal, en points de pourcentage (3 = 3 %).
-        #[arg(long, value_name = "POURCENT", default_value_t = 3.0)]
+        /// Avantage minimal, en points de pourcentage (1 = 1 %, le seuil des recommandations).
+        #[arg(long, value_name = "POURCENT", default_value_t = 1.0)]
         min_edge: f64,
         /// Bankroll, en euros (par défaut : bankroll courante, calculée depuis tes paris enregistrés).
         #[arg(long, value_name = "EUROS")]

@@ -3,6 +3,7 @@
 //! Il répond, sans rien lire d'autre, à quatre questions : y a-t-il quelque chose à parier ? Est-ce que ça marche ? Combien
 //! ai-je ? Tout tourne-t-il ? Le détail est un clic plus loin.
 
+use edge_core::betting::recommend::RECOMMEND_MIN_EDGE;
 use edge_core::format;
 use eframe::egui::{RichText, Sense, Ui, vec2};
 
@@ -62,7 +63,10 @@ pub fn show(ui: &mut Ui, ctx: &PageCtx, data: &Data, state: &mut State) -> Vec<R
                     }
                     None => {
                         ui.label(RichText::new("Le programme compare chaque jour les prix des opérateurs à ceux de Pinnacle.").color(p.muted));
-                        ui.label(RichText::new("Un prix n'est signalé que s'il dépasse la cote juste d'au moins 3 %.").small().color(p.faint));
+                        ui.label(RichText::new(format!(
+                            "Un prix n'est signalé que s'il dépasse la cote juste d'au moins {} %.",
+                            format::decimal(RECOMMEND_MIN_EDGE * 100.0, 0)
+                        )).small().color(p.faint));
                     }
                 });
             });

@@ -766,6 +766,9 @@ fois** : Bet&Win 147 paris, CLV −0,55 % [−1,5 ; +0,2] (indécis) ; Ladbrokes
 ont disparu des fichiers, Bet365 n'atteint pas 7 %). Le test ne départage donc rien : le seuil des opérateurs français ne peut pas s'appuyer
 sur un verdict historique.
 
+**Production (décision de Paul, 2026-10-20, démarche exploratoire).** Seuil des recommandations notifiées : 3 % → **1 %** ; fraction de Kelly par
+défaut : 1,0 → **0,5**. Aucun crédit de plus : tout avantage positif était déjà journalisé en fantôme avec sa clôture.
+
 ## 28. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois

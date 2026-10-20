@@ -57,9 +57,10 @@ margin_method = "power"
 # odds_api_key = "..."
 
 # Mises. La bankroll courante part de initial_bankroll, ajoute les gains et retire les mises de TES paris enregistrés
-# (`edge bet log`). Kelly complet (1,0) est le choix du projet ; les rapports comparent aussi ½ et ¼.
+# (`edge bet log`). Demi-Kelly (0,5) est le choix du projet depuis le 2026-10-20 : en Kelly complet, un avantage annoncé
+# surestimé fait décroître la bankroll (docs/sources.md §27). Les rapports comparent ×1, ½ et ¼.
 initial_bankroll = 1000.0
-kelly_fraction = 1.0
+kelly_fraction = 0.5
 # Mise minimale en euros : un pari plus petit n'est pas suggéré. Les mises sont arrondies au dixième inférieur.
 min_stake = 1.0
 

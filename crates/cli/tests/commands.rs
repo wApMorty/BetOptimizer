@@ -330,11 +330,11 @@ fn a_followed_bet_updates_the_bankroll_and_cannot_be_logged_twice() {
     let listing = text(&list.stdout);
     assert!(listing.contains("ouvert"), "{listing}");
     assert!(listing.contains("recommandation n° 1"), "{listing}");
-    // Kelly d'un pari seul (marge retirée par la méthode « power » de la configuration par défaut) : 99,0 € ;
-    // la mise ouverte est déjà sortie de la bankroll de 1 000 €.
-    assert!(listing.contains("mise 99,0 €"), "{listing}");
+    // Kelly d'un pari seul (marge retirée par la méthode « power » de la configuration par défaut) : 99,0 €, en demi-Kelly
+    // (défaut) 49,5 € ; la mise ouverte est déjà sortie de la bankroll de 1 000 €.
+    assert!(listing.contains("mise 49,5 €"), "{listing}");
     assert!(
-        listing.contains("Bankroll courante : 901,00 €"),
+        listing.contains("Bankroll courante : 950,50 €"),
         "{listing}"
     );
 }

@@ -428,7 +428,7 @@ pub fn backtest_tune(paths: &Paths) -> Result<()> {
 
 /// Réglages de `edge value` ; une valeur absente prend celle de la configuration.
 pub struct ValueOptions {
-    /// Avantage minimal, en points de pourcentage (3 = 3 %).
+    /// Avantage minimal, en points de pourcentage (1 = 1 %).
     pub min_edge_pct: f64,
     /// Bankroll, en euros ; par défaut la bankroll courante (départ + gains − mises ouvertes de tes paris enregistrés).
     pub bankroll: Option<f64>,

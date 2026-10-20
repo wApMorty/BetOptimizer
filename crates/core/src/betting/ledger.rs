@@ -170,7 +170,7 @@ pub fn upcoming_events(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<Upco
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::betting::recommend::{RECOMMEND_MIN_EDGE, Settings, run};
+    use crate::betting::recommend::{Settings, run};
     use crate::betting::testing::{NOW, PINNACLE, at, database, event, event_named, store};
     use crate::market::margin::MarginMethod;
 
@@ -184,7 +184,7 @@ mod tests {
         );
         let settings = Settings {
             method: MarginMethod::Multiplicative,
-            min_edge: RECOMMEND_MIN_EDGE,
+            min_edge: 0.03, // seuil d'essai : +1,2 % reste au journal fantôme
             excluded_bookmakers: Vec::new(),
             kelly_fraction: 1.0,
             min_stake: Euros::new(1.0).unwrap(),
@@ -265,7 +265,7 @@ mod tests {
         );
         let settings = Settings {
             method: MarginMethod::Multiplicative,
-            min_edge: RECOMMEND_MIN_EDGE,
+            min_edge: 0.03, // seuil d'essai : +1,2 % reste au journal fantôme
             excluded_bookmakers: Vec::new(),
             kelly_fraction: 1.0,
             min_stake: Euros::new(1.0).unwrap(),

@@ -24,10 +24,12 @@ use crate::store::journal::{
 /// Nom de la règle inscrit dans le journal.
 pub const RULE: &str = "price_vs_pinnacle";
 
-/// Avantage minimal d'une recommandation notifiée : 3 %, seuil gelé de la règle `soft:B365` du backtest
-/// (`edge backtest report`), appliqué ici **par analogie** aux opérateurs français, qui n'ont pas d'historique.
-/// Aucune règle n'est validée hors échantillon : chaque recommandation est expérimentale.
-pub const RECOMMEND_MIN_EDGE: f64 = 0.03;
+/// Avantage minimal d'une recommandation notifiée : 1 %. Choix de Paul du 2026-10-20, **exploratoire** : le test historique
+/// ne départage aucun seuil (`docs/sources.md` §27). 1 % est le maximum local de la croissance attendue de Bet365 en
+/// demi-Kelly sur l'entraînement et la validation, et environ deux fois l'imprécision due au retrait de marge (0,5 point).
+/// Avant, 3 % (gel de la phase 4 au CLV moyen). Aucune règle n'est validée hors échantillon : chaque recommandation est
+/// expérimentale.
+pub const RECOMMEND_MIN_EDGE: f64 = 0.01;
 
 /// Réglages d'une exécution.
 #[derive(Debug, Clone)]
@@ -195,10 +197,14 @@ mod tests {
     use crate::betting::testing::{NOW, PINNACLE, at, database, event, event_named, store};
     use crate::domain::Outcome;
 
+    /// Seuil d'essai, indépendant du seuil de production : les tests vérifient le mécanisme des deux paliers (un avantage
+    /// de +1,2 % reste sous ce seuil, donc au journal fantôme), pas la valeur choisie pour la production.
+    const TEST_MIN_EDGE: f64 = 0.03;
+
     fn settings() -> Settings {
         Settings {
             method: MarginMethod::Multiplicative,
-            min_edge: RECOMMEND_MIN_EDGE,
+            min_edge: TEST_MIN_EDGE,
             excluded_bookmakers: Vec::new(),
             kelly_fraction: 1.0,
             min_stake: Euros::new(1.0).unwrap(),
@@ -240,13 +246,13 @@ mod tests {
         assert_eq!(big.event_id, "big");
         assert_eq!(big.outcome, Outcome::Home);
         assert!(big.stake.is_some_and(|s| s.get() > 0.0));
-        assert_eq!(big.min_edge, RECOMMEND_MIN_EDGE);
+        assert_eq!(big.min_edge, TEST_MIN_EDGE);
         // Cote minimale = 1,03 / p.
         assert!((big.minimal_odds - 1.03 / big.probability.get()).abs() < 1e-9);
 
         let small = &shadow[0].record;
         assert_eq!(small.event_id, "small");
-        assert!(small.edge > 0.0 && small.edge < RECOMMEND_MIN_EDGE);
+        assert!(small.edge > 0.0 && small.edge < TEST_MIN_EDGE);
         assert_eq!(small.stake, None, "le journal fantôme ne mise rien");
         assert_eq!(small.min_edge, 0.0);
     }
@@ -369,7 +375,7 @@ mod tests {
         assert!(report.priced[1].selection.edge < 0.0);
         for o in &report.priced {
             assert!(
-                (o.minimal_odds - (1.0 + RECOMMEND_MIN_EDGE) / o.selection.probability.get()).abs()
+                (o.minimal_odds - (1.0 + TEST_MIN_EDGE) / o.selection.probability.get()).abs()
                     < 1e-9
             );
         }

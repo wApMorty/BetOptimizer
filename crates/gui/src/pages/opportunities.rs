@@ -33,7 +33,7 @@ const JOURNAL_ROWS: usize = 10;
 /// État local de l'écran.
 #[derive(Default)]
 pub struct State {
-    /// Choix du filtre : 0 = notifiées (≥ 3 %), 1 = toutes (≥ 0 %).
+    /// Choix du filtre : 0 = notifiées (≥ `RECOMMEND_MIN_EDGE`), 1 = toutes (≥ 0 %).
     pub filter: usize,
 }
 
@@ -180,7 +180,7 @@ fn opportunity_card(
             },
         );
 
-        // Ligne 2 : l'avantage, sur une jauge qui marque le seuil de 3 %.
+        // Ligne 2 : l'avantage, sur une jauge qui marque le seuil des recommandations.
         ui.add_space(space::SM);
         split(
             ui,

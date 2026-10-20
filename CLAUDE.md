@@ -155,7 +155,8 @@ edge/
 
 ## Mises
 
-- Kelly, fraction configurable. **Défaut : Kelly complet (1,0), c'est mon choix.** Le backtest affiche
+- Kelly, fraction configurable. **Défaut : demi-Kelly (0,5), mon choix du 2026-10-20** (en Kelly complet, un avantage
+  annoncé surestimé fait décroître la bankroll : `docs/sources.md` §27). Le backtest affiche
   côte à côte 1, ½ et ¼ Kelly : croissance logarithmique, drawdown maximal, probabilité de ruine
   (Monte Carlo).
 - Au plus une sélection par match.
