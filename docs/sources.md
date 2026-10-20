@@ -759,6 +759,13 @@ contre +0,0 % et −0,4 %. Les quatre lignes « fantômes » de l'archive réell
 **Précision de l'avantage.** Pour une même sélection, l'avantage diffère selon la méthode de retrait de marge de 0,50 à 0,68 point en médiane et de
 1,8 à 5,3 points au 90e centile selon le bookmaker. Un pas de 0,1 point est donc plus fin que la mesure : le seuil est un ordre de grandeur.
 
+**Gel (2026-10-20, deuxième session, 648 configurations, critère : croissance attendue en demi-Kelly).** Paul a choisi le demi-Kelly
+après avoir vu que Kelly complet perdait chez Bet365 à tous les seuils. Seuils gelés : Bet365 7,0 % (plateau : 0,016 contre 0,013 à 1 %,
+indiscernables), William Hill 0,6 %, Bet&Win 0,1 %, Interwetten 0,7 %, VC Bet 5,6 %, Ladbrokes 1,6 %, 1xBet 0,5 %. **Test, évalué une seule
+fois** : Bet&Win 147 paris, CLV −0,55 % [−1,5 ; +0,2] (indécis) ; Ladbrokes 14 paris ; toutes les autres sources 0 pari (Interwetten et 1xBet
+ont disparu des fichiers, Bet365 n'atteint pas 7 %). Le test ne départage donc rien : le seuil des opérateurs français ne peut pas s'appuyer
+sur un verdict historique.
+
 ## 28. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
