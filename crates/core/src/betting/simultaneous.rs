@@ -60,6 +60,27 @@ pub fn fractions(bets: &[Bet]) -> Result<Vec<f64>> {
     Ok(result)
 }
 
+/// Croissance logarithmique attendue `G(f)` d'un lot **déjà dimensionné** : les mises `f` sont données, et les
+/// probabilités de `bets` sont celles que l'on tient pour vraies (pour le backtest, la clôture de Pinnacle sans marge),
+/// qui ne sont pas forcément celles qui ont servi à calculer `f`.
+///
+/// Même formule que l'optimisation ; énumération exacte jusqu'à [`EXACT_LIMIT`] paris, au-delà le développement du
+/// second ordre `G ≈ Σ f_i μ_i − ½ Σ f_i² σ_i² − ½ (Σ f_i μ_i)²` (voir [`approximate_fractions`]), très précis pour
+/// les petites mises qu'un petit avantage produit.
+pub fn expected_log_growth(bets: &[Bet], f: &[f64]) -> f64 {
+    if bets.len() <= EXACT_LIMIT {
+        return growth_and_gradient(bets, f).0;
+    }
+    let mut mean = 0.0;
+    let mut variance = 0.0;
+    for (bet, fraction) in bets.iter().zip(f) {
+        let p = bet.probability.get();
+        mean += fraction * bet.edge();
+        variance += fraction * fraction * bet.odds.get().powi(2) * p * (1.0 - p);
+    }
+    mean - 0.5 * variance - 0.5 * mean * mean
+}
+
 /// Croissance logarithmique attendue `G(f)` par énumération des `2ⁿ` combinaisons d'issues, et son gradient.
 fn growth_and_gradient(bets: &[Bet], f: &[f64]) -> (f64, Vec<f64>) {
     let n = bets.len();
@@ -238,6 +259,24 @@ mod tests {
 
     fn growth(bets: &[Bet], f: &[f64]) -> f64 {
         growth_and_gradient(bets, f).0
+    }
+
+    #[test]
+    fn the_expected_growth_of_given_stakes_follows_the_truth_and_both_regimes_agree() {
+        // Un pari : f = 10 % à la cote 2,0 ; si p = 0,5 (pas d'avantage), G = ½ ln 1,1 + ½ ln 0,9 < 0.
+        let fair = [bet(0.5, 2.0)];
+        assert_abs_diff_eq!(
+            expected_log_growth(&fair, &[0.1]),
+            0.5 * 1.1_f64.ln() + 0.5 * 0.9_f64.ln(),
+            epsilon = 1e-12
+        );
+        // Aucune mise : aucune croissance.
+        assert_eq!(expected_log_growth(&fair, &[0.0]), 0.0);
+        // Au-delà de la limite exacte, l'approximation reste proche de l'énumération (petites mises).
+        let many: Vec<Bet> = (0..EXACT_LIMIT + 1).map(|_| bet(0.52, 2.0)).collect();
+        let stakes = vec![0.01; many.len()];
+        let exact = growth_and_gradient(&many, &stakes).0;
+        assert_abs_diff_eq!(expected_log_growth(&many, &stakes), exact, epsilon = 1e-5);
     }
 
     #[test]

@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::backtest::candidates::load_inputs;
 use crate::backtest::study::{
-    KELLY_FRACTIONS, MIN_SELECTION_BETS, PRICE_FACTORS, SourceStudy, THRESHOLDS,
+    Criterion, KELLY_FRACTIONS, MIN_SELECTION_BETS, PRICE_FACTORS, SourceStudy, THRESHOLDS,
     load_model_predictions, study_all,
 };
 use crate::error::Result;
@@ -19,8 +19,10 @@ pub struct BacktestReport {
     pub generated_on: String,
     /// Sessions de réglage des seuils.
     pub sessions: u32,
-    /// Configurations essayées pendant la dernière session.
+    /// Configurations essayées, toutes sessions confondues.
     pub configs_tried: usize,
+    /// Critère du dernier gel (celui des seuils évalués ici).
+    pub criterion: Criterion,
     /// Seuils essayés.
     pub thresholds: Vec<f64>,
     /// Fractions de Kelly comparées.
@@ -42,16 +44,17 @@ pub fn build(
     let inputs = load_inputs(conn)?;
     let predictions = load_model_predictions(conn)?;
     let studies = study_all(conn, &inputs, &predictions, method)?;
-    let configs_tried = studies
+    let criterion = studies
         .first()
         .map(|s| backtests::latest_selection(conn, &s.label))
         .transpose()?
         .flatten()
-        .map_or(0, |frozen| frozen.configs_tried);
+        .map_or(Criterion::MeanClv, |frozen| frozen.criterion);
     Ok(BacktestReport {
         generated_on: generated_on.to_string(),
         sessions: backtests::selection_session_count(conn)?,
-        configs_tried,
+        configs_tried: backtests::configs_tried_all_sessions(conn)?,
+        criterion,
         thresholds: THRESHOLDS.to_vec(),
         kelly_fractions: KELLY_FRACTIONS.to_vec(),
         price_factors: PRICE_FACTORS.to_vec(),
@@ -74,6 +77,7 @@ mod tests {
             generated_on: "2026-10-18".into(),
             sessions: 1,
             configs_tried: 54,
+            criterion: Criterion::MeanClv,
             thresholds: vec![0.0, 0.03],
             kelly_fractions: vec![1.0, 0.5, 0.25],
             price_factors: vec![1.0, 0.957, 0.91],

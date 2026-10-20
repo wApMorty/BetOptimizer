@@ -447,7 +447,12 @@ pub fn data(now: DateTime<Utc>) -> Data {
             max_drawdown: 0.062,
             points,
         },
-        clv: ClvReport { groups, buckets },
+        clv: ClvReport {
+            groups,
+            buckets,
+            by_bookmaker: Vec::new(),
+            by_outcome: Vec::new(),
+        },
         reliability,
         reports: vec![
             ReportFile {

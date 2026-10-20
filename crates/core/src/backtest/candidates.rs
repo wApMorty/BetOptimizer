@@ -66,8 +66,15 @@ pub struct GameInputs {
 }
 
 impl GameInputs {
-    fn price(&self, bookmaker: &str, moment: Moment) -> Option<&Odds1x2> {
+    /// Cotes d'un bookmaker à un moment donné, si le fichier les a.
+    pub(crate) fn price(&self, bookmaker: &str, moment: Moment) -> Option<&Odds1x2> {
         self.odds.get(&(bookmaker.to_string(), moment))
+    }
+
+    /// Référence d'avant-match : Pinnacle, ou la moyenne du marché quand Pinnacle manque (après janvier 2026).
+    pub(crate) fn reference_pre(&self) -> Option<&Odds1x2> {
+        self.price("PS", Moment::Pre)
+            .or_else(|| self.price("Avg", Moment::Pre))
     }
 }
 
@@ -191,9 +198,7 @@ pub fn soft_vs_sharp(games: &[&GameInputs], book: &str, generator: &Generator) -
     games
         .iter()
         .filter_map(|game| {
-            let sharp = game
-                .price("PS", Moment::Pre)
-                .or_else(|| game.price("Avg", Moment::Pre))?;
+            let sharp = game.reference_pre()?;
             let soft = discounted(game.price(book, Moment::Pre)?, generator.price_factor)?;
             let probs = remove_margin(sharp, generator.method)?;
             candidate(game, &probs, &soft, generator)

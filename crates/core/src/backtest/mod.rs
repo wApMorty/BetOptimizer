@@ -4,6 +4,7 @@
 //! mesurer, après coup, si l'on a obtenu un meilleur prix que le marché final (le CLV).
 
 pub mod candidates;
+pub mod curve;
 pub mod engine;
 pub mod metrics;
 pub mod study;

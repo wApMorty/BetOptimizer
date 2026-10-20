@@ -105,6 +105,21 @@ pub struct Bucket {
     pub mean_clv: Option<f64>,
 }
 
+/// CLV d'un sous-ensemble des recommandations (notifiées et fantômes) : un opérateur, ou une issue.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Split {
+    /// Opérateur (`winamax_fr`) ou issue (`domicile`, `nul`, `extérieur`).
+    pub key: String,
+    /// Recommandations.
+    pub n: usize,
+    /// Recommandations dont la clôture de Pinnacle est connue.
+    pub with_closing: usize,
+    /// Avantage annoncé moyen.
+    pub mean_edge: f64,
+    /// CLV moyen et son intervalle à 95 %.
+    pub clv: Option<MeanCi>,
+}
+
 /// Le rapport complet.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClvReport {
@@ -112,6 +127,10 @@ pub struct ClvReport {
     pub groups: Vec<Group>,
     /// CLV par tranche d'avantage annoncé.
     pub buckets: Vec<Bucket>,
+    /// CLV par opérateur français : chez lequel ouvrir un compte ?
+    pub by_bookmaker: Vec<Split>,
+    /// CLV par issue : le nul est-il trop payé, ou est-ce un artefact du retrait de marge ?
+    pub by_outcome: Vec<Split>,
 }
 
 /// Tranches d'avantage : bornes basses (incluses) et nom.
@@ -126,6 +145,8 @@ const BUCKETS: [(f64, f64, &str); 5] = [
 /// Un élément à analyser, tel que le journal le décrit.
 struct Item {
     candidate: Candidate,
+    /// Opérateur qui proposait le prix.
+    bookmaker: String,
     /// `Some(gagné)` une fois réglé (gagné ou perdu) ; `None` si ouvert ou remboursé.
     won: Option<bool>,
     edge: Option<f64>,
@@ -161,6 +182,7 @@ pub fn report(conn: &Connection, aliases: &Aliases, method: MarginMethod) -> Res
                 close,
                 won,
             ),
+            bookmaker: r.bookmaker.clone(),
             won,
             edge: Some(r.edge),
             money: None,
@@ -198,6 +220,7 @@ pub fn report(conn: &Connection, aliases: &Aliases, method: MarginMethod) -> Res
                 close,
                 won,
             ),
+            bookmaker: b.bookmaker.clone(),
             won,
             edge: None,
             money,
@@ -230,7 +253,16 @@ pub fn report(conn: &Connection, aliases: &Aliases, method: MarginMethod) -> Res
         });
     }
 
+    // Les deux paliers ensemble : le journal fantôme existe précisément pour mesurer le CLV sous le seuil.
+    let recommendations: Vec<&Item> = notified.iter().chain(shadow.iter()).collect();
+    let by_bookmaker = splits(&recommendations, |item| item.bookmaker.clone());
+    let by_outcome = splits(&recommendations, |item| {
+        outcome_label(item.candidate.outcome).to_string()
+    });
+
     Ok(ClvReport {
+        by_bookmaker,
+        by_outcome,
         groups: vec![
             group("Recommandations notifiées", &notified),
             group("Journal fantôme (sous le seuil)", &shadow),
@@ -239,6 +271,40 @@ pub fn report(conn: &Connection, aliases: &Aliases, method: MarginMethod) -> Res
         ],
         buckets,
     })
+}
+
+fn outcome_label(outcome: Outcome) -> &'static str {
+    match outcome {
+        Outcome::Home => "domicile",
+        Outcome::Draw => "nul",
+        Outcome::Away => "extérieur",
+    }
+}
+
+/// Regroupe les recommandations par clé (opérateur ou issue), dans l'ordre alphabétique des clés.
+///
+/// `key` est une fonction passée en paramètre (une fermeture) : le même regroupement sert aux deux découpages.
+fn splits(items: &[&Item], key: impl Fn(&Item) -> String) -> Vec<Split> {
+    let mut groups: std::collections::BTreeMap<String, Vec<&Item>> =
+        std::collections::BTreeMap::new();
+    for item in items {
+        groups.entry(key(item)).or_default().push(item);
+    }
+    groups
+        .into_iter()
+        .map(|(key, members)| {
+            // Clonés : `clv_ci` attend une tranche contiguë de candidats, que les éléments regroupés ne forment pas.
+            let candidates: Vec<Candidate> = members.iter().map(|i| i.candidate.clone()).collect();
+            let edges: Vec<f64> = members.iter().filter_map(|i| i.edge).collect();
+            Split {
+                key,
+                n: members.len(),
+                with_closing: candidates.iter().filter(|c| c.close_fair.is_some()).count(),
+                mean_edge: mean(&edges).unwrap_or(0.0),
+                clv: clv_ci(&candidates),
+            }
+        })
+        .collect()
 }
 
 fn unit() -> Probability {
@@ -452,6 +518,12 @@ mod tests {
         assert_eq!(by_label("≥ 5 %").n, 1);
         assert_eq!(by_label("1 % à 2 %").n, 0);
         assert!((by_label("≥ 5 %").mean_clv.unwrap() - 0.118_92).abs() < 1e-4);
+        // Les deux paliers comptent par opérateur et par issue (ici : Betclic, domicile).
+        assert_eq!(report.by_bookmaker.len(), 1);
+        assert_eq!(report.by_bookmaker[0].key, "betclic_fr");
+        assert_eq!(report.by_bookmaker[0].n, 2);
+        assert_eq!(report.by_outcome[0].key, "domicile");
+        assert_eq!(report.by_outcome[0].with_closing, 2);
         // Le tableau par groupe sépare bien les deux paliers.
         assert_eq!(report.groups[0].n, 1);
         assert_eq!(report.groups[1].n, 1);

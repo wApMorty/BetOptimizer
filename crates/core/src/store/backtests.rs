@@ -5,6 +5,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::backtest::candidates::Period;
 use crate::backtest::engine::{BacktestResult, Candidate};
+use crate::backtest::study::Criterion;
 use crate::domain::Outcome;
 use crate::error::Result;
 
@@ -37,6 +38,10 @@ pub struct FrozenThreshold {
     pub selection_bets: usize,
     /// Configurations essayées pendant la session.
     pub configs_tried: usize,
+    /// Critère qui a choisi le seuil.
+    pub criterion: Criterion,
+    /// Croissance logarithmique totale attendue sur la période de réglage (critère `expected_growth` seulement).
+    pub selection_growth: Option<f64>,
 }
 
 /// Enregistre un seuil gelé.
@@ -46,8 +51,9 @@ pub fn insert_selection(
     created_at: DateTime<Utc>,
 ) -> Result<()> {
     conn.execute(
-        "INSERT INTO backtest_selection (created_at, source, threshold, selection_clv, selection_bets, configs_tried)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO backtest_selection (created_at, source, threshold, selection_clv, selection_bets, configs_tried,
+                                         criterion, selection_growth)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             created_at.to_rfc3339_opts(SecondsFormat::Secs, true),
             record.source,
@@ -55,6 +61,8 @@ pub fn insert_selection(
             record.selection_clv,
             record.selection_bets as i64,
             record.configs_tried as i64,
+            record.criterion.as_str(),
+            record.selection_growth,
         ],
     )?;
     Ok(())
@@ -64,7 +72,7 @@ pub fn insert_selection(
 pub fn latest_selection(conn: &Connection, source: &str) -> Result<Option<FrozenThreshold>> {
     let record = conn
         .query_row(
-            "SELECT threshold, selection_clv, selection_bets, configs_tried
+            "SELECT threshold, selection_clv, selection_bets, configs_tried, criterion, selection_growth
                FROM backtest_selection WHERE source = ?1 ORDER BY id DESC LIMIT 1",
             [source],
             |row| {
@@ -74,6 +82,13 @@ pub fn latest_selection(conn: &Connection, source: &str) -> Result<Option<Frozen
                     selection_clv: row.get(1)?,
                     selection_bets: row.get::<_, i64>(2)? as usize,
                     configs_tried: row.get::<_, i64>(3)? as usize,
+                    // La contrainte CHECK de la migration 11 n'admet que ces deux valeurs.
+                    criterion: if row.get::<_, String>(4)? == "expected_growth" {
+                        Criterion::ExpectedGrowth
+                    } else {
+                        Criterion::MeanClv
+                    },
+                    selection_growth: row.get(5)?,
                 })
             },
         )
@@ -88,6 +103,18 @@ pub fn selection_session_count(conn: &Connection) -> Result<u32> {
         [],
         |row| row.get(0),
     )?)
+}
+
+/// Configurations essayées, toutes sessions confondues : chaque session compte une fois (ses lignes portent toutes le
+/// même total), d'où le `DISTINCT` sur la date de la session.
+pub fn configs_tried_all_sessions(conn: &Connection) -> Result<usize> {
+    let total: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(configs_tried), 0) FROM
+           (SELECT created_at, MAX(configs_tried) AS configs_tried FROM backtest_selection GROUP BY created_at)",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(total as usize)
 }
 
 /// Description d'une exécution à enregistrer.
@@ -261,10 +288,15 @@ mod tests {
             selection_clv: Some(0.004),
             selection_bets: 410,
             configs_tried: 54,
+            criterion: Criterion::MeanClv,
+            selection_growth: None,
         };
         insert_selection(&conn, &record, "2026-10-19T10:00:00Z".parse().unwrap()).unwrap();
         let newer = FrozenThreshold {
-            threshold: 0.05,
+            threshold: 0.005,
+            configs_tried: 648,
+            criterion: Criterion::ExpectedGrowth,
+            selection_growth: Some(0.21),
             ..record.clone()
         };
         insert_selection(&conn, &newer, "2026-10-20T10:00:00Z".parse().unwrap()).unwrap();
@@ -274,6 +306,7 @@ mod tests {
             newer
         );
         assert_eq!(selection_session_count(&conn).unwrap(), 2);
+        assert_eq!(configs_tried_all_sessions(&conn).unwrap(), 54 + 648);
         for statement in [
             "UPDATE backtest_selection SET threshold = 0",
             "DELETE FROM backtest_selection",

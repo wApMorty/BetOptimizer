@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use edge_core::backtest::candidates::load_inputs;
-use edge_core::backtest::study;
+use edge_core::backtest::{curve, study};
 use edge_core::betting::kelly::{self, to_units};
 use edge_core::betting::{clv, ledger, live, recommend, settle};
 use edge_core::config::{API_KEY_ENV, Config, WEBHOOK_ENV};
@@ -34,9 +34,10 @@ use edge_core::report::nba_report;
 use edge_core::report::recommend_report;
 use edge_core::report::render::{
     render_backtest_report, render_market_report, render_models_report, render_nba_report,
-    render_recommend_report, render_tennis_report,
+    render_recommend_report, render_tennis_report, render_thresholds_report,
 };
 use edge_core::report::tennis_report;
+use edge_core::report::thresholds_report;
 use edge_core::store::archive::last_known_usage;
 use edge_core::store::journal::{self, Settlement, SettlementSource};
 use edge_core::store::nba as nba_store;
@@ -842,6 +843,22 @@ pub fn clv_report(paths: &Paths) -> Result<()> {
             ))
         );
     }
+    for (title, splits) in [
+        ("Par opérateur", &report.by_bookmaker),
+        ("Par issue", &report.by_outcome),
+    ] {
+        println!("\n{title} (notifiées et journal fantôme) :");
+        for split in splits {
+            println!(
+                "  {:<11} {:>4} · clôture connue {:>4} · avantage moyen {} % · CLV {}",
+                split.key,
+                split.n,
+                split.with_closing,
+                format::signed(split.mean_edge * 100.0, 1),
+                ci_text(split.clv)
+            );
+        }
+    }
     Ok(())
 }
 
@@ -1401,6 +1418,81 @@ pub fn backtest_report(paths: &Paths, out: Option<&std::path::Path>) -> Result<(
     }
     std::fs::write(&target, html).with_context(|| format!("écriture de {}", target.display()))?;
     println!("Rapport écrit : {}", target.display());
+    Ok(())
+}
+
+/// `edge backtest curve` : l'abaque des seuils, en lecture seule (rien n'est gelé).
+pub fn backtest_curve(paths: &Paths, out: Option<&std::path::Path>) -> Result<()> {
+    let conn = open_database(paths)?;
+    let config = Config::load(&paths.config_file)?;
+    let today = Utc::now().date_naive();
+
+    println!("Abaque sur l'entraînement et la validation (le test n'est pas lu)…");
+    let report = thresholds_report::build(
+        &conn,
+        &Aliases::bundled()?,
+        config.margin_method,
+        &today.format("%Y-%m-%d").to_string(),
+    )?;
+    for source in &report.sources {
+        let zero = &source.curve.points[0];
+        match &source.best {
+            Some(best) => println!(
+                "{:<10} {:>5} paris à 0 % · meilleur seuil {} % : {} paris, croissance ×1 {} (bankroll × {})",
+                source.curve.label,
+                zero.bets,
+                format::decimal(best.point.threshold * 100.0, 1),
+                best.point.bets,
+                format::decimal(best.point.growth[0], 3),
+                format::decimal(best.multiplier, 2)
+            ),
+            None => println!(
+                "{:<10} {:>5} paris à 0 % · aucun seuil ne garde {} paris",
+                source.curve.label, zero.bets, report.min_selection_bets
+            ),
+        }
+    }
+    let html = render_thresholds_report(&report)?;
+    let target = out.map_or_else(
+        || paths.reports_dir.join("thresholds.html"),
+        std::path::Path::to_path_buf,
+    );
+    if let Some(dir) = target.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("création de {}", dir.display()))?;
+    }
+    std::fs::write(&target, html).with_context(|| format!("écriture de {}", target.display()))?;
+    println!("Rapport écrit : {}", target.display());
+    println!(
+        "Rien n'est gelé. Pour geler ces seuils (nouvelle session, comptée) : edge backtest freeze"
+    );
+    Ok(())
+}
+
+/// `edge backtest freeze` : gèle le seuil de plus forte croissance attendue de chaque bookmaker.
+pub fn backtest_freeze(paths: &Paths) -> Result<()> {
+    let conn = open_database(paths)?;
+    let config = Config::load(&paths.config_file)?;
+    let inputs = load_inputs(&conn)?;
+    let curves = curve::curves(&inputs, config.margin_method)?;
+    let frozen = curve::freeze(&conn, &curves, Utc::now())?;
+    for record in &frozen {
+        println!(
+            "{:<10} seuil gelé à {} % ({} paris au réglage, croissance ×1 {})",
+            record.source,
+            format::decimal(record.threshold * 100.0, 1),
+            record.selection_bets,
+            record
+                .selection_growth
+                .map_or("—".to_string(), |g| format::decimal(g, 3))
+        );
+    }
+    let sessions = edge_core::store::backtests::selection_session_count(&conn)?;
+    println!(
+        "{} seuil(s) gelé(s), {} configurations essayées ; {sessions} session(s) de réglage au total.",
+        frozen.len(),
+        curve::configs_tried()
+    );
+    println!("Évaluation unique sur le test : edge backtest run, puis edge backtest report");
     Ok(())
 }
 

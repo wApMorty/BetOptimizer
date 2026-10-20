@@ -8,8 +8,10 @@ use crate::domain::Probability;
 use crate::error::Result;
 use crate::eval::bootstrap::{MeanCi, SplitMix64, block_bootstrap_mean};
 
-const RESAMPLES: usize = 2000;
-const SEED: u64 = 20_261_020;
+/// Rééchantillons du bootstrap par blocs.
+pub(crate) const RESAMPLES: usize = 2000;
+/// Graine du bootstrap et du Monte Carlo : mêmes données, mêmes intervalles (invariant 9).
+pub(crate) const SEED: u64 = 20_261_020;
 
 /// Résumé chiffré d'un backtest.
 #[derive(Debug, Clone, PartialEq, Serialize)]

@@ -8,3 +8,4 @@ pub mod recommend_report;
 pub mod render;
 pub mod svg;
 pub mod tennis_report;
+pub mod thresholds_report;

@@ -111,3 +111,36 @@ distingue donc « rejetée », « CLV positif », « indécise » et « test san
    problème libre, l'approximation et son plafond ; chaque garantie y a son test.
 3. `crates/core/src/betting/live.rs` — le chemin d'une cote archivée à une suggestion de pari : dernier relevé,
    probabilité de Pinnacle sans marge, une sélection par match, prix aberrants écartés, mises en Kelly simultané.
+
+## 5. Complément du 2026-10-20 : abaque des seuils
+
+**Rust.**
+
+- **Fermeture en paramètre (`impl Fn`)** — `crates/core/src/betting/clv.rs:287`. `splits(items, key: impl Fn(&Item) -> String)` reçoit
+  la façon de regrouper : `|item| item.bookmaker.clone()` pour les opérateurs, `|item| outcome_label(…)` pour les issues. Une seule fonction,
+  deux découpages, sans trait ni générique explicite.
+- **Prendre par valeur pour déplacer** — `crates/core/src/backtest/curve.rs:176`. `into_batches(candidates: Vec<Candidate>)` consomme
+  le vecteur : chaque candidat est *déplacé* dans son lot, sans copie. Le préfixe `into_` le signale, comme `into_values`.
+- **`take_while` sur une liste triée** — `curve.rs:207`. Les paris d'un lot sont triés par avantage décroissant : ceux qu'un seuil retient
+  sont un préfixe, que `take_while(|c| edge(c) >= seuil).count()` mesure sans parcourir le reste.
+- **Migration additive** — `crates/core/src/store/migrations/0011_selection_criterion.sql`. `ALTER TABLE … ADD COLUMN … DEFAULT 'mean_clv'`
+  ajoute une colonne sans réécrire les lignes immuables : les anciennes reçoivent leur vrai critère par la valeur par défaut.
+
+**Statistiques.**
+
+- **Croissance totale contre CLV moyen.** Le CLV moyen monte presque toujours avec le seuil (on garde les écarts les plus mous), même quand
+  le total gagné baisse. La croissance logarithmique totale attendue `G = Σ_lots E_clôture[ln W]` compte le total : c'est ce que Kelly maximise.
+- **Kelly sur un avantage surestimé.** Pour un pari seul, `G(f) ≈ f·μ − ½ f²σ²` est maximal en `f* = μ/σ²` et redevient **négatif au-delà
+  de 2 f\***. Si l'avantage annoncé vaut trois fois l'avantage réel, Kelly complet mise environ trois fois `f*` : la bankroll décroît malgré
+  une espérance positive. C'est ce que mesure Bet365 (`docs/sources.md` §27) : CLV positif, croissance négative en Kelly complet, positive
+  en demi et quart de Kelly.
+- **Précision d'un seuil.** Changer de méthode de retrait de marge déplace l'avantage d'environ 0,5 point en médiane : deux seuils plus
+  proches que cela ne se distinguent pas.
+
+**Questions.**
+
+1. Pourquoi la croissance en Kelly complet de Bet365 peut-elle être négative alors que son CLV moyen est positif à presque tous les seuils ?
+   Que se passerait-il avec un avantage annoncé exact ?
+2. La courbe de croissance d'Interwetten est plate de 0 à 1 % puis décroît. Pourquoi les petits avantages coûtent-ils si peu en Kelly, et
+   pourquoi le CLV moyen, lui, monte-t-il avec le seuil ?
+3. Geler le seuil après avoir regardé l'abaque est-il une fuite du futur ? Qu'est-ce qui le serait ?

@@ -24,6 +24,26 @@ use crate::eval::bootstrap::MeanCi;
 use crate::market::margin::MarginMethod;
 use crate::store::backtests::{self, FrozenThreshold, RunKey};
 
+/// Critère qui choisit le seuil gelé d'une source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Criterion {
+    /// Première session (phase 4) : le CLV moyen le plus élevé. Favorise les seuils hauts, qui gardent peu de paris.
+    MeanClv,
+    /// Deuxième session : la croissance logarithmique totale attendue la plus élevée (voir [`super::curve`]).
+    ExpectedGrowth,
+}
+
+impl Criterion {
+    /// Valeur stockée en base.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Criterion::MeanClv => "mean_clv",
+            Criterion::ExpectedGrowth => "expected_growth",
+        }
+    }
+}
+
 /// Avantages minimaux essayés.
 pub const THRESHOLDS: [f64; 6] = [0.0, 0.01, 0.02, 0.03, 0.05, 0.08];
 
@@ -199,6 +219,8 @@ pub fn tune(
                     selection_clv: best.clv,
                     selection_bets: best.bets,
                     configs_tried,
+                    criterion: Criterion::MeanClv,
+                    selection_growth: None,
                 },
                 now,
             )?;

@@ -13,6 +13,7 @@ use super::models_report::ModelsReport;
 use super::nba_report::NbaReport;
 use super::recommend_report::RecommendReport;
 use super::tennis_report::TennisReport;
+use super::thresholds_report::ThresholdsReport;
 use crate::error::{Error, Result};
 
 const MARKET_TEMPLATE: &str = include_str!("templates/market.html");
@@ -21,6 +22,7 @@ const BACKTEST_TEMPLATE: &str = include_str!("templates/backtest.html");
 const RECOMMEND_TEMPLATE: &str = include_str!("templates/recommend.html");
 const TENNIS_TEMPLATE: &str = include_str!("templates/tennis.html");
 const NBA_TEMPLATE: &str = include_str!("templates/nba.html");
+const THRESHOLDS_TEMPLATE: &str = include_str!("templates/thresholds.html");
 
 /// Nombre au format français (virgule décimale), `digits` décimales.
 fn number(value: f64, digits: Option<usize>) -> String {
@@ -79,6 +81,11 @@ pub fn render_tennis_report(report: &TennisReport) -> Result<String> {
 /// Génère le HTML du rapport « backtest ».
 pub fn render_backtest_report(report: &BacktestReport) -> Result<String> {
     render_template("backtest.html", BACKTEST_TEMPLATE, report)
+}
+
+/// Génère le HTML du rapport « abaque des seuils ».
+pub fn render_thresholds_report(report: &ThresholdsReport) -> Result<String> {
+    render_template("thresholds.html", THRESHOLDS_TEMPLATE, report)
 }
 
 /// Rend un gabarit avec les filtres `num` et `pct`.

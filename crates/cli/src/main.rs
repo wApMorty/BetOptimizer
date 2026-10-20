@@ -187,6 +187,14 @@ enum BacktestCommand {
         #[arg(long, value_name = "FICHIER")]
         out: Option<PathBuf>,
     },
+    /// Abaque des seuils (0 à 8 %, pas de 0,1 point) sur l'entraînement et la validation : rapport HTML, sans rien geler.
+    Curve {
+        /// Fichier de sortie (par défaut : dossier des rapports de l'application).
+        #[arg(long, value_name = "FICHIER")]
+        out: Option<PathBuf>,
+    },
+    /// Gèle le seuil de plus forte croissance attendue de chaque bookmaker : nouvelle session de réglage, comptée.
+    Freeze,
 }
 
 #[derive(Subcommand)]
@@ -298,6 +306,8 @@ fn main() -> Result<()> {
             BacktestCommand::Tune => commands::backtest_tune(&paths),
             BacktestCommand::Run => commands::backtest_run(&paths),
             BacktestCommand::Report { out } => commands::backtest_report(&paths, out.as_deref()),
+            BacktestCommand::Curve { out } => commands::backtest_curve(&paths, out.as_deref()),
+            BacktestCommand::Freeze => commands::backtest_freeze(&paths),
         },
         Command::Model { command } => match command {
             ModelCommand::Tune => commands::model_tune(&paths),

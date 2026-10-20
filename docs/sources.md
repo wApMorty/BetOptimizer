@@ -724,7 +724,42 @@ Seule une archive en direct permettrait de juger, à raison d'au moins 1 crédit
 espérance −16,7 %, écart-type d'un pari 2,37 mises. Écart-type du rendement après 100 paris : 23,7 points (probabilité de finir positif sans avantage : 24 %) ;
 300 paris : 13,7 points (11 %) ; 1 000 paris : 7,5 points (1,3 %). Quelques centaines de paris de scores exacts ne distinguent donc pas un avantage de la chance.
 
-## 27. Reste à vérifier
+## 27. Abaque des seuils et opérateurs suivis (`edge backtest curve`, 2026-10-20)
+
+**ParionsSport.** Revérifié le 2026-10-20 sur the-odds-api.com/sports-odds-data/bookmaker-apis.html : ni `parionssport_fr`, ni FDJ, ni ZEbet
+dans les régions `fr` (5 clés : `betclic_fr`, `netbet_fr`, `pmu_fr`, `unibet_fr`, `winamax_fr`) et `eu`. Aucun remplacement possible.
+**NetBet** : écarté à la demande de Paul (`excluded_bookmakers`). Ses cotes restent archivées (aucun crédit de plus jusqu'à dix bookmakers),
+il n'est plus jamais recommandé ni montré.
+
+**Protocole.** Pour chaque bookmaker mou de football-data, seuils de 0 à 8 % par pas de 0,1 point (81 seuils × 8 sources = 648 configurations),
+entraînement 2016/17 à 2023/24 et validation 2024/25 seulement. Mesures : paris retenus, CLV moyen (bootstrap par blocs ligue × semaine) et
+croissance logarithmique totale attendue `G = Σ_lots E_clôture[ln W]`, mises de Kelly simultané sur Pinnacle d'avant-match, issues tirées selon
+la clôture de Pinnacle sans marge (méthode `power`). Calcul en 22 s sur une copie de la base. **Rien n'est gelé** à cette date.
+
+| Source | Paris à 0 % | CLV à 0 % | Seuil de G maximal (×1) | G ×1 au maximum | G ×½ à 1 % | G ×¼ à 1 % |
+|---|---|---|---|---|---|---|
+| Bet365 | 1 772 | +0,05 % [−0,4 ; +0,5] | 7,0 % (56 paris) | **−0,012** (négative à tous les seuils) | +0,013 | +0,019 |
+| William Hill | 1 330 | +0,14 % | 1,3 % | −0,009 | +0,036 | +0,030 |
+| Bet&Win | 1 292 | +0,32 % | 1,2 % | +0,038 | +0,039 | +0,025 |
+| Interwetten | 3 029 | **+2,29 % [+2,0 ; +2,6]** | 0,7 % | **+1,66** (bankroll × 5,2 en 9 saisons) | +1,22 | +0,71 |
+| VC Bet | 1 672 | −0,61 % | 5,6 % | −0,055 | −0,033 | −0,005 |
+| Ladbrokes | 184 | −0,73 % | 1,6 % | +0,006 | +0,002 | +0,002 |
+| Betfred | 0 | — | — | — | — | — |
+| 1xBet | 1 114 | **+1,69 % [+1,2 ; +2,1]** | 0,5 % | **+0,146** (une saison, × 1,16) | +0,101 | +0,061 |
+
+**Kelly complet et avantages surestimés.** Chez Bet365, le CLV moyen est positif à presque tous les seuils (+0,88 % à 3 %), mais la croissance en
+Kelly complet est négative partout : l'avantage annoncé (≥ 3 % à ce seuil) vaut environ trois fois l'avantage réel mesuré par la clôture, et miser au-delà
+du double du Kelly optimal fait décroître la bankroll même quand l'espérance est positive. Demi et quart de Kelly restent positifs mais minuscules
+(bankroll × 1,01 à × 1,02 en neuf saisons). Chez Interwetten et 1xBet, l'avantage est réel et la croissance décroît quand le seuil monte : les petits
+avantages rapportent.
+
+**Le nul.** Chez 1xBet, le CLV du nul vaut +3,2 % à 0 % (447 paris) contre +1,0 % pour le domicile et 0,0 % pour l'extérieur ; chez Bet365, +0,6 %
+contre +0,0 % et −0,4 %. Les quatre lignes « fantômes » de l'archive réelle (Winamax ×2, Unibet ×2) sont toutes des nuls.
+
+**Précision de l'avantage.** Pour une même sélection, l'avantage diffère selon la méthode de retrait de marge de 0,50 à 0,68 point en médiane et de
+1,8 à 5,3 points au 90e centile selon le bookmaker. Un pas de 0,1 point est donc plus fin que la mesure : le seuil est un ordre de grandeur.
+
+## 28. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
   (non vérifié). La garde ne l'utilise pas ; `edge snapshot` signale toute baisse de `x-requests-used`.

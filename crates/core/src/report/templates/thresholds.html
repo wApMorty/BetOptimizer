@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Abaque des seuils — edge</title>
+<style>
+  :root { --bg:#fafaf8; --fg:#1d1d1b; --muted:#6b6b66; --card:#ffffff; --line:#e3e2dc; --accent:#1f5eaa; --good:#1a7f4b; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ececea; --muted:#a3a39d; --card:#201f1e; --line:#34332f; --accent:#7fb2ee; --good:#59c58a; --bad:#f08b83; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.6rem; margin: .4em 0 .1em; }
+  h2 { font-size: 1.25rem; margin: 2em 0 .4em; padding-top: .6em; border-top: 1px solid var(--line); }
+  h3 { font-size: 1rem; margin: 1.2em 0 .3em; }
+  p, li { max-width: 72ch; }
+  .meta, .note { color: var(--muted); font-size: .9rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  tr.best td { font-weight: 700; }
+  .ci { color: var(--muted); }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .ns { color: var(--muted); }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .charts svg { width: 100%; height: auto; background: #fff; border-radius: 8px; border: 1px solid var(--line); }
+  details > summary { cursor: pointer; color: var(--accent); margin: .4em 0; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+
+{% macro clv(c) %}{% if c is none %}—{% else %}<span class="{{ 'good' if c.low > 0 else ('bad' if c.high < 0 else 'ns') }}">{{ c.mean|spct(2) }} <span class="ci">[{{ c.low|spct(1) }} ; {{ c.high|spct(1) }}]</span></span>{% endif %}{% endmacro %}
+{% macro opt(x, d=1) %}{% if x is none %}—{% else %}{{ x|spct(d) }}{% endif %}{% endmacro %}
+{% macro book(label) %}{% if label == "soft:B365" %}Bet365{% elif label == "soft:WH" %}William Hill{% elif label == "soft:BW" %}Bet&amp;Win{% elif label == "soft:IW" %}Interwetten{% elif label == "soft:VC" %}VC Bet{% elif label == "soft:LB" %}Ladbrokes{% elif label == "soft:BFD" %}Betfred{% elif label == "soft:1XB" %}1xBet{% else %}{{ label }}{% endif %}{% endmacro %}
+{% macro criterion(c) %}{% if c == "expected_growth" %}croissance attendue{% else %}CLV moyen{% endif %}{% endmacro %}
+
+<h1>Abaque des seuils</h1>
+<p class="meta">Généré le {{ generated_on }} · quel avantage minimal exiger d'un prix « mou » face à Pinnacle sans marge ? Entraînement 2016/17 à 2023/24 et validation 2024/25 ; <strong>le test n'est pas regardé</strong>. Retrait de marge : méthode « {{ method }} ».</p>
+
+<div class="card">
+  <strong>En bref.</strong>
+  <ul>
+    <li>Pour chaque seuil de 0 à 8 % (pas de 0,1 point), on rejoue la règle « parier là où le prix du bookmaker dépasse la cote juste de Pinnacle d'au moins le seuil » et on mesure la <strong>croissance logarithmique totale attendue</strong> de la bankroll : mises de Kelly simultané calculées sur Pinnacle d'avant-match, issues tenues pour distribuées comme le dit la <strong>clôture</strong> de Pinnacle.</li>
+    <li>Le seuil retenu est celui de plus forte croissance en Kelly complet, parmi ceux qui gardent au moins {{ min_selection_bets }} paris. Contrairement au CLV moyen (critère de la première session), ce critère compte le <em>total</em> gagné : beaucoup de petits avantages réels peuvent valoir plus que quelques gros.</li>
+    <li>En production, les recommandations notifiées exigent aujourd'hui {{ production_threshold|pct(1) }}. Ce rapport ne change rien à ce seuil.</li>
+  </ul>
+</div>
+
+<h2>1. Comment lire l'abaque</h2>
+<ul>
+  <li><strong>Avantage</strong> : <code>p_Pinnacle × cote − 1</code>, l'espérance d'un euro misé selon Pinnacle d'avant-match sans marge.</li>
+  <li><strong>CLV</strong> : <code>cote × p_clôture − 1</code>, l'espérance du même euro selon la clôture. C'est la mesure qui dit si l'avantage était réel.</li>
+  <li><strong>Croissance totale attendue</strong> <code>G = Σ_lots E_clôture[ln(bankroll après / avant)]</code>. <code>exp(G)</code> est le multiplicateur de bankroll attendu sur toute la période (colonne « × bankroll ») ; ramené à une saison, <code>exp(G / saisons)</code>. Une valeur négative signifie que la règle détruit de la bankroll.</li>
+  <li>Avec Kelly, un avantage de 0,2 % reçoit une mise minuscule : abaisser le seuil coûte peu si ces petits avantages sont faux, et rapporte peu s'ils sont justes. La courbe de croissance est donc souvent plate à gauche ; c'est attendu.</li>
+  <li>Une session de l'abaque, c'est {{ configs_tried }} configurations (8 bookmakers × 81 seuils). Sessions de réglage déjà enregistrées : {{ sessions }}, pour {{ configs_all_sessions }} configurations au total.</li>
+</ul>
+
+{% for s in sources %}
+<h2>{{ loop.index + 1 }}. {{ book(s.curve.label) }} <span class="ns">({{ s.curve.label }})</span></h2>
+{% if s.curve.points[0].bets == 0 %}
+<p class="note">Aucune cote de ce bookmaker sur l'entraînement et la validation (ou aucun prix au-dessus de Pinnacle).</p>
+{% else %}
+<p>{{ s.curve.points[0].bets }} paris à 0 % sur {{ s.curve.seasons }} saison(s), {{ s.curve.batches }} lots de décision.
+{% if s.best %}Seuil de plus forte croissance : <strong>{{ s.best.point.threshold|pct(1) }}</strong> ({{ s.best.point.bets }} paris, CLV moyen {{ clv(s.best.point.clv) }}, bankroll × {{ s.best.multiplier|num(2) }} sur la période).{% else %}Aucun seuil ne garde {{ min_selection_bets }} paris.{% endif %}
+{% if s.frozen %} Seuil gelé actuellement : {{ s.frozen.threshold|pct(1) }} ({{ criterion(s.frozen.criterion) }}).{% endif %}</p>
+<div class="charts">
+  <div>{{ s.growth_chart|safe }}<p class="note">Trait vertical : seuil de plus forte croissance (Kelly ×1).</p></div>
+  <div>{{ s.clv_chart|safe }}<p class="note">Bande : intervalle à 95 % du CLV moyen (bootstrap par blocs ligue × semaine).</p></div>
+</div>
+<div class="card scroll"><table>
+  <tr><th>Seuil</th><th>Paris</th><th>CLV moyen</th><th>Croissance ×1 <span class="ci">[95 %]</span></th><th>× bankroll</th><th>par saison</th><th>×½</th><th>×¼</th><th>Rendement à plat</th></tr>
+  {% for r in s.rows %}
+  <tr{% if s.best and r.point.threshold == s.best.point.threshold %} class="best"{% endif %}><td>{{ r.point.threshold|pct(1) }}</td><td>{{ r.point.bets }}</td><td>{{ clv(r.point.clv) }}</td>
+    <td>{{ r.point.growth[0]|num(3) }}{% if r.point.growth_ci %} <span class="ci">[{{ r.point.growth_ci[0]|num(2) }} ; {{ r.point.growth_ci[1]|num(2) }}]</span>{% endif %}</td>
+    <td>{{ r.multiplier|num(2) }}</td><td>{{ r.per_season|num(3) }}</td><td>{{ r.point.growth[1]|num(3) }}</td><td>{{ r.point.growth[2]|num(3) }}</td><td>{{ opt(r.point.flat_roi, 1) }}</td></tr>
+  {% endfor %}
+</table></div>
+
+<details><summary>Par issue, et précision de l'avantage</summary>
+<div class="card scroll"><table>
+  <tr><th>Seuil</th><th>Domicile</th><th>CLV</th><th>Nul</th><th>CLV</th><th>Extérieur</th><th>CLV</th></tr>
+  {% for o in s.curve.by_outcome %}
+  <tr><td>{{ o.threshold|pct(1) }}</td><td>{{ o.home.bets }}</td><td>{{ opt(o.home.clv, 2) }}</td><td>{{ o.draw.bets }}</td><td>{{ opt(o.draw.clv, 2) }}</td><td>{{ o.away.bets }}</td><td>{{ opt(o.away.clv, 2) }}</td></tr>
+  {% endfor %}
+</table></div>
+{% if s.curve.margin_spread %}
+<p class="note">Selon la méthode de retrait de marge, l'avantage d'une même sélection varie de {{ s.curve.margin_spread.median|pct(2) }} en médiane et de {{ s.curve.margin_spread.p90|pct(2) }} au 90e centile ({{ s.curve.margin_spread.compared }} comparaisons). Deux seuils plus proches que cet écart ne se distinguent pas vraiment.</p>
+{% endif %}
+</details>
+{% endif %}
+{% endfor %}
+
+<h2>{{ sources|length + 2 }}. Archive réelle : opérateurs français</h2>
+<p>Recommandations notifiées et journal fantôme (tout avantage positif) depuis le début du journal, confrontés à la clôture de Pinnacle relevée juste avant le coup d'envoi. C'est la seule mesure directe de Winamax, Betclic, Unibet et PMU : il faudra plusieurs centaines de clôtures pour qu'un intervalle se resserre.</p>
+<div class="card scroll"><table>
+  <tr><th>Opérateur</th><th>Recommandations</th><th>Clôture connue</th><th>Avantage annoncé</th><th>CLV</th></tr>
+  {% for b in live_by_bookmaker %}<tr><td>{{ b.key }}</td><td>{{ b.n }}</td><td>{{ b.with_closing }}</td><td>{{ b.mean_edge|spct(2) }}</td><td>{{ clv(b.clv) }}</td></tr>{% else %}<tr><td colspan="5">Aucune recommandation dans le journal.</td></tr>{% endfor %}
+</table></div>
+{% if live_by_outcome %}
+<div class="card scroll"><table>
+  <tr><th>Issue</th><th>Recommandations</th><th>Clôture connue</th><th>Avantage annoncé</th><th>CLV</th></tr>
+  {% for b in live_by_outcome %}<tr><td>{{ b.key }}</td><td>{{ b.n }}</td><td>{{ b.with_closing }}</td><td>{{ b.mean_edge|spct(2) }}</td><td>{{ clv(b.clv) }}</td></tr>{% endfor %}
+</table></div>
+{% endif %}
+
+<h2>Limites</h2>
+<ul>
+  <li><strong>Bookmakers étrangers.</strong> L'historique n'a que des bookmakers étrangers, pour la plupart non agréés en France. L'abaque dit comment un bookmaker en retard sur Pinnacle se comporte, pas comment se comportent Winamax ou Betclic : seule l'archive réelle (section précédente) le dira.</li>
+  <li><strong>Décision au bon moment.</strong> On suppose que l'on peut parier au prix du relevé du vendredi ou du mardi. Un prix en retard sur Pinnacle peut avoir été corrigé entre-temps.</li>
+  <li><strong>Précision.</strong> Le pas de 0,1 point est plus fin que la précision de l'avantage (voir « Par issue, et précision de l'avantage ») : le seuil retenu est un ordre de grandeur, pas une valeur au dixième près.</li>
+  <li><strong>Réglage.</strong> Choisir le meilleur de 81 seuils sur le passé est optimiste par construction. Le seuil n'a de valeur qu'une fois gelé (<code>edge backtest freeze</code>) puis évalué une seule fois sur le test (<code>edge backtest report</code>).</li>
+  <li><strong>Mises.</strong> Les mises sont continues : ni arrondi aux 0,10 €, ni mise minimale. Pour de petits avantages, une mise réelle tomberait souvent sous la mise minimale et ne serait pas placée.</li>
+</ul>
+
+</main>
+</body>
+</html>
