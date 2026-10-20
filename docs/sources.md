@@ -769,6 +769,18 @@ sur un verdict historique.
 **Production (décision de Paul, 2026-10-20, démarche exploratoire).** Seuil des recommandations notifiées : 3 % → **1 %** ; fraction de Kelly par
 défaut : 1,0 → **0,5**. Aucun crédit de plus : tout avantage positif était déjà journalisé en fantôme avec sa clôture.
 
+**Mises minimales des opérateurs (vérifié le 2026-10-20).**
+- **Winamax** : « Le montant minimum pouvant être parié est de 0,10€ » ; cote minimale 1,05 (winamax.fr/cgu-paris-sportifs, article « Cote et
+  mise minimale », règlement officiel en ligne).
+- **Betclic** : le règlement des paris sportifs du 15/05/2023 (copie publiée par un tiers, bonus-malin.info) fixe une cote minimale de 1,10
+  (§ 1.3.1) mais **aucune mise minimale** pour le sport ; les 0,50 € qu'il cite portent sur l'hippique. Les comparateurs donnent 0,10 €
+  (certains 1 €, page ancienne qui cite encore l'ARJEL). Règlement officiel actuel non lisible sans navigation : à confirmer dans le panier.
+- **PMU** : règlement du 05/07/2022 (pmu.fr), Titre V, art. 2.2.2 : minimum et maximum « fixés exclusivement par le PMU, sont indiqués au
+  parieur dans son panier », différents selon les sports et compétitions ; mise au centime près. Les comparateurs donnent 0,50 €.
+- **Unibet** : 0,10 € selon les comparateurs ; règlement officiel non consulté.
+Conséquence : la mise minimale de la configuration (`min_stake` = 1 €) est plus stricte que celle de tous les opérateurs ; c'est elle qui
+écarte les petites mises, pas les opérateurs.
+
 ## 28. Site de rapports (`edge serve`, 2026-10-20)
 
 Demande de Paul : le rapport HTML joint à Discord s'ouvre mal (il arrive comme un fichier de code). Remplacé par un site en lecture seule
