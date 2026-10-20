@@ -5,6 +5,7 @@
 
 pub mod backtest;
 pub mod betting;
+pub mod boost;
 pub mod config;
 pub mod domain;
 pub mod error;

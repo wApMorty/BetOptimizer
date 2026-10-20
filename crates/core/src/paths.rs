@@ -20,6 +20,8 @@ pub struct Paths {
     pub football_data_dir: PathBuf,
     /// Tableurs de tennis-data.co.uk téléchargés à la main : un sous-dossier `atp` et un `wta`, un fichier par année.
     pub tennis_data_dir: PathBuf,
+    /// Pages d'historique de WePari (cotes boostées) téléchargées une fois à la main, jamais retéléchargées.
+    pub wepari_dir: PathBuf,
     /// Rapports HTML générés.
     pub reports_dir: PathBuf,
     /// Rapports quotidiens de `edge recommend`, un fichier par exécution, jamais écrasés : publiés par `edge serve`.
@@ -36,6 +38,7 @@ impl Paths {
             db_file: dirs.data_dir().join("edge.db"),
             football_data_dir: dirs.data_dir().join("football-data"),
             tennis_data_dir: dirs.data_dir().join("tennis-data"),
+            wepari_dir: dirs.data_dir().join("wepari"),
             reports_dir: dirs.data_dir().join("reports"),
             daily_reports_dir: dirs.data_dir().join("reports").join("daily"),
         })
@@ -48,6 +51,7 @@ impl Paths {
             db_file: root.join("edge.db"),
             football_data_dir: root.join("football-data"),
             tennis_data_dir: root.join("tennis-data"),
+            wepari_dir: root.join("wepari"),
             reports_dir: root.join("reports"),
             daily_reports_dir: root.join("reports").join("daily"),
         }

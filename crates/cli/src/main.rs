@@ -3,6 +3,7 @@
 //! Ce fichier ne fait que lire la ligne de commande et aiguiller vers [`commands`] ; toute la logique
 //! vit dans la bibliothèque `edge-core`.
 
+mod boost;
 mod commands;
 mod serve;
 
@@ -101,6 +102,11 @@ enum Command {
     Market {
         #[command(subcommand)]
         command: MarketCommand,
+    },
+    /// Cotes boostées : étude historique sur les données de WePari.
+    Boost {
+        #[command(subcommand)]
+        command: BoostCommand,
     },
     /// Données historiques football-data.co.uk (résultats, statistiques, cotes).
     Fd {
@@ -227,6 +233,13 @@ enum MarketCommand {
 }
 
 #[derive(Subcommand)]
+enum BoostCommand {
+    /// Rentabilité historique des cotes boostées de WePari (pages téléchargées à la main dans le dossier `wepari`),
+    /// tarifées contre Pinnacle sans marge.
+    Study,
+}
+
+#[derive(Subcommand)]
 enum FdCommand {
     /// Télécharge les fichiers CSV manquants dans le cache (pause entre deux requêtes).
     Fetch {
@@ -322,6 +335,9 @@ fn main() -> Result<()> {
         },
         Command::Market { command } => match command {
             MarketCommand::Report { out } => commands::market_report(&paths, out.as_deref()),
+        },
+        Command::Boost { command } => match command {
+            BoostCommand::Study => boost::study(&paths),
         },
         Command::Fd { command } => match command {
             FdCommand::Fetch { force } => commands::fd_fetch(&paths, force),

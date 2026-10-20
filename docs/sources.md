@@ -814,7 +814,68 @@ Police : Inter (SIL OFL 1.1), déjà embarquée par l'application, déplacée da
 820 Ko de plus dans le binaire `edge`. PNG plutôt que JPG : texte net, et Discord l'affiche directement sous le message. L'image n'est
 jointe que s'il y a au moins une recommandation ; son échec n'empêche pas l'envoi du message.
 
-## 29. Reste à vérifier
+## 29. Cotes boostées : historique de WePari et étude de rentabilité (`edge boost study`, 2026-10-20)
+
+**Source.** wepari.fr, site personnel non rattaché aux opérateurs. Mentions légales (wepari.fr/mentions.html, lues le 2026-10-20) :
+éditeur particulier, données « à titre indicatif », certaines cotes boostées possiblement absentes ; **aucune clause** sur la propriété
+intellectuelle ou la réutilisation ; pas de `robots.txt` (404). Le site annonce que les opérateurs ont rendu l'accès automatique aux cotes
+boostées plus difficile depuis le premier trimestre 2025, et que ses relevés n'ont pas été adaptés. Avec l'accord de Paul, deux pages
+téléchargées **une seule fois** le 2026-10-20 (`curl`, une requête chacune), conservées dans `~/.local/share/edge/wepari/` et jamais
+retéléchargées :
+- `indexh.html` (11,4 Mo) : historique complet de **Winamax**, 26 984 boosts du 29/08/2021 au 08/06/2025, tous sports. Colonnes : pari,
+  cote boostée, cote non boostée, boost %, fin du pari (heure de Paris), événement, gain net. Issue codée par la couleur de la cellule de
+  la cote (vert gagné, orange perdu, gris non réglé : 1 327 lignes, surtout depuis mars 2025). Pas de mise maximale ; le gain net de WePari
+  suppose 50 € par boost (10 € en 2025), convention du site et non plafond de l'opérateur.
+- `indexpsel.html` (2,2 Mo) : historique « récent » de **Parions Sport**, 4 695 boosts du 21/12/2022 au 10/08/2025, avec la **mise
+  maximale** (25 € : 2 393 ; 50 € : 1 493 ; 10 € : 795 ; autres : 15).
+Betclic et Unibet figurent sur la page d'accueil (Coupe du monde 2026), sans historique exploitable.
+
+**Méthode.**
+1. Rapprochement : couples d'équipes tirés de l'intitulé de l'événement (formes de Winamax et de Parions Sport), résolus par la table
+   d'alias (55 variantes ajoutées : « FC Barcelone », « Naples », « Mayence »…) contre les matchs du même jour en base. Règle du projet
+   conservée : un nom inconnu dans un pari évaluable **bloque** l'étude.
+2. Traduction de l'intitulé en conditions sur le score final (victoire, double chance, les deux équipes marquent, plus/moins de buts,
+   écart, victoire sans encaisser, scores exacts, buts d'une équipe, et leurs conjonctions). Tout le reste (mi-temps, buteurs, premier
+   but…) est déclaré non évaluable. Contrôle : l'issue déduite du score en base concorde avec celle de WePari pour **1 523 boosts sur
+   1 526 (99,8 %)**.
+3. Prix juste : grille de Dixon-Coles **calée sur le marché** (λ, μ, ρ ajustés pour reproduire victoire domicile, victoire extérieur et
+   plus de 2,5 buts de Pinnacle sans marge, méthode `power`), puis somme des scores gagnants. Pinnacle d'abord, moyenne du marché à défaut.
+   Deux moments : avant-match (pour filtrer, sans fuite du futur) et clôture (pour mesurer).
+4. Choix de la grille sur 2019/20–2020/21, **avant** la première donnée de WePari : ρ ajusté (log loss moyenne de 14 paris de référence
+   0,49814), ρ = 0 (0,49856), ρ = −0,1 (0,49818). **Trois configurations essayées**, ρ ajusté retenu.
+5. Intervalles à 95 % par bootstrap par blocs d'une semaine (2 000 tirages, graine 20261020).
+
+**Calibration de la grille retenue (clôture de Pinnacle, 8 951 matchs de 2021/22 à 2025/26).** Bonne sur les totaux de buts et les
+combinés « victoire + les deux équipes marquent » (|z| < 1). **Biais nets** : les deux équipes marquent annoncé 51,6 %, observé 54,0 %
+(z = +4,6) ; victoire à domicile par 2 buts d'écart ou plus 24,7 % contre 22,6 % (z = −4,9) ; double chance + les deux marquent 36,9 %
+contre 39,0 % (z = +4,2) ; l'extérieur marque au moins 2 buts 34,1 % contre 35,5 % (z = +3,0). Conséquence : sur ces familles, l'avantage
+calculé d'un boost porte une erreur de modèle de l'ordre de 2 points de probabilité, soit environ 4 points d'espérance à une cote de 2.
+
+**Résultats, Winamax (Big 5 + Écosse).** 3 385 boosts rapprochés (12,5 % des boosts publiés), 1 403 évaluables (les autres dépendent
+surtout de la mi-temps ou d'un buteur).
+- Ensemble : espérance **+1,3 % [−0,1 ; +2,7]** contre une marge d'origine de −14,8 % ; ROI réalisé +3,4 % [−5,5 ; +12,5]. En moyenne, le
+  boost ramène la cote au prix juste, pas au-delà.
+- Familles à éviter (intervalle entièrement négatif) : victoire + les deux marquent −4,8 % (237), score exact −5,5 % (200), victoire sans
+  encaisser −3,4 % (134), double chance + les deux marquent −4,0 % (103), pas de nul + les deux marquent −4,6 % (39).
+- Les deux équipes marquent seul : +23,9 % [+20,1 ; +27,7] annoncé, mais ROI réalisé −9,3 % et calibration z = −2,5 sur ces 74 boosts,
+  alors que la grille **sous-estime** ce marché sur l'ensemble des matchs : signe probable d'**antisélection** (l'opérateur booste ce pari là
+  où il sait que la probabilité est plus faible que ne le dit un modèle tiré du 1X2 et des totaux). À ne pas croire sans le marché
+  « les deux équipes marquent » de Pinnacle.
+- Par cote boostée : 2,00 à 2,50, espérance +9,9 % [+7,5 ; +12,2] et ROI réalisé **+18,4 % [+5,8 ; +29,9]** (337 boosts), seul groupe dont
+  le gain réel exclut zéro ; à prendre comme hypothèse (une vingtaine de groupes regardés : comparaisons multiples).
+- Règle sans fuite du futur, avantage d'avant-match > 0 : **494 boosts, 11,7 par mois**, espérance à la clôture +15,8 % [+12,9 ; +18,7],
+  ROI réalisé **+9,0 % [−4,6 ; +21,9]**. Seuil plus haut : espérance annoncée plus forte (+33,5 % au-delà de 10 %) mais ROI réalisé
+  inchangé (+12,6 % [−3,4 ; +28,9]) : l'espérance annoncée croît plus vite que le gain réel, autre signe d'erreur de modèle.
+
+**Résultats, Parions Sport.** 990 boosts rapprochés, 183 évaluables : espérance **−2,8 % [−4,6 ; −0,8]**, marge d'origine −17,8 %. Règle
+« avant-match > 0 » : 54 boosts (1,9 par mois), +7,4 % annoncés, gain attendu à la mise maximale **environ 1,4 € par mois** (les boosts
+les plus avantageux sont les « CB FLASH » plafonnés à 10 €). Sans intérêt économique.
+
+**Limites.** Le relevé d'avant-match de football-data date du vendredi ou du mardi, pas de l'heure de publication du boost. Les mises
+maximales de Winamax sont inconnues. WePari peut avoir omis des boosts. Les familles dépendant de la mi-temps (environ 400 boosts Winamax)
+ne sont pas tarifées. Aucun seuil n'est gelé : étude exploratoire.
+
+## 30. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
   (non vérifié). La garde ne l'utilise pas ; `edge snapshot` signale toute baisse de `x-requests-used`.
@@ -856,3 +917,6 @@ jointe que s'il y a au moins une recommandation ; son échec n'empêche pas l'en
 - Site de rapports : résolution de `cachyos-x8664.local` depuis les autres appareils de Paul (Windows résout mDNS depuis la version 10,
   pas toujours) ; comportement de `tiny_http` face à un client lent qui garde la connexion ouverte (une seule requête traitée à la fois).
 - Scores exacts : couverture de `correct_score` par bookmaker et par ligue (un seul match sondé) ; présence ou non des opérateurs français dans l'API.
+- Cotes boostées : mise maximale réelle des boosts Winamax (absente de WePari) ; paiement du gain boosté en argent réel ou en paris gratuits
+  selon l'opérateur et l'époque ; marché « les deux équipes marquent » de Pinnacle dans The Odds API (clé de marché, coût, couverture) pour
+  tarifer sans la grille ; heure de publication des boosts.
