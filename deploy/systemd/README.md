@@ -9,6 +9,8 @@ Prérequis : lingering activé (`loginctl enable-linger $USER`) et binaire insta
 | `edge-nba` | 22 h UTC | cotes de la NBA (vainqueur, handicaps, totaux) et, un jour sur deux, résultats (`edge nba snapshot`) | 3 par jour + 2 tous les deux jours |
 | `edge-closing` | toutes les 10 minutes | clôture de Pinnacle des matchs suivis qui commencent dans 30 minutes (`edge closing`) | 1 par match suivi, 0 sinon |
 
+Service permanent (pas un timer) : `edge-serve`, le site de rapports (voir plus bas). Aucun crédit.
+
 ```sh
 # Installer ou mettre à jour le binaire
 cargo install --path crates/cli --locked --root ~/.local
@@ -56,6 +58,38 @@ sed "s|^Exec=.*|Exec=$HOME/.local/bin/edge-gui|" deploy/edge-gui.desktop > ~/.lo
 L'application apparaît ensuite dans le lanceur d'applications (« edge »), ou se lance par `edge-gui`. Elle lit et écrit le journal
 (recommandations, paris, règlements) mais n'appelle jamais l'API de cotes : elle ne dépense aucun crédit.
 
+## Site de rapports (`edge serve`)
+
+Une page web en lecture seule, consultable depuis un autre appareil du réseau local : le rapport du jour, les rapports précédents
+(un par exécution de `edge recommend`, archivés dans `~/.local/share/edge/reports/daily/`, jamais écrasés), les opportunités actives et
+le paper trading. Les pages vivantes sont recalculées à chaque visite ; la base est ouverte sans droit d'écriture.
+
+1. Dans `~/.config/edge/edge.toml`, écouter sur le réseau et donner l'adresse que les autres appareils taperont (rappelée par Discord,
+   qui ne joint plus alors le rapport HTML) :
+
+   ```toml
+   serve_bind = "0.0.0.0:8737"
+   site_url = "http://cachyos-x8664.local:8737/"   # nom mDNS (avahi) ; sinon l'adresse IP du portable
+   ```
+
+2. Ouvrir le port dans `ufw` (actif sur ce portable), pour le réseau local seulement. Adapte le sous-réseau au tien (`ip -4 addr`) :
+
+   ```sh
+   sudo ufw allow from 192.168.1.0/24 to any port 8737 proto tcp
+   ```
+
+3. Installer et démarrer le service :
+
+   ```sh
+   cp deploy/systemd/edge-serve.service ~/.config/systemd/user/
+   systemctl --user daemon-reload
+   systemctl --user enable --now edge-serve.service
+   ```
+
+Après chaque `cargo install`, `systemctl --user restart edge-serve.service` : le service garde l'ancien binaire en mémoire.
+Pas de mot de passe : toute personne sur le réseau voit la bankroll et les recommandations. Le site ne répond que si le portable est
+allumé.
+
 ## Webhook Discord
 
 La notification a besoin de l'URL d'un webhook (Discord : réglages du salon → Intégrations → Webhooks → Nouveau webhook →
@@ -75,6 +109,7 @@ systemctl --user list-timers 'edge-*'                 # prochains déclenchement
 journalctl --user -u edge-snapshot.service -n 50      # dernier relevé
 journalctl --user -u edge-recommend.service -n 50     # dernières recommandations
 journalctl --user -u edge-closing.service -n 50       # dernières clôtures
+journalctl --user -u edge-serve.service -n 50         # dernières pages servies
 edge quota                                            # crédits consommés (gratuit)
 edge clv                                              # CLV réel des recommandations et des paris
 ```

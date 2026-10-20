@@ -15,3 +15,4 @@ trois questions pour vérifier la compréhension, trois fichiers à relire en pr
 | 7 | Tennis (Elo par surface, tennis-data, archive en direct) | [docs/learning/phase-7.md](docs/learning/phase-7.md) |
 | 8 | NBA (Elo à marge, archive propre, réglage gelé en février 2027) | [docs/learning/phase-8.md](docs/learning/phase-8.md) |
 | 9 | Refonte de l'interface (système de design, animations, mise en page adaptative, captures) | [docs/learning/phase-9.md](docs/learning/phase-9.md) |
+| 10 | Site de rapports sur le réseau local (`edge serve`, archive quotidienne, paper trading) | [docs/learning/phase-10.md](docs/learning/phase-10.md) |

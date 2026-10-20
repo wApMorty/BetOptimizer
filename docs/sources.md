@@ -769,7 +769,31 @@ sur un verdict historique.
 **Production (décision de Paul, 2026-10-20, démarche exploratoire).** Seuil des recommandations notifiées : 3 % → **1 %** ; fraction de Kelly par
 défaut : 1,0 → **0,5**. Aucun crédit de plus : tout avantage positif était déjà journalisé en fantôme avec sa clôture.
 
-## 28. Reste à vérifier
+## 28. Site de rapports (`edge serve`, 2026-10-20)
+
+Demande de Paul : le rapport HTML joint à Discord s'ouvre mal (il arrive comme un fichier de code). Remplacé par un site en lecture seule
+sur le réseau local, et un simple rappel de l'URL dans le message.
+
+**Serveur HTTP : `tiny_http` 0.12.0** (vérifié par `cargo info` et dans les sources du paquet, 2026-10-20). Licence MIT ou Apache-2.0 ;
+fonctionnalités par défaut vides (TLS seulement sur option : non activé) ; dépendances `ascii`, `chunked_transfer`, `httpdate`, `log`.
+Synchrone : les connexions sont acceptées par un thread et un petit pool internes, `Server::incoming_requests` nous remet les requêtes
+une à une (aucun async, conformément à CLAUDE.md). `Request::respond` n'envoie pas le corps à une requête `HEAD`
+(`do_not_send_body = self.method == Method::Head`, `src/request.rs`). Dernière version publiée en 2022 : bibliothèque stable, peu active.
+Alternative écartée : un `TcpListener` écrit à la main, qui obligerait à analyser HTTP nous-mêmes.
+
+**Choix.**
+- Le routage et les pages sont dans `core` (`report/site.rs`, testables sans réseau) ; la CLI ne fait que la traduction HTTP.
+- Base ouverte en `SQLITE_OPEN_READ_ONLY` à chaque requête ; méthodes autres que `GET`/`HEAD` refusées (405).
+- Un rapport archivé n'est servi que si son nom est exactement celui d'un fichier listé par l'archive (format `AAAA-MM-JJ-HHMMSSZ.html`) :
+  aucun chemin construit à partir de l'URL.
+- En-têtes : `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:` (aucun script, aucune ressource
+  externe), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`.
+- Paper trading : seules les recommandations notifiées **avec une mise** (et un avantage positif) comptent, choix de Paul : « je ne parie
+  pas » les autres. Mises en unités de la bankroll du jour de la recommandation.
+- Pare-feu du portable : `ufw` actif, `avahi-daemon` actif (nom `cachyos-x8664.local`), constaté le 2026-10-20. Le port n'est pas ouvert
+  par l'outil : c'est à Paul de le faire.
+
+## 29. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
   (non vérifié). La garde ne l'utilise pas ; `edge snapshot` signale toute baisse de `x-requests-used`.
@@ -808,4 +832,6 @@ défaut : 1,0 → **0,5**. Aucun crédit de plus : tout avantage positif était 
   rendu des animations à l'œil sur une session réelle (Paul) ; comportement sous X11 et sur écran à forte densité de pixels.
 - Phase 9 (suite) : licence et provenance du jeu Kaggle « Football Odds Movements 2018-2026 » ; annonce de football-data sur l'arrêt des colonnes Pinnacle ;
   commission et horodatage exacts des colonnes `BFE` (non documentés dans ce que j'ai pu lire).
+- Site de rapports : résolution de `cachyos-x8664.local` depuis les autres appareils de Paul (Windows résout mDNS depuis la version 10,
+  pas toujours) ; comportement de `tiny_http` face à un client lent qui garde la connexion ouverte (une seule requête traitée à la fois).
 - Scores exacts : couverture de `correct_score` par bookmaker et par ligue (un seul match sondé) ; présence ou non des opérateurs français dans l'API.
