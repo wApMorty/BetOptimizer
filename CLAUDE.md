@@ -24,6 +24,9 @@ calibration mesurée (Brier, log loss), Elo, simulation.
 - Paris uniquement chez des opérateurs agréés par l'ANJ. Esport exclu : ces paris sont illégaux en France.
 - Le retour aux joueurs est plafonné à 85 % par an et par agrément : les marges françaises sont élevées, la barre est haute.
 - Selon l'ANJ, un opérateur ne peut pas limiter les mises d'un parieur au motif qu'il gagne ; seuls des motifs légitimes le permettent (jeu excessif, fraude, plafond uniforme annoncé). Un avantage prouvé reste donc exploitable.
+- Limite constatée : la protection porte sur les mises, pas sur les promotions. Winamax a déjà retiré à Paul l'accès aux « Grosses
+  Cotes Boostées ». Cotes boostées : chantier abandonné le 2026-10-20 (étude `edge boost study`, `docs/sources.md` §29 : gain réel
+  estimé de 15 à 30 € par mois sur les boosts ordinaires, non prouvé, pour un coût de construction et de crédits élevé).
 - Pinnacle n'a plus d'API publique depuis juillet 2025 ; FBref n'a plus les xG d'Opta depuis début 2026.
 
 ## Mon profil de développeur
