@@ -824,8 +824,9 @@ téléchargées **une seule fois** le 2026-10-20 (`curl`, une requête chacune),
 retéléchargées :
 - `indexh.html` (11,4 Mo) : historique complet de **Winamax**, 26 984 boosts du 29/08/2021 au 08/06/2025, tous sports. Colonnes : pari,
   cote boostée, cote non boostée, boost %, fin du pari (heure de Paris), événement, gain net. Issue codée par la couleur de la cellule de
-  la cote (vert gagné, orange perdu, gris non réglé : 1 327 lignes, surtout depuis mars 2025). Pas de mise maximale ; le gain net de WePari
-  suppose 50 € par boost (10 € en 2025), convention du site et non plafond de l'opérateur.
+  la cote (vert gagné, orange perdu, gris non réglé : 1 327 lignes, surtout depuis mars 2025). Pas de colonne de mise maximale, mais
+  **règle donnée par Paul le 2026-10-20** : 10 € pour une « Grosse Cote Boostée », 50 € pour les autres. Les gains nets de WePari
+  (mise = −gain si perdu, gain ÷ (cote − 1) si gagné) la confirment : 1 149 « grosses » sur 1 152 à 10 €, 24 486 autres sur 24 506 à 50 €.
 - `indexpsel.html` (2,2 Mo) : historique « récent » de **Parions Sport**, 4 695 boosts du 21/12/2022 au 10/08/2025, avec la **mise
   maximale** (25 € : 2 393 ; 50 € : 1 493 ; 10 € : 795 ; autres : 15).
 Betclic et Unibet figurent sur la page d'accueil (Coupe du monde 2026), sans historique exploitable.
@@ -866,13 +867,22 @@ surtout de la mi-temps ou d'un buteur).
 - Règle sans fuite du futur, avantage d'avant-match > 0 : **494 boosts, 11,7 par mois**, espérance à la clôture +15,8 % [+12,9 ; +18,7],
   ROI réalisé **+9,0 % [−4,6 ; +21,9]**. Seuil plus haut : espérance annoncée plus forte (+33,5 % au-delà de 10 %) mais ROI réalisé
   inchangé (+12,6 % [−3,4 ; +28,9]) : l'espérance annoncée croît plus vite que le gain réel, autre signe d'erreur de modèle.
+- **Par mise maximale, le résultat le plus net de l'étude.** Grosses Cotes Boostées (10 €) : 186 boosts, espérance **+28,5 %
+  [+25,5 ; +31,5]**, 98 % positives, marge d'origine −6,8 %, ROI réalisé +15,4 % [−0,8 ; +32,6]. Autres boosts (50 €) : 1 217 boosts,
+  espérance **−2,9 % [−4,1 ; −1,7]**, marge d'origine −16,0 %, ROI réalisé +1,6 % [−8,0 ; +11,9]. Avec la règle « avant-match > 0 » :
+  - « grosses » : 183 retenues sur 186, 4,3 par mois, espérance +29,6 % [+27,2 ; +32,4], ROI réalisé **+17,3 % [+0,6 ; +35,5]** (seul
+    groupe de la règle dont le gain réel exclut zéro, de justesse) ; gain attendu à la mise maximale **environ 13 € par mois** (7 € au ROI
+    réalisé) ;
+  - autres : 311 retenues, 7,4 par mois, espérance +7,6 % [+4,1 ; +11,7], du même ordre que l'erreur de la grille ; ROI réalisé +4,1 %
+    [−13,1 ; +22,7] ; gain attendu à la mise maximale environ 28 € par mois **si** la grille est juste.
 
 **Résultats, Parions Sport.** 990 boosts rapprochés, 183 évaluables : espérance **−2,8 % [−4,6 ; −0,8]**, marge d'origine −17,8 %. Règle
 « avant-match > 0 » : 54 boosts (1,9 par mois), +7,4 % annoncés, gain attendu à la mise maximale **environ 1,4 € par mois** (les boosts
 les plus avantageux sont les « CB FLASH » plafonnés à 10 €). Sans intérêt économique.
 
-**Limites.** Le relevé d'avant-match de football-data date du vendredi ou du mardi, pas de l'heure de publication du boost. Les mises
-maximales de Winamax sont inconnues. WePari peut avoir omis des boosts. Les familles dépendant de la mi-temps (environ 400 boosts Winamax)
+**Limites.** Le relevé d'avant-match de football-data date du vendredi ou du mardi, pas de l'heure de publication du boost. La règle des
+mises maximales de Winamax est celle de 2026 ; les gains de WePari montrent qu'elle valait déjà de 2021 à 2025. WePari peut avoir omis des
+boosts. Les familles dépendant de la mi-temps (environ 400 boosts Winamax)
 ne sont pas tarifées. Aucun seuil n'est gelé : étude exploratoire.
 
 ## 30. Reste à vérifier
@@ -917,6 +927,6 @@ ne sont pas tarifées. Aucun seuil n'est gelé : étude exploratoire.
 - Site de rapports : résolution de `cachyos-x8664.local` depuis les autres appareils de Paul (Windows résout mDNS depuis la version 10,
   pas toujours) ; comportement de `tiny_http` face à un client lent qui garde la connexion ouverte (une seule requête traitée à la fois).
 - Scores exacts : couverture de `correct_score` par bookmaker et par ligue (un seul match sondé) ; présence ou non des opérateurs français dans l'API.
-- Cotes boostées : mise maximale réelle des boosts Winamax (absente de WePari) ; paiement du gain boosté en argent réel ou en paris gratuits
+- Cotes boostées : paiement du gain boosté en argent réel ou en paris gratuits
   selon l'opérateur et l'époque ; marché « les deux équipes marquent » de Pinnacle dans The Odds API (clé de marché, coût, couverture) pour
   tarifer sans la grille ; heure de publication des boosts.

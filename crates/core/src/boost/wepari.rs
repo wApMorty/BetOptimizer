@@ -36,7 +36,8 @@ pub struct WepariBoost {
     pub boosted: Odds,
     /// Cote d'origine, avant le boost.
     pub base: Odds,
-    /// Mise maximale (publiée pour Parions Sport seulement).
+    /// Mise maximale : publiée par WePari pour Parions Sport, déduite de l'étiquette pour Winamax (voir
+    /// [`winamax_max_stake`]).
     pub max_stake: Option<Euros>,
     /// Issue selon WePari.
     pub settlement: Settlement,
@@ -126,7 +127,9 @@ fn read_row(operator: Operator, cells: &[Cell]) -> Option<WepariBoost> {
         Operator::Winamax => {
             let boosted = cells.get(1)?.text();
             let base = cells.get(2)?.text();
-            (boosted, base, cells.get(4)?, cells.get(5)?, None)
+            let event = cells.get(5)?;
+            let stake = winamax_max_stake(&event.text());
+            (boosted, base, cells.get(4)?, event, stake)
         }
         Operator::ParionsSport => {
             let odds = cells.get(1)?;
@@ -150,6 +153,18 @@ fn read_row(operator: Operator, cells: &[Cell]) -> Option<WepariBoost> {
         base: Odds::new(base.parse().ok()?)?,
         max_stake,
         settlement,
+    })
+}
+
+/// Mise maximale d'un boost Winamax : 10 € pour une « Grosse Cote Boostée », 50 € pour les autres.
+///
+/// Règle donnée par Paul le 2026-10-20, confirmée par les gains nets publiés par WePari (mise = −gain si perdu, gain / (cote − 1)
+/// si gagné) : 1 149 « grosses » sur 1 152 à 10 €, 24 486 autres sur 24 506 à 50 €.
+pub fn winamax_max_stake(event: &str) -> Option<Euros> {
+    Euros::new(if event.contains("Grosse Cote Boostée") {
+        10.0
+    } else {
+        50.0
     })
 }
 
@@ -203,8 +218,15 @@ mod tests {
         assert_eq!(first.boosted.get(), 3.0);
         assert_eq!(first.base.get(), 2.55);
         assert_eq!(first.settlement, Settlement::Won);
-        assert_eq!(first.max_stake, None);
+        assert_eq!(first.max_stake.map(Euros::get), Some(50.0));
         assert_eq!(page.boosts[1].settlement, Settlement::Lost);
+    }
+
+    #[test]
+    fn winamax_max_stake_depends_on_the_label() {
+        let stake = |event: &str| winamax_max_stake(event).map(Euros::get);
+        assert_eq!(stake("La Grosse Cote Boostée : Lyon - Nantes"), Some(10.0));
+        assert_eq!(stake("Cote Boostée : Lyon - Nantes"), Some(50.0));
     }
 
     #[test]

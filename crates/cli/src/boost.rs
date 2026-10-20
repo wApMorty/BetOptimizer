@@ -79,6 +79,7 @@ pub fn study(paths: &Paths) -> Result<()> {
             "Par cote boostée",
             &by(&rows, |r| odds_band(r.boosted.get())),
         );
+        print_groups("Par mise maximale", &by(&rows, stake_label));
         print_strategies(&rows);
         print_unparsed(operator, &result.unparsed);
     }
@@ -230,6 +231,13 @@ fn by<'a>(
     groups
 }
 
+fn stake_label(row: &StudyRow) -> String {
+    match row.max_stake {
+        Some(stake) => format!("mise max {} €", format::decimal(stake.get(), 0)),
+        None => "mise max inconnue".to_string(),
+    }
+}
+
 fn odds_band(odds: f64) -> String {
     let bands = [1.5, 2.0, 2.5, 3.0, 4.0, 6.0];
     match bands.iter().position(|b| odds < *b) {
@@ -283,7 +291,7 @@ fn print_strategies(rows: &[&StudyRow]) {
         .copied()
         .collect();
     let months = span_in_months(&both);
-    let mut chosen_by_family = Vec::new();
+    let mut chosen_at_zero = Vec::new();
     for threshold in THRESHOLDS {
         let chosen: Vec<&StudyRow> = both
             .iter()
@@ -294,7 +302,8 @@ fn print_strategies(rows: &[&StudyRow]) {
             continue;
         };
         if threshold == 0.0 {
-            chosen_by_family = by(&chosen, |r| r.category.clone());
+            // `clone` d'un `Vec<&StudyRow>` : on copie les références, pas les lignes.
+            chosen_at_zero = chosen.clone();
         }
         println!(
             "  {:<12} {:>6} {:>9} {:>22} {:>22} {:>16}",
@@ -308,8 +317,20 @@ fn print_strategies(rows: &[&StudyRow]) {
     }
     print_groups(
         "Boosts d'avantage d'avant-match positif, par famille",
-        &chosen_by_family,
+        &by(&chosen_at_zero, |r| r.category.clone()),
     );
+    let by_stake = by(&chosen_at_zero, stake_label);
+    print_groups(
+        "Boosts d'avantage d'avant-match positif, par mise maximale",
+        &by_stake,
+    );
+    for (label, rows) in &by_stake {
+        println!(
+            "  {label} : {} par mois, {} par mois à la mise maximale",
+            format::decimal(rows.len() as f64 / months, 1),
+            expected_money(rows, months)
+        );
+    }
 }
 
 /// Tournures non reconnues les plus fréquentes : ce que la traduction des intitulés laisse de côté.
@@ -339,7 +360,9 @@ fn expected_money(rows: &[&StudyRow], months: f64) -> String {
         return "—".to_string();
     }
     let total: f64 = with_stake.iter().map(|(stake, edge)| stake * edge).sum();
-    format!("{} €", format::signed(total / months, 0))
+    // Arrondi à l'euro ; `+ 0.0` change un −0 (somme négative infime arrondie) en +0, sinon affiché « -0 € ».
+    let per_month = (total / months).round() + 0.0;
+    format!("{} €", format::signed(per_month, 0))
 }
 
 /// Durée couverte par les lignes, en mois (au moins un).
