@@ -1,0 +1,50 @@
+{% extends "site_base.html" %}
+{% block title %}Bonus{% endblock %}
+{% block content %}
+<h1>Bonus de bienvenue</h1>
+<p class="meta">{{ generated_at }} (heure de Paris) · réalisé <b>{{ realized }}</b> · garanti sur les opérations ouvertes <b>{{ open_guaranteed }}</b> · comptes de couverture : {{ cover_accounts }}</p>
+<div class="warn"><strong>Cotes du dernier relevé</strong>, pas des cotes en direct. Place d'abord le pari bonus, puis recalcule les couvertures sur les cotes affichées (application, onglet Bonus, ou <code>edge bonus cover</code>) et place-les aussitôt.</div>
+
+<h2>À jouer</h2>
+<div class="cards">
+{% for plan in plans %}
+<div class="card">
+  <h2>{{ plan.name }}</h2>
+  <div class="meta">{{ plan.kind }} · {{ plan.amount }}{% if plan.min_odds %} · cote minimale {{ plan.min_odds }}{% endif %}</div>
+  {% if not plan.in_archive %}
+  <p>Cotes absentes de l'archive : compare les cotes affichées et calcule les couvertures dans l'application.</p>
+  {% else %}
+  {% for c in plan.candidates %}
+  <div class="card">
+    <b>{{ c.fixture }}</b>
+    <div class="meta">{{ c.kickoff }} ({{ c.until }}) · {{ c.league }} · cotes {{ c.age }}</div>
+    <div class="line"><span>gain garanti <b>{{ c.guaranteed }}</b></span><span>argent sorti {{ c.cash_out }}</span></div>
+    {% for leg in c.legs %}<div class="line"><span>{{ leg.role }}</span><span><b>{{ leg.bookmaker }}</b></span><span>{{ leg.outcome }} à <b>{{ leg.odds }}</b></span><span>mise <b>{{ leg.stake }}</b></span></div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="meta">Aucune opération rentable dans le dernier relevé avec les comptes de couverture actuels.</p>
+  {% endfor %}
+  {% endif %}
+</div>
+{% else %}
+<div class="card">Aucune offre à jouer. Enregistre une offre après avoir lu le règlement de l'opérateur (application ou <code>edge bonus offer</code>).</div>
+{% endfor %}
+</div>
+
+<h2>Offres</h2>
+<div class="scroll"><table>
+<tr><th>Opérateur</th><th>État</th><th>Offre</th><th>Vérification</th><th></th></tr>
+{% for o in operators %}<tr><td><b>{{ o.name }}</b></td><td class="{{ o.css }}">{{ o.state }}</td><td>{{ o.offer }}</td><td class="meta">{{ o.checked }}</td><td>{{ o.extra }}</td></tr>
+{% endfor %}
+</table></div>
+
+{% if operations %}
+<h2>Opérations</h2>
+<div class="scroll"><table>
+<tr><th>N°</th><th>Match</th><th>Coup d'envoi</th><th>Opération</th><th>Garanti</th><th>État</th></tr>
+{% for op in operations %}<tr><td>{{ op.id }}</td><td>{{ op.fixture }}</td><td>{{ op.kickoff }}</td><td>{{ op.what }}</td><td class="num">{{ op.guaranteed }}</td><td class="{{ op.css }}">{{ op.state }}</td></tr>
+{% endfor %}
+</table></div>
+{% endif %}
+{% endblock %}

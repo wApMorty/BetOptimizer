@@ -2,6 +2,7 @@
 //! [`site`] les publie sur le réseau local (`edge serve`), avec l'archive des rapports quotidiens ([`daily`]).
 
 pub mod backtest_report;
+pub mod bonus_page;
 pub mod daily;
 pub mod market_report;
 pub mod models_report;

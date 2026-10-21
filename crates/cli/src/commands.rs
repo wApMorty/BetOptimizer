@@ -1441,6 +1441,7 @@ pub fn serve(paths: &Paths) -> Result<()> {
         daily_dir: paths.daily_reports_dir.clone(),
         aliases: Aliases::bundled()?,
         method: config.margin_method,
+        freebet_value: config.bonus_freebet_value,
     };
     // L'erreur de `tiny_http` est une `Box<dyn Error + Send + Sync>` : `anyhow!` l'enveloppe avec son message.
     let server = tiny_http::Server::http(config.serve_bind)

@@ -966,7 +966,48 @@ choisi sur son passé ne prédit rien. Seule piste qui recoupe une mesure indép
 du nul +3,2 % chez 1xBet ; lignes fantômes de l'archive toutes sur le nul), déjà couverte par le moteur de valeur. Décision de Paul
 le 2026-10-20 : aucune commande, résultat seulement documenté. Environ 320 configurations regardées en tout.
 
-## 31. Reste à vérifier
+## 31. Bonus de bienvenue couverts (2026-10-20 et 2026-10-21, phase 12)
+
+**Pistes écartées avant de retenir celle-ci** (scripts ponctuels, lecture seule, non versionnés).
+- **Approche « Moneyball » : prédire le mouvement de la cote.** Régression linéaire du mouvement Pinnacle vendredi → clôture sur
+  plusieurs variables : écart entre les bookmakers moins bien informés et Pinnacle, colonne `Max`, marge, ligue. Entraînement jusqu'à
+  2023/24, test 2024/25 à janvier 2026 (1 235 matchs). R² hors échantillon 0,002 (domicile) et −0,003 (extérieur) ; log loss de la
+  clôture prédite −0,0005 ± 0,0004 contre Pinnacle du vendredi. CLV d'une sélection chez les bookmakers moins bien informés :
+  +0,0 % à +1,5 % ± 4, indiscernable de zéro. Quatre configurations regardées sur le test. Avec le §16 (poids optimal du modèle : 0),
+  conclusion : rien à attendre d'un apprentissage sur ces données publiques.
+- **Arbitrage entre opérateurs français** (archive, 2026-10-18 au 2026-10-20, 919 lignes 1X2 de football). Aucun : la meilleure
+  cote française sur chaque issue garde au moins 5,7 % de marge (9,3 % en moyenne). 13 lignes sur 919 ont de la valeur contre Pinnacle,
+  dont 10 sur le nul (Unibet, PMU).
+
+**Règle d'éligibilité vérifiée.** Règlement Winamax de l'offre de bienvenue du 18 avril 2025, clause (C) (PDF lu le 2026-10-21) : offre
+valable « une seule fois par utilisateur, terminal […], foyer, carte bancaire […] ou compte bancaire », « réservée aux joueurs n'ayant jamais
+effectué de dépôt sur un compte Winamax (y compris sur un compte qui a été fermé depuis) ». Paul a touché des offres une seconde fois
+après une pause de 2019 à 2022 : règles différentes à l'époque, autres opérateurs, ou offres de retour. Non tranché ; chaque règlement
+est à lire avant tout dépôt (`edge bonus offer --source …`).
+
+**Opérateurs agréés** (anj.fr, liste lue le 2026-10-20) : seize sociétés, dont bet365.fr (présent en France depuis mai 2026, selon les
+comparateurs). Parions Sport et ZEbet n'y figuraient pas : à revérifier. Seuls Winamax, Betclic, Unibet, PMU et NetBet ont des cotes
+dans The Odds API (région `fr`, §27) ; pour les autres, le calcul se fait sur les cotes affichées.
+
+**Mesures de couverture sur l'archive** (3 jours, meilleur match de chaque jour ; détail dans `docs/bonus-bienvenue.md` §3 à §6) :
+- freebet ou remboursement en argent, couvert : 0,53 à 0,56 par euro, à une cote de 3,4 à 5 ;
+- premier pari remboursé en freebet, entièrement couvert : 0,17 à 0,22 par euro, à une cote de 2,5 à 3,7 ;
+- une grosse cote coûte plus qu'elle ne rapporte : avec la couverture, le gain baisse et l'argent à sortir monte (Betclic, 100 € :
+  22 € garantis et 243 € sortis à 2–3, contre 7 € et 668 € à 6,5–10).
+
+Une première estimation (« un premier pari couvert est à peu près nul ») était fausse. Elle reposait sur une marge moyenne et non sur le
+meilleur match du jour ; elle a été corrigée avant le choix du mode.
+
+**Premier essai réel de `edge bonus status`** (copie de la base, relevé du 2026-10-20 à 12:00 UTC, couverture chez Winamax seul) :
+- PMU, remboursé en argent de 100 € : +53,60 € garantis pour 281 € sortis ;
+- Betclic, remboursé en freebet de 100 € : +14,50 € garantis.
+
+Une fois PMU consommé et devenu compte de couverture : Betclic +15,47 €.
+
+**Choix de Paul.** Tout couvrir (2026-10-21) : il veut être sûr de retrouver l'argent avancé. Site en lecture seule, sans saisie ; les
+bonus restent hors de la courbe de bankroll du modèle.
+
+## 32. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
   (non vérifié). La garde ne l'utilise pas ; `edge snapshot` signale toute baisse de `x-requests-used`.
@@ -1011,3 +1052,6 @@ le 2026-10-20 : aucune commande, résultat seulement documenté. Environ 320 con
 - Cotes boostées : paiement du gain boosté en argent réel ou en paris gratuits
   selon l'opérateur et l'époque ; marché « les deux équipes marquent » de Pinnacle dans The Odds API (clé de marché, coût, couverture) pour
   tarifer sans la grille ; heure de publication des boosts.
+- Phase 12 : règlement de l'offre de bienvenue de chaque opérateur (seul celui de Winamax a été lu) ; valeur réelle de conversion
+  d'un freebet couvert (`bonus_freebet_value`, 0,53 supposé) ; règle de chaque opérateur pour un match annulé pendant un premier pari
+  remboursé ; présence de Parions Sport et ZEbet dans la liste de l'ANJ.

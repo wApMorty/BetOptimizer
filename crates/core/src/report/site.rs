@@ -9,10 +9,12 @@ use chrono::{DateTime, Timelike, Utc};
 use chrono_tz::Europe::Paris;
 use serde::Serialize;
 
+use super::bonus_page;
 use super::daily::{self, DailyReport};
 use super::recommend_report::{Row, league_name, row};
 use super::render::{
-    render_site_message, render_site_opportunities, render_site_paper, render_site_reports,
+    render_site_bonus, render_site_message, render_site_opportunities, render_site_paper,
+    render_site_reports,
 };
 use super::svg::cumulative_units_chart;
 use crate::betting::paper::{self, PaperBet, PaperTrading, Status};
@@ -40,6 +42,8 @@ pub struct Site {
     pub aliases: Aliases,
     /// Méthode de retrait de la marge (clôture de Pinnacle).
     pub method: MarginMethod,
+    /// Valeur supposée d'un euro de freebet (`bonus_freebet_value` de la configuration), pour la page `/bonus`.
+    pub freebet_value: f64,
 }
 
 /// Une réponse : statut HTTP et corps HTML.
@@ -190,6 +194,7 @@ pub fn respond(site: &Site, path: &str, now: DateTime<Utc>) -> Page {
         "/rapports" | "/rapports/" => reports(site),
         "/opportunites" => opportunities(site, now),
         "/paper" => paper_page(site, now),
+        "/bonus" => bonus(site, now),
         _ => match path.strip_prefix("/rapports/") {
             Some(name) => archived(site, name),
             None => not_found(),
@@ -324,6 +329,17 @@ fn opportunities(site: &Site, now: DateTime<Utc>) -> Result<Page> {
     })?)
 }
 
+/// `/bonus` : les offres de bienvenue à jouer et leurs couvertures, l'état des offres, les opérations.
+fn bonus(site: &Site, now: DateTime<Utc>) -> Result<Page> {
+    let conn = store::open_read_only(&site.db_file)?;
+    let board = crate::bonus::tracking::board(&conn, site.freebet_value, now)?;
+    ok(render_site_bonus(&bonus_page::view(
+        &board,
+        generated_at(now),
+        now,
+    ))?)
+}
+
 /// `/paper` : le bilan du paper trading.
 fn paper_page(site: &Site, now: DateTime<Utc>) -> Result<Page> {
     let conn = store::open_read_only(&site.db_file)?;
@@ -433,6 +449,7 @@ mod tests {
             daily_dir: dir.path().join("daily"),
             aliases: Aliases::parse("[SC0]\n\"Falkirk\" = []\n\"Kilmarnock\" = []\n").unwrap(),
             method: MarginMethod::Multiplicative,
+            freebet_value: 0.53,
         };
         (dir, site)
     }
@@ -526,6 +543,47 @@ mod tests {
             assert!(body.contains("Page introuvable"));
         }
         assert_eq!(get(&site, "/rapports/2026-10-20-121000Z.html?x=1").0, 200);
+    }
+
+    #[test]
+    fn the_bonus_page_lists_the_offers_and_says_what_is_left_to_play() {
+        use crate::bonus::OfferKind;
+        use crate::domain::Euros;
+        use crate::store::bonus::{Eligibility, NewOffer, insert_offer};
+
+        let (_dir, site) = site();
+        let (status, html) = get(&site, "/bonus");
+        assert_eq!(status, 200);
+        assert!(html.contains("Aucune offre à jouer"), "{html}");
+        assert!(html.contains("class=\"on\">Bonus"));
+
+        let conn = store::open_migrated(&site.db_file).unwrap();
+        let offer = |bookmaker: &str, eligibility| NewOffer {
+            bookmaker: bookmaker.into(),
+            eligibility,
+            checked_on: at(NOW).date_naive(),
+            source: "règlement".into(),
+            note: None,
+        };
+        insert_offer(
+            &conn,
+            &offer("winamax_fr", Eligibility::Ineligible),
+            at(NOW),
+        )
+        .unwrap();
+        let eligible = Eligibility::Eligible {
+            kind: OfferKind::CashRefund,
+            amount: Euros::new(100.0).unwrap(),
+            min_odds: None,
+        };
+        insert_offer(&conn, &offer("pmu_fr", eligible), at(NOW)).unwrap();
+
+        let (status, html) = get(&site, "/bonus");
+        assert_eq!(status, 200);
+        assert!(html.contains("comptes de couverture : Winamax"), "{html}");
+        assert!(html.contains("remboursé en argent"));
+        // Aucun relevé dans cette base : l'offre est listée, sans opération proposée.
+        assert!(html.contains("Aucune opération rentable"));
     }
 
     #[test]

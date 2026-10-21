@@ -1,7 +1,8 @@
 # Bonus de bienvenue : stratégie et suivi
 
 > Document de travail ouvert le 2026-10-20, à ajuster à chaque ouverture de compte.
-> Aucun code : les mesures viennent de scripts ponctuels, en lecture seule sur la base.
+> Les mesures viennent de scripts ponctuels, en lecture seule sur la base ; le suivi et les calculs sont outillés depuis la
+> phase 12 (§8).
 
 ## 1. Pourquoi cette piste
 
@@ -17,7 +18,7 @@ mise perdue. Le gain est unique (une fois par opérateur), mais il est grand dev
 - Paul a touché une seconde fois des offres après une pause de 2019 à 2022 : les règles ont pu changer depuis, ou c'étaient
   d'autres opérateurs, ou des offres de retour pour joueurs inactifs.
 - **Avant tout dépôt** : lire la clause d'éligibilité du règlement en vigueur, ou poser la question au service client. Noter
-  la réponse et la date dans le tableau de suivi (§8).
+  la réponse et la date avec l'offre (`edge bonus offer --source …`, §8).
 - Les offres de retour pour joueurs inactifs (courriel, application) sont permises : à évaluer avec les mêmes formules.
 
 ## 3. Valeur d'une offre selon sa forme
@@ -131,18 +132,28 @@ règlement de l'opérateur au moment de l'ouverture.
 
 La liste ANJ lue ne mentionnait ni Parions Sport (FDJ) ni ZEbet : à revérifier avant de les écarter.
 
-## 8. Suivi
+## 8. Suivi : `edge bonus`, onglet Bonus, page `/bonus` (phase 12)
 
-| Opérateur | Éligibilité vérifiée (date, source) | Dépôt | Premier pari (match, issue, cote, cote juste) | Résultat | Freebets joués | Gain net |
-|---|---|---|---|---|---|---|
-| | | | | | | |
+Le suivi est tenu par l'outil, dans un journal immuable : une offre consommée n'est plus jamais proposée, et son opérateur devient un
+compte de couverture.
+
+1. **Après lecture du règlement**, enregistrer l'offre (onglet Bonus, « Enregistrer l'offre », ou en ligne de commande) :
+   `edge bonus offer --bookmaker betclic_fr --kind freebet_refund --amount 100 --source "règlement du …, article …"`.
+   Pour un compte qui ne sert qu'à couvrir : `edge bonus offer --bookmaker winamax_fr --ineligible --source "règlement du 18/04/2025, clause C"`.
+2. **Choisir l'opération** : `edge bonus status` (ou `pick --bookmaker …`), l'onglet Bonus, ou la page `/bonus` du site sur le téléphone.
+3. **Au moment de parier**, placer le pari bonus, puis recalculer les couvertures sur les cotes affichées (tiroir « J'ai joué »,
+   calculateur de l'onglet, ou `edge bonus cover`) et les placer aussitôt.
+4. **Enregistrer** l'opération (tiroir « J'ai joué », ou la commande `edge bonus log` affichée par `status`).
+5. **Régler** après le match : automatiquement depuis football-data (`edge bonus settle`), ou à la main. Un freebet reçu apparaît alors
+   « à jouer » chez l'opérateur, avec ses propres propositions.
+
+Valeur d'un euro de freebet supposée pour le premier pari remboursé en freebet : `bonus_freebet_value = 0.53` dans la configuration.
 
 ## 9. À ajuster
 
-- Valeur `v` d'un freebet : remplacer 0,75 par la valeur réellement obtenue quand on aura quelques freebets joués.
+- Valeur d'un freebet couvert (`bonus_freebet_value`, 0,53) : la remplacer par la valeur réellement obtenue quand quelques freebets
+  auront été joués.
 - Tableau du §3 : refaire la mesure quand l'archive comptera quelques mois.
-- Outil : une commande `edge bonus` (meilleure couverture du relevé du jour, puis mises recalculées sur les cotes saisies au
-  moment du pari ; sans crédit supplémentaire) serait une petite phase, à décider.
 
 Sources : [ANJ, opérateurs agréés](https://anj.fr/offre-de-jeu-et-marche/operateurs-agrees) ;
 [Winamax, règlement de l'offre de bienvenue 2025](https://operator-front-static-cdn.winamax.fr/img/content/betting/2025/20250418_Welcome_Bonus/RglementWB2025.pdf) ;

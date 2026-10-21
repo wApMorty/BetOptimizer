@@ -8,6 +8,7 @@ use minijinja::{Environment, Value};
 use serde::Serialize;
 
 use super::backtest_report::BacktestReport;
+use super::bonus_page::BonusPage;
 use super::market_report::MarketReport;
 use super::models_report::ModelsReport;
 use super::nba_report::NbaReport;
@@ -30,6 +31,7 @@ const SITE_REPORTS_TEMPLATE: &str = include_str!("templates/site_reports.html");
 const SITE_OPPORTUNITIES_TEMPLATE: &str = include_str!("templates/site_opportunities.html");
 const SITE_PAPER_TEMPLATE: &str = include_str!("templates/site_paper.html");
 const SITE_MESSAGE_TEMPLATE: &str = include_str!("templates/site_message.html");
+const SITE_BONUS_TEMPLATE: &str = include_str!("templates/site_bonus.html");
 
 /// Nombre au format français (virgule décimale), `digits` décimales.
 fn number(value: f64, digits: Option<usize>) -> String {
@@ -108,6 +110,11 @@ pub fn render_site_opportunities(page: &OpportunitiesPage) -> Result<String> {
 /// Génère la page « paper trading » du site.
 pub fn render_site_paper(page: &PaperPage) -> Result<String> {
     render_template("site_paper.html", SITE_PAPER_TEMPLATE, page)
+}
+
+/// Génère la page « bonus » du site.
+pub fn render_site_bonus(page: &BonusPage) -> Result<String> {
+    render_template("site_bonus.html", SITE_BONUS_TEMPLATE, page)
 }
 
 /// Génère une page de message du site (aucun rapport, page introuvable, erreur).

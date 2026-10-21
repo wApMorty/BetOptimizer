@@ -99,6 +99,7 @@ mod tests {
             daily_dir: dir.path().join("daily"),
             aliases: Aliases::bundled().unwrap(),
             method: MarginMethod::Power,
+            freebet_value: edge_core::bonus::DEFAULT_FREEBET_VALUE,
         };
         // Port 0 : le système choisit un port libre, que l'on relit ensuite.
         let server = Server::http("127.0.0.1:0").unwrap();

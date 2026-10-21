@@ -17,3 +17,4 @@ trois questions pour vérifier la compréhension, trois fichiers à relire en pr
 | 9 | Refonte de l'interface (système de design, animations, mise en page adaptative, captures) | [docs/learning/phase-9.md](docs/learning/phase-9.md) |
 | 10 | Site de rapports sur le réseau local (`edge serve`, archive quotidienne, paper trading) | [docs/learning/phase-10.md](docs/learning/phase-10.md) |
 | 11 | Cotes boostées : étude historique sur WePari (grille calée sur le marché, antisélection) | [docs/learning/phase-11.md](docs/learning/phase-11.md) |
+| 12 | Bonus de bienvenue couverts (`edge bonus`, onglet Bonus, page `/bonus`, journal des offres) | [docs/learning/phase-12.md](docs/learning/phase-12.md) |
