@@ -8,9 +8,16 @@ use edge_core::betting::ledger::UpcomingEvent;
 use edge_core::betting::live::Opportunity;
 use edge_core::betting::overview::{BankrollCurve, CurvePoint, ReliabilityBin};
 use edge_core::betting::value::Selection;
+use edge_core::bonus::OfferKind;
+use edge_core::bonus::cover::cover;
+use edge_core::bonus::pick::{Candidate, Target};
+use edge_core::bonus::tracking::{self, Board, Plan};
 use edge_core::config::Config;
 use edge_core::domain::{Euros, Odds, Outcome, Probability};
 use edge_core::eval::bootstrap::MeanCi;
+use edge_core::store::bonus::{
+    Eligibility, EventRef, Leg, MatchResult, NewOffer, Role, Settled, StoredOffer, StoredOperation,
+};
 use edge_core::store::journal::{
     BetResult, NewBet, NewRecommendation, Settlement, SettlementSource, StoredBet,
     StoredRecommendation, Tier,
@@ -487,5 +494,141 @@ pub fn data(now: DateTime<Utc>) -> Data {
             used: 187,
             cap: 450,
         }),
+        bonus: bonus_board(now),
+    }
+}
+
+/// Bonus fictifs : Winamax inéligible, PMU consommé et réglé, Betclic et bet365 à jouer.
+fn bonus_board(now: DateTime<Utc>) -> Board {
+    let offer = |id: i64, bookmaker: &str, eligibility: Eligibility| StoredOffer {
+        id,
+        created_at: now - Duration::days(3),
+        offer: NewOffer {
+            bookmaker: bookmaker.into(),
+            eligibility,
+            checked_on: (now - Duration::days(3)).date_naive(),
+            source: "règlement (démo)".into(),
+            note: None,
+        },
+    };
+    let eligible = |kind, amount| Eligibility::Eligible {
+        kind,
+        amount: euros(amount),
+        min_odds: None,
+    };
+    let offers = vec![
+        offer(1, "winamax_fr", Eligibility::Ineligible),
+        offer(2, "pmu_fr", eligible(OfferKind::CashRefund, 100.0)),
+        offer(3, "betclic_fr", eligible(OfferKind::FreebetRefund, 100.0)),
+        offer(4, "bet365_fr", eligible(OfferKind::FreebetRefund, 100.0)),
+    ];
+    let leg = |role, bookmaker: &str, outcome, price: f64, stake: f64| Leg {
+        role,
+        bookmaker: bookmaker.into(),
+        outcome,
+        odds: odds(price),
+        stake: euros(stake),
+    };
+    let event = |index: usize, days: i64| EventRef {
+        event_id: format!("demo-{index}"),
+        sport_key: FIXTURES[index].2.into(),
+        home_team: FIXTURES[index].0.into(),
+        away_team: FIXTURES[index].1.into(),
+        kickoff: now + Duration::days(days),
+    };
+    let pmu = tracking::new_operation(
+        2,
+        OfferKind::CashRefund,
+        None,
+        event(1, -2),
+        vec![
+            leg(Role::Bonus, "pmu_fr", Outcome::Away, 3.35, 100.0),
+            leg(Role::Cover, "winamax_fr", Outcome::Home, 1.98, 118.7),
+            leg(Role::Cover, "winamax_fr", Outcome::Draw, 3.75, 62.7),
+        ],
+    );
+    let operations = vec![StoredOperation {
+        id: 1,
+        created_at: now - Duration::days(3),
+        operation: pmu,
+        settled: Some(Settled {
+            settled_at: now - Duration::days(1),
+            result: MatchResult::Played(Outcome::Home),
+            source: SettlementSource::FootballData,
+        }),
+    }];
+    let operators = tracking::statuses(&offers, &operations);
+    let cover_accounts = tracking::cover_accounts(&operators);
+
+    let target = |bookmaker: &str| Target {
+        bookmaker: bookmaker.into(),
+        kind: OfferKind::FreebetRefund,
+        amount: euros(100.0),
+        min_odds: None,
+        freebet_value: 0.53,
+    };
+    let candidate = |index: usize, bonus: (Outcome, f64), covers: [(&str, Outcome, f64); 2]| {
+        let others = [odds(covers[0].2), odds(covers[1].2)];
+        let result = cover(
+            OfferKind::FreebetRefund,
+            euros(100.0),
+            odds(bonus.1),
+            0.53,
+            &others,
+        )
+        .expect("cotes de démonstration valides");
+        let mut legs = vec![leg(Role::Bonus, "betclic_fr", bonus.0, bonus.1, 100.0)];
+        for ((bookmaker, outcome, price), stake) in covers.into_iter().zip(&result.stakes) {
+            legs.push(leg(Role::Cover, bookmaker, outcome, price, stake.get()));
+        }
+        Candidate {
+            event: event(index, 3),
+            api_call_id: 1,
+            priced_at: now - Duration::hours(6),
+            legs,
+            cover: result,
+        }
+    };
+    let plans = vec![
+        Plan {
+            target: target("betclic_fr"),
+            name: "Betclic".into(),
+            in_archive: true,
+            offer_id: 3,
+            candidates: vec![
+                candidate(
+                    2,
+                    (Outcome::Home, 2.63),
+                    [
+                        ("winamax_fr", Outcome::Draw, 3.40),
+                        ("pmu_fr", Outcome::Away, 2.45),
+                    ],
+                ),
+                candidate(
+                    4,
+                    (Outcome::Away, 3.00),
+                    [
+                        ("winamax_fr", Outcome::Home, 2.05),
+                        ("pmu_fr", Outcome::Draw, 3.80),
+                    ],
+                ),
+            ],
+        },
+        Plan {
+            target: target("bet365_fr"),
+            name: "bet365".into(),
+            in_archive: false,
+            offer_id: 4,
+            candidates: Vec::new(),
+        },
+    ];
+    let realized = operations.iter().filter_map(tracking::realized_gain).sum();
+    Board {
+        operators,
+        cover_accounts,
+        plans,
+        operations,
+        realized,
+        open_guaranteed: 0.0,
     }
 }

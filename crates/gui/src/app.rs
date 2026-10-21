@@ -23,7 +23,7 @@ use crate::design::tokens::{radius, space};
 use crate::design::widgets::{
     ButtonKind, Tone, button, chip, drawer, field, icon_button, mix, pal, segmented,
 };
-use crate::forms::{FollowForm, OffModelForm};
+use crate::forms::{BonusForm, FollowForm, OffModelForm, OfferForm};
 use crate::pages::{self, PageCtx, PageStates, Request, Tab};
 use crate::screenshot::{self, SHOTS};
 
@@ -54,6 +54,8 @@ struct Toast {
 enum Drawer {
     Follow(FollowForm, Option<String>),
     OffModel(OffModelForm, Option<String>),
+    Bonus(BonusForm, Option<String>),
+    Offer(OfferForm, Option<String>),
 }
 
 /// Réglages de lancement.
@@ -160,6 +162,10 @@ impl App {
             Request::NewOffModelBet => {
                 self.drawer = Some(Drawer::OffModel(OffModelForm::default(), None))
             }
+            Request::OpenBonus(form) => self.drawer = Some(Drawer::Bonus(form, None)),
+            Request::NewOffer(bookmaker) => {
+                self.drawer = Some(Drawer::Offer(OfferForm::for_operator(&bookmaker), None))
+            }
             Request::Do(Action::Refresh) => self.reload(),
             Request::Do(Action::OpenReport(path)) => {
                 // Les espaces sont les seuls caractères courants à échapper dans un chemin de fichier.
@@ -179,17 +185,22 @@ impl App {
         }
     }
 
-    /// Raccourcis clavier : 1 à 5 changent d'écran, R relit les données (sans champ de saisie actif).
+    /// Raccourcis clavier : 1 à 6 changent d'écran, R relit les données (sans champ de saisie actif).
     fn shortcuts(&self, ctx: &egui::Context) -> Vec<Request> {
         if ctx.egui_wants_keyboard_input() {
             return Vec::new();
         }
         let mut requests = Vec::new();
         ctx.input(|input| {
-            for (index, key) in [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5]
-                .into_iter()
-                .enumerate()
-            {
+            let keys = [
+                Key::Num1,
+                Key::Num2,
+                Key::Num3,
+                Key::Num4,
+                Key::Num5,
+                Key::Num6,
+            ];
+            for (index, key) in keys.into_iter().enumerate() {
                 if input.key_pressed(key) {
                     requests.push(Request::Go(Tab::ALL[index]));
                 }
@@ -460,11 +471,27 @@ impl App {
             })
             .unwrap_or_default();
 
+        let freebet_value = self
+            .data
+            .as_ref()
+            .map_or(edge_core::bonus::DEFAULT_FREEBET_VALUE, |d| {
+                d.config.bonus_freebet_value
+            });
+        let cover_accounts: Vec<String> = self
+            .data
+            .as_ref()
+            .map(|d| d.bonus.cover_accounts.clone())
+            .unwrap_or_default();
         let title = match &current {
             Drawer::Follow(form, _) => {
                 format!("J'ai parié · recommandation n° {}", form.recommendation_id)
             }
             Drawer::OffModel(..) => "Pari hors modèle".to_string(),
+            Drawer::Bonus(form, _) => format!("J'ai joué · {}", form.event_label),
+            Drawer::Offer(form, _) => format!(
+                "Offre · {}",
+                edge_core::bonus::operator_name(&form.bookmaker)
+            ),
         };
         let mut submit = false;
         let mut keep_open = drawer(ctx, "drawer", &title, 420.0, |ui| match &mut current {
@@ -545,12 +572,141 @@ impl App {
                 ui.add_space(space::SM);
                 submit = button(ui, "Enregistrer le pari", ButtonKind::Primary).clicked();
             }
+            Drawer::Bonus(form, error) => {
+                ui.label(RichText::new("Place d'abord le pari bonus, puis tape les cotes réellement affichées chez les opérateurs de couverture, recalcule les mises, place les couvertures aussitôt, et enregistre.").color(p.muted));
+                ui.add_space(space::MD);
+                for (index, leg) in form.legs.iter_mut().enumerate() {
+                    let role = if leg.role == edge_core::store::bonus::Role::Bonus {
+                        "Bonus"
+                    } else {
+                        "Couverture"
+                    };
+                    ui.label(
+                        RichText::new(format!("{role} · {}", format::outcome_label(leg.outcome)))
+                            .semibold(),
+                    );
+                    if leg.role == edge_core::store::bonus::Role::Cover {
+                        egui::ComboBox::from_id_salt(("drawer-cover-book", index))
+                            .width(ui.available_width())
+                            .selected_text(
+                                edge_core::bonus::operator_name(&leg.bookmaker).to_string(),
+                            )
+                            .show_ui(ui, |ui| {
+                                for key in &cover_accounts {
+                                    ui.selectable_value(
+                                        &mut leg.bookmaker,
+                                        key.clone(),
+                                        edge_core::bonus::operator_name(key),
+                                    );
+                                }
+                            });
+                    } else {
+                        ui.label(
+                            RichText::new(edge_core::bonus::operator_name(&leg.bookmaker))
+                                .color(p.muted),
+                        );
+                    }
+                    ui.columns(2, |cols| {
+                        field(&mut cols[0], "Cote", &mut leg.odds, "2,10");
+                        field(&mut cols[1], "Mise (€)", &mut leg.stake, "100");
+                    });
+                }
+                if button(
+                    ui,
+                    "Recalculer les mises de couverture",
+                    ButtonKind::Secondary,
+                )
+                .clicked()
+                {
+                    *error = form.recompute(freebet_value).err();
+                }
+                ui.add_space(space::SM);
+                match form.guaranteed(freebet_value) {
+                    Some(gain) => ui.label(
+                        RichText::new(format!("Gain garanti : {} €", format::signed(gain, 2)))
+                            .semibold()
+                            .color(Tone::of_sign(gain).colors(p).0),
+                    ),
+                    None => {
+                        ui.label(RichText::new("Gain garanti : saisie incomplète").color(p.muted))
+                    }
+                };
+                if let Some(message) = error {
+                    ui.label(RichText::new(message.as_str()).color(p.negative));
+                }
+                ui.add_space(space::SM);
+                submit = button(ui, "Enregistrer l'opération", ButtonKind::Primary).clicked();
+            }
+            Drawer::Offer(form, error) => {
+                ui.label(RichText::new("Lis la clause d'éligibilité du règlement (ou demande au service client) avant tout dépôt. L'offre la plus récente fait foi.").color(p.muted));
+                ui.add_space(space::MD);
+                ui.label(RichText::new("Opérateur").small().color(p.muted));
+                egui::ComboBox::from_id_salt("drawer-offer-book")
+                    .width(ui.available_width())
+                    .selected_text(edge_core::bonus::operator_name(&form.bookmaker).to_string())
+                    .show_ui(ui, |ui| {
+                        for operator in edge_core::bonus::OPERATORS {
+                            ui.selectable_value(
+                                &mut form.bookmaker,
+                                operator.key.to_string(),
+                                operator.name,
+                            );
+                        }
+                    });
+                ui.add_space(space::SM);
+                let mut eligible = usize::from(!form.eligible);
+                segmented(
+                    ui,
+                    "drawer-offer-eligible",
+                    &["Éligible", "Inéligible"],
+                    &mut eligible,
+                );
+                form.eligible = eligible == 0;
+                ui.add_space(space::SM);
+                if form.eligible {
+                    let kinds = edge_core::bonus::OfferKind::ALL;
+                    let mut kind = kinds.iter().position(|k| *k == form.kind).unwrap_or(0);
+                    segmented(
+                        ui,
+                        "drawer-offer-kind",
+                        &pages::bonus::KIND_LABELS,
+                        &mut kind,
+                    );
+                    form.kind = kinds[kind];
+                    ui.add_space(space::SM);
+                    field(ui, "Montant maximal (€)", &mut form.amount, "100");
+                    field(
+                        ui,
+                        "Cote minimale (vide : aucune)",
+                        &mut form.min_odds,
+                        "1,50",
+                    );
+                } else {
+                    ui.label(RichText::new("Le compte ne servira qu'à couvrir.").color(p.muted));
+                }
+                field(
+                    ui,
+                    "Source",
+                    &mut form.source,
+                    "règlement du 18/04/2025, clause C",
+                );
+                field(ui, "Remarque", &mut form.note, "");
+                if let Some(message) = error {
+                    ui.label(RichText::new(message.as_str()).color(p.negative));
+                }
+                ui.add_space(space::SM);
+                submit = button(ui, "Enregistrer l'offre", ButtonKind::Primary).clicked();
+            }
         });
 
         if submit {
             let (action, error_slot) = match &mut current {
                 Drawer::Follow(form, error) => (form.to_action(), error),
                 Drawer::OffModel(form, error) => (form.to_action(), error),
+                Drawer::Bonus(form, error) => (form.to_action(freebet_value), error),
+                Drawer::Offer(form, error) => {
+                    (form.to_action(chrono::Local::now().date_naive()), error)
+                }
             };
             match action {
                 Ok(action) => {
@@ -797,6 +953,29 @@ mod tests {
         app.run(&ctx, Request::NewOffModelBet, 0.0);
         frames(&mut app, 2);
         assert!(matches!(app.drawer, Some(Drawer::OffModel(..))));
+
+        app.run(&ctx, Request::NewOffer("betclic_fr".into()), 0.0);
+        frames(&mut app, 2);
+        assert!(
+            matches!(&app.drawer, Some(Drawer::Offer(form, _)) if form.bookmaker == "betclic_fr")
+        );
+    }
+
+    #[test]
+    fn the_bonus_drawer_opens_on_a_demo_candidate_and_draws() {
+        let mut app = demo_app();
+        let ctx = Context::default();
+        let data = app.data.as_ref().unwrap();
+        let plan = &data.bonus.plans[0];
+        let form = BonusForm::from_candidate(&plan.target, &plan.candidates[0]);
+
+        app.run(&ctx, Request::OpenBonus(form), 0.0);
+        frames(&mut app, 2);
+
+        let Some(Drawer::Bonus(form, _)) = &app.drawer else {
+            panic!("le tiroir « J'ai joué » doit être ouvert");
+        };
+        assert_eq!(form.legs.len(), 3);
     }
 
     #[test]
@@ -839,7 +1018,7 @@ mod tests {
     }
 
     #[test]
-    fn keys_one_to_five_are_requests_to_change_screen() {
+    fn keys_one_to_six_are_requests_to_change_screen() {
         let app = demo_app();
         let ctx = Context::default();
         style::install_fonts(&ctx);

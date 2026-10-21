@@ -13,6 +13,7 @@ use edge_core::betting::ledger::{self, UpcomingEvent};
 use edge_core::betting::live::{self, Opportunity};
 use edge_core::betting::overview::{self, BankrollCurve, ReliabilityBin};
 use edge_core::betting::recommend::RECOMMEND_MIN_EDGE;
+use edge_core::bonus::tracking::{self, Board};
 use edge_core::config::Config;
 use edge_core::domain::Euros;
 use edge_core::ingest::aliases::Aliases;
@@ -96,6 +97,8 @@ pub struct Data {
     pub feeds: Vec<Feed>,
     /// Crédits de l'API, quand un relevé les a lus.
     pub credits: Option<Credits>,
+    /// Bonus de bienvenue : offres, propositions du dernier relevé, opérations.
+    pub bonus: Board,
 }
 
 /// Lit le journal et l'archive.
@@ -168,6 +171,7 @@ pub fn load(paths: &Paths, now: DateTime<Utc>) -> Result<Data> {
         clv: clv::report(&conn, &aliases, config.margin_method)?,
         reliability: overview::reliability(&conn, &aliases, RELIABILITY_BINS)?,
         reports: report_files(paths),
+        bonus: tracking::board(&conn, config.bonus_freebet_value, now)?,
         curve,
         config,
     })

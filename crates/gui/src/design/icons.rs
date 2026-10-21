@@ -39,6 +39,8 @@ pub enum Icon {
     Check,
     /// Mouvement réduit (pause).
     Pause,
+    /// Bonus (paquet cadeau).
+    Gift,
 }
 
 /// Dessine une icône dans `rect`.
@@ -206,6 +208,20 @@ pub fn draw(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             painter.line_segment([at(0.34, 0.2), at(0.34, 0.8)], Stroke::new(2.4, color));
             painter.line_segment([at(0.66, 0.2), at(0.66, 0.8)], Stroke::new(2.4, color));
         }
+        Icon::Gift => {
+            // Couvercle, boîte, ruban vertical et deux boucles.
+            for (min, max) in [((0.1, 0.3), (0.9, 0.44)), ((0.16, 0.44), (0.84, 0.88))] {
+                painter.rect_stroke(
+                    Rect::from_min_max(at(min.0, min.1), at(max.0, max.1)),
+                    2.0,
+                    stroke,
+                    eframe::egui::StrokeKind::Inside,
+                );
+            }
+            painter.line_segment([at(0.5, 0.3), at(0.5, 0.88)], stroke);
+            line(&[(0.5, 0.3), (0.3, 0.12), (0.24, 0.24), (0.5, 0.3)], false);
+            line(&[(0.5, 0.3), (0.7, 0.12), (0.76, 0.24), (0.5, 0.3)], false);
+        }
     }
 }
 
@@ -236,6 +252,7 @@ mod tests {
                 Icon::Close,
                 Icon::Check,
                 Icon::Pause,
+                Icon::Gift,
             ] {
                 draw(ui.painter(), rect, icon, Color32::WHITE);
             }

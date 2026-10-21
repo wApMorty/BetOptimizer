@@ -2,6 +2,7 @@
 //! [`Request`]s : il ne touche jamais la base ni la fenêtre, c'est `App` qui exécute.
 
 pub mod bets;
+pub mod bonus;
 pub mod common;
 pub mod opportunities;
 pub mod performance;
@@ -14,6 +15,7 @@ use crate::actions::Action;
 use crate::data::Data;
 use crate::design::icons::Icon;
 use crate::design::motion::Motion;
+use crate::forms::BonusForm;
 
 /// Écran affiché.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,16 +30,19 @@ pub enum Tab {
     Performance,
     /// Rapports et données.
     Reports,
+    /// Bonus de bienvenue couverts.
+    Bonus,
 }
 
 impl Tab {
     /// Tous les écrans, dans l'ordre de la barre latérale.
-    pub const ALL: [Tab; 5] = [
+    pub const ALL: [Tab; 6] = [
         Tab::Today,
         Tab::Opportunities,
         Tab::Bets,
         Tab::Performance,
         Tab::Reports,
+        Tab::Bonus,
     ];
 
     /// Titre dans la barre latérale.
@@ -48,6 +53,7 @@ impl Tab {
             Tab::Bets => "Paris",
             Tab::Performance => "Performance",
             Tab::Reports => "Rapports",
+            Tab::Bonus => "Bonus",
         }
     }
 
@@ -59,6 +65,7 @@ impl Tab {
             Tab::Bets => Icon::Ticket,
             Tab::Performance => Icon::Chart,
             Tab::Reports => Icon::Doc,
+            Tab::Bonus => Icon::Gift,
         }
     }
 }
@@ -74,6 +81,10 @@ pub enum Request {
     Follow(i64),
     /// Ouvrir le tiroir d'un pari hors modèle.
     NewOffModelBet,
+    /// Ouvrir le tiroir « J'ai joué » d'une opération bonus, prérempli.
+    OpenBonus(BonusForm),
+    /// Ouvrir le tiroir d'enregistrement de l'offre d'un opérateur.
+    NewOffer(String),
 }
 
 /// Contexte d'affichage d'un écran.
@@ -92,6 +103,8 @@ pub struct PageStates {
     pub opportunities: opportunities::State,
     /// Écran de performance.
     pub performance: performance::State,
+    /// Écran des bonus.
+    pub bonus: bonus::State,
 }
 
 /// Dessine l'écran choisi.
@@ -108,5 +121,6 @@ pub fn show(
         Tab::Bets => bets::show(ui, ctx, data),
         Tab::Performance => performance::show(ui, ctx, data, &mut states.performance),
         Tab::Reports => reports::show(ui, ctx, data),
+        Tab::Bonus => bonus::show(ui, ctx, data, &mut states.bonus),
     }
 }

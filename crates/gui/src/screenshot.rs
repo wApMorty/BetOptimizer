@@ -100,7 +100,7 @@ pub struct Shot {
 }
 
 /// Les vues photographiées, dans l'ordre.
-pub const SHOTS: [Shot; 8] = [
+pub const SHOTS: [Shot; 9] = [
     Shot {
         name: "01-aujourd-hui",
         tab: Tab::Today,
@@ -146,6 +146,12 @@ pub const SHOTS: [Shot; 8] = [
     Shot {
         name: "08-rapports",
         tab: Tab::Reports,
+        segment: 0,
+        drawer: false,
+    },
+    Shot {
+        name: "09-bonus",
+        tab: Tab::Bonus,
         segment: 0,
         drawer: false,
     },
