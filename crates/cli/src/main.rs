@@ -3,6 +3,7 @@
 //! Ce fichier ne fait que lire la ligne de commande et aiguiller vers [`commands`] ; toute la logique
 //! vit dans la bibliothèque `edge-core`.
 
+mod bonus;
 mod boost;
 mod commands;
 mod serve;
@@ -102,6 +103,11 @@ enum Command {
     Market {
         #[command(subcommand)]
         command: MarketCommand,
+    },
+    /// Bonus de bienvenue couverts : suivi des offres, opérations proposées, calcul des couvertures (docs/bonus-bienvenue.md).
+    Bonus {
+        #[command(subcommand)]
+        command: BonusCommand,
     },
     /// Cotes boostées : étude historique sur les données de WePari.
     Boost {
@@ -233,6 +239,90 @@ enum MarketCommand {
 }
 
 #[derive(Subcommand)]
+enum BonusCommand {
+    /// État de chaque offre, comptes de couverture, opérations proposées sur le dernier relevé, bilan.
+    Status,
+    /// Les cinq meilleures opérations du dernier relevé pour un opérateur.
+    Pick {
+        /// Opérateur du bonus (`betclic_fr`…).
+        #[arg(long)]
+        bookmaker: String,
+    },
+    /// Enregistre ce que tu sais de l'offre d'un opérateur, après lecture de son règlement (la plus récente fait foi).
+    Offer {
+        /// Clé de l'opérateur (`betclic_fr`, `bet365_fr`…).
+        #[arg(long)]
+        bookmaker: String,
+        /// Forme : cash_refund (remboursé en argent), freebet_refund (remboursé en freebet) ou freebet.
+        #[arg(long, value_name = "FORME")]
+        kind: Option<String>,
+        /// Montant maximal de l'offre, en euros.
+        #[arg(long, value_name = "EUROS")]
+        amount: Option<f64>,
+        /// Cote minimale imposée par l'offre.
+        #[arg(long, value_name = "COTE")]
+        min_odds: Option<f64>,
+        /// Offre inaccessible (dépôt passé…) : le compte ne sert qu'à couvrir.
+        #[arg(long)]
+        ineligible: bool,
+        /// Où l'éligibilité a été vérifiée (« règlement du 18/04/2025, clause C », « service client »…).
+        #[arg(long)]
+        source: String,
+        /// Date de la vérification, AAAA-MM-JJ (par défaut : aujourd'hui).
+        #[arg(long, value_name = "DATE")]
+        checked_on: Option<chrono::NaiveDate>,
+        /// Remarque libre.
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// Calcule les mises de couverture sur les cotes affichées au moment de parier (ne lit ni n'écrit la base).
+    Cover {
+        /// Forme : cash_refund, freebet_refund ou freebet.
+        #[arg(long, value_name = "FORME")]
+        kind: String,
+        /// Montant du bonus, en euros.
+        #[arg(long, value_name = "EUROS")]
+        amount: f64,
+        /// Cote du pari bonus.
+        #[arg(long, value_name = "COTE")]
+        odds: f64,
+        /// Cote de couverture de chaque autre issue (deux fois en 1X2).
+        #[arg(long = "cover", value_name = "COTE", required = true)]
+        covers: Vec<f64>,
+        /// Valeur d'un euro de freebet (par défaut : bonus_freebet_value de la configuration).
+        #[arg(long, value_name = "VALEUR")]
+        freebet_value: Option<f64>,
+    },
+    /// Enregistre une opération jouée : le pari bonus et ses couvertures, aux cotes et mises réellement obtenues.
+    Log {
+        /// Opérateur du bonus.
+        #[arg(long)]
+        bookmaker: String,
+        /// Forme (par défaut : celle de l'offre, ou le freebet reçu à jouer).
+        #[arg(long, value_name = "FORME")]
+        kind: Option<String>,
+        /// Identifiant du match (affiché par `edge bonus status`).
+        #[arg(long, value_name = "ID")]
+        event: String,
+        /// Pari bonus : ISSUE:COTE:MISE, par exemple A:3.10:100.
+        #[arg(long, value_name = "ISSUE:COTE:MISE")]
+        bonus: String,
+        /// Couverture : OPÉRATEUR:ISSUE:COTE:MISE, par exemple winamax_fr:H:2.10:122 (une par autre issue).
+        #[arg(long = "cover", value_name = "OPÉRATEUR:ISSUE:COTE:MISE")]
+        covers: Vec<String>,
+    },
+    /// Règle les opérations ouvertes depuis l'historique football-data, ou une opération à la main avec --id et --result.
+    Settle {
+        /// Numéro de l'opération à régler à la main.
+        #[arg(long, value_name = "N", requires = "result")]
+        id: Option<i64>,
+        /// Résultat du match : H, D, A, ou void (reporté ou annulé).
+        #[arg(long, value_name = "H|D|A|void", requires = "id")]
+        result: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 enum BoostCommand {
     /// Rentabilité historique des cotes boostées de WePari (pages téléchargées à la main dans le dossier `wepari`),
     /// tarifées contre Pinnacle sans marge.
@@ -335,6 +425,65 @@ fn main() -> Result<()> {
         },
         Command::Market { command } => match command {
             MarketCommand::Report { out } => commands::market_report(&paths, out.as_deref()),
+        },
+        Command::Bonus { command } => match command {
+            BonusCommand::Status => bonus::status(&paths),
+            BonusCommand::Pick { bookmaker } => bonus::pick(&paths, &bookmaker),
+            BonusCommand::Offer {
+                bookmaker,
+                kind,
+                amount,
+                min_odds,
+                ineligible,
+                source,
+                checked_on,
+                note,
+            } => bonus::offer(
+                &paths,
+                &bonus::OfferOptions {
+                    bookmaker,
+                    kind,
+                    amount,
+                    min_odds,
+                    ineligible,
+                    source,
+                    checked_on,
+                    note,
+                },
+            ),
+            BonusCommand::Cover {
+                kind,
+                amount,
+                odds,
+                covers,
+                freebet_value,
+            } => bonus::cover_calc(
+                &paths,
+                &bonus::CoverOptions {
+                    kind,
+                    amount,
+                    odds,
+                    covers,
+                    freebet_value,
+                },
+            ),
+            BonusCommand::Log {
+                bookmaker,
+                kind,
+                event,
+                bonus: bonus_leg,
+                covers,
+            } => bonus::log(
+                &paths,
+                &bonus::LogOptions {
+                    bookmaker,
+                    kind,
+                    event,
+                    bonus: bonus_leg,
+                    covers,
+                },
+            ),
+            BonusCommand::Settle { id, result } => bonus::settle(&paths, id.zip(result.as_deref())),
         },
         Command::Boost { command } => match command {
             BoostCommand::Study => boost::study(&paths),

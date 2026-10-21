@@ -110,7 +110,8 @@ fn price_row(found: &Opportunity, min_edge: f64, kelly: f64) -> PriceRow {
     }
 }
 
-pub(crate) fn league_name(sport_key: &str) -> String {
+/// Nom affiché d'une compétition ; la clé de The Odds API elle-même si elle n'est pas connue.
+pub fn league_name(sport_key: &str) -> String {
     LEAGUES
         .iter()
         .find(|league| league.sport_key == sport_key)

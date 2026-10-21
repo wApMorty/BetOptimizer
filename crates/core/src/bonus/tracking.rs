@@ -16,7 +16,7 @@ use crate::ingest::aliases::Aliases;
 use crate::store::bonus::{
     self, Eligibility, EventRef, Leg, MatchResult, NewOperation, Role, StoredOffer, StoredOperation,
 };
-use crate::store::journal::SettlementSource;
+use crate::store::journal::{self, SettlementSource};
 
 /// État de l'offre d'un opérateur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -215,9 +215,15 @@ fn status_of(
         offer,
         state,
         pending_freebet,
-        realized: own.iter().filter_map(|op| realized_gain(op)).sum(),
+        realized: total(own.iter().filter_map(|op| realized_gain(op))),
         open_operations: own.iter().filter(|op| op.settled.is_none()).count(),
     }
+}
+
+/// Somme de montants qui vaut `+0` quand il n'y a rien à additionner. `Iterator::sum` sur des `f64` part de `−0,0`
+/// (l'élément neutre exact de l'addition flottante) : une somme vide s'afficherait « −0,00 € ».
+fn total(amounts: impl Iterator<Item = f64>) -> f64 {
+    amounts.fold(0.0, |sum, amount| sum + amount)
 }
 
 /// Les comptes de couverture : opérateurs inéligibles ou dont l'offre est consommée.
@@ -285,12 +291,13 @@ pub fn board(conn: &Connection, freebet_value: f64, now: DateTime<Utc>) -> Resul
             candidates,
         });
     }
-    let realized = operations.iter().filter_map(realized_gain).sum();
-    let open_guaranteed = operations
-        .iter()
-        .filter(|op| op.settled.is_none())
-        .map(|op| op.operation.guaranteed)
-        .sum();
+    let realized = total(operations.iter().filter_map(realized_gain));
+    let open_guaranteed = total(
+        operations
+            .iter()
+            .filter(|op| op.settled.is_none())
+            .map(|op| op.operation.guaranteed),
+    );
     Ok(Board {
         operators,
         cover_accounts,
@@ -299,6 +306,72 @@ pub fn board(conn: &Connection, freebet_value: f64, now: DateTime<Utc>) -> Resul
         realized,
         open_guaranteed,
     })
+}
+
+/// Une opération saisie : ce que Paul a réellement joué.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OperationRequest {
+    /// Opérateur du bonus.
+    pub bookmaker: String,
+    /// Forme de l'opération ; `None` : celle de l'offre si elle est disponible, sinon le freebet reçu à jouer.
+    pub kind: Option<OfferKind>,
+    /// Identifiant du match dans l'archive (The Odds API).
+    pub event_id: String,
+    /// Le pari bonus et les couvertures, aux cotes et mises réellement obtenues.
+    pub legs: Vec<Leg>,
+    /// Valeur supposée d'un euro de freebet (configuration), retenue pour un premier pari remboursé en freebet.
+    pub freebet_value: f64,
+}
+
+/// Complète une saisie : offre en vigueur de l'opérateur, forme par défaut, match retrouvé dans l'archive, gain garanti.
+pub fn prepare_operation(conn: &Connection, request: &OperationRequest) -> Result<NewOperation> {
+    let offers = bonus::latest_offers(conn)?;
+    let operations = bonus::operations(conn)?;
+    let operators = statuses(&offers, &operations);
+    let name = operator_name(&request.bookmaker);
+    let Some(status) = operators.iter().find(|s| s.key == request.bookmaker) else {
+        return Err(Error::Input(format!(
+            "aucune offre enregistrée pour {name} : `edge bonus offer` d'abord"
+        )));
+    };
+    let Some(offer) = &status.offer else {
+        return Err(Error::Input(format!(
+            "aucune offre enregistrée pour {name} : `edge bonus offer` d'abord"
+        )));
+    };
+    let kind = match (request.kind, &offer.offer.eligibility, status.state) {
+        (Some(kind), _, _) => kind,
+        (None, Eligibility::Eligible { kind, .. }, OfferState::Available) => *kind,
+        (None, _, _) if status.pending_freebet.is_some() => OfferKind::Freebet,
+        (None, _, state) => {
+            return Err(Error::Input(format!(
+                "rien à jouer chez {name} : offre {}, aucun freebet en attente",
+                state.label()
+            )));
+        }
+    };
+    let Some(found) = journal::archived_event(conn, &request.event_id)? else {
+        return Err(Error::Input(format!(
+            "match {} absent de l'archive : reprends l'identifiant affiché par `edge bonus status`",
+            request.event_id
+        )));
+    };
+    let freebet_value = (kind == OfferKind::FreebetRefund).then_some(request.freebet_value);
+    let event = EventRef {
+        event_id: request.event_id.clone(),
+        sport_key: found.sport_key,
+        home_team: found.home_team,
+        away_team: found.away_team,
+        kickoff: found.kickoff,
+    };
+    Ok(new_operation(
+        offer.id,
+        kind,
+        freebet_value,
+        event,
+        // `clone()` : la saisie n'est qu'empruntée (l'appelant la garde pour l'afficher) ; l'opération possède ses paris.
+        request.legs.clone(),
+    ))
 }
 
 /// Vérifie une opération contre l'état du journal, puis l'enregistre. Renvoie son identifiant.
@@ -740,6 +813,72 @@ mod tests {
         )
         .unwrap();
         assert_eq!(state(&conn, "betclic_fr").pending_freebet, None);
+    }
+
+    #[test]
+    fn a_request_takes_the_offer_kind_then_the_pending_freebet() {
+        let mut conn = database();
+        let now = at("2026-10-21T10:00:00Z");
+        conn.execute_batch(
+            "INSERT INTO api_call (id, called_at, endpoint, sport_key, params, http_status)
+             VALUES (1, '2026-10-21T09:00:00Z', 'odds', 'soccer_epl', 'markets=h2h', 200);
+             INSERT INTO event_seen (api_call_id, event_id, sport_key, commence_time, home_team_raw, away_team_raw)
+             VALUES (1, 'ev1', 'soccer_epl', '2026-10-25T14:00:00Z', 'Arsenal', 'Chelsea');",
+        )
+        .unwrap();
+        insert_offer(&conn, &offer("winamax_fr", Eligibility::Ineligible), now).unwrap();
+        insert_offer(
+            &conn,
+            &offer("betclic_fr", eligible(OfferKind::FreebetRefund, 100.0)),
+            now,
+        )
+        .unwrap();
+        let request = OperationRequest {
+            bookmaker: "betclic_fr".into(),
+            kind: None,
+            event_id: "ev1".into(),
+            legs: vec![
+                leg(Role::Bonus, "betclic_fr", Outcome::Draw, 3.1, 100.0),
+                leg(Role::Cover, "winamax_fr", Outcome::Home, 2.1, 122.0),
+                leg(Role::Cover, "winamax_fr", Outcome::Away, 3.4, 75.3),
+            ],
+            freebet_value: 0.53,
+        };
+        let first = prepare_operation(&conn, &request).unwrap();
+        assert_eq!(first.kind, OfferKind::FreebetRefund);
+        assert_eq!(first.freebet_value, Some(0.53));
+        assert_eq!(first.event.home_team, "Arsenal");
+        let id = record_operation(&mut conn, &first, now).unwrap();
+        // Offre consommée, freebet pas encore dû : rien à jouer.
+        assert!(
+            prepare_operation(&conn, &request)
+                .unwrap_err()
+                .to_string()
+                .contains("rien à jouer")
+        );
+        insert_settlement(
+            &conn,
+            id,
+            MatchResult::Played(Outcome::Home),
+            SettlementSource::Manual,
+            now,
+        )
+        .unwrap();
+        let second = prepare_operation(&conn, &request).unwrap();
+        assert_eq!(
+            (second.kind, second.freebet_value),
+            (OfferKind::Freebet, None)
+        );
+        let unknown = OperationRequest {
+            event_id: "absent".into(),
+            ..request
+        };
+        assert!(
+            prepare_operation(&conn, &unknown)
+                .unwrap_err()
+                .to_string()
+                .contains("absent de l'archive")
+        );
     }
 
     #[test]
