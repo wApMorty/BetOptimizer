@@ -77,15 +77,16 @@ pub struct Scan {
 }
 
 /// Les cotes d'un bookmaker pour un match, à mesure qu'on lit les lignes de la table `quote`.
-#[derive(Default)]
-struct BookQuotes {
-    prices: [Option<Odds>; 3],
+#[derive(Debug, Default, Clone)]
+pub(crate) struct BookQuotes {
+    pub(crate) prices: [Option<Odds>; 3],
     /// Plus ancienne mise à jour parmi les trois issues : le prix vaut ce que vaut son plus vieux élément.
-    oldest_update: Option<DateTime<Utc>>,
+    pub(crate) oldest_update: Option<DateTime<Utc>>,
 }
 
 impl BookQuotes {
-    fn complete(&self) -> Option<Odds1x2> {
+    /// Le 1X2 complet, ou `None` s'il manque une issue.
+    pub(crate) fn complete(&self) -> Option<Odds1x2> {
         match self.prices {
             [Some(home), Some(draw), Some(away)] => Some(Odds1x2 { home, draw, away }),
             _ => None,
@@ -93,18 +94,22 @@ impl BookQuotes {
     }
 }
 
-/// Lit les derniers relevés et cherche les prix qui dépassent la cote juste de Pinnacle d'au moins `min_edge`.
-///
-/// Un match n'est lu que dans son relevé le plus récent, et seulement si ce relevé a moins de
-/// [`MAX_SNAPSHOT_AGE_HOURS`] heures et si le coup d'envoi est dans le futur. Les bookmakers de `excluded`
-/// (`excluded_bookmakers` de la configuration) ne sont jamais retenus : leurs prix restent dans l'archive, c'est tout.
-pub fn scan(
-    conn: &Connection,
-    method: MarginMethod,
-    min_edge: f64,
-    excluded: &[String],
-    now: DateTime<Utc>,
-) -> Result<Scan> {
+/// Un match à venir lu dans son relevé le plus récent, avec les cotes 1X2 de chaque bookmaker.
+#[derive(Debug, Clone)]
+pub(crate) struct EventQuotes {
+    pub(crate) event_id: String,
+    pub(crate) api_call_id: i64,
+    pub(crate) sport_key: String,
+    pub(crate) home_team: String,
+    pub(crate) away_team: String,
+    pub(crate) kickoff: DateTime<Utc>,
+    /// BTreeMap : itération par clé de bookmaker, donc départage déterministe des égalités.
+    pub(crate) books: BTreeMap<String, BookQuotes>,
+}
+
+/// Les matchs de football à venir, chacun dans son relevé le plus récent si ce relevé a moins de
+/// [`MAX_SNAPSHOT_AGE_HOURS`] heures, du plus proche coup d'envoi au plus lointain. Lecture seule.
+pub(crate) fn latest_quotes(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<EventQuotes>> {
     let oldest_snapshot = now - Duration::hours(MAX_SNAPSHOT_AGE_HOURS);
     let mut events = conn.prepare(&format!(
         "SELECT e.event_id, e.api_call_id, e.sport_key, e.commence_time, e.home_team_raw, e.away_team_raw
@@ -117,13 +122,6 @@ pub fn scan(
         "SELECT bookmaker_key, outcome_raw, price, quote_updated_at FROM quote
          WHERE api_call_id = ?1 AND event_id = ?2 AND market_key = 'h2h'",
     )?;
-
-    let mut scan = Scan {
-        events: 0,
-        without_reference: 0,
-        implausible_quotes: 0,
-        opportunities: Vec::new(),
-    };
     let rows = events.query_map(params![timestamp(now), timestamp(oldest_snapshot)], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -134,11 +132,9 @@ pub fn scan(
             row.get::<_, String>(5)?,
         ))
     })?;
+    let mut all = Vec::new();
     for row in rows {
         let (event_id, call_id, sport_key, kickoff, home, away) = row?;
-        scan.events += 1;
-
-        // BTreeMap : itération par clé de bookmaker, donc départage déterministe des égalités.
         let mut books: BTreeMap<String, BookQuotes> = BTreeMap::new();
         let lines = quotes.query_map(params![call_id, event_id], |line| {
             Ok((
@@ -165,8 +161,41 @@ pub fn scan(
             let updated = parse_timestamp(&updated_at)?;
             book.oldest_update = Some(book.oldest_update.map_or(updated, |t| t.min(updated)));
         }
+        all.push(EventQuotes {
+            event_id,
+            api_call_id: call_id,
+            sport_key,
+            home_team: home,
+            away_team: away,
+            kickoff: parse_timestamp(&kickoff)?,
+            books,
+        });
+    }
+    Ok(all)
+}
 
-        let reference = books
+/// Lit les derniers relevés et cherche les prix qui dépassent la cote juste de Pinnacle d'au moins `min_edge`.
+///
+/// Un match n'est lu que dans son relevé le plus récent, et seulement si ce relevé a moins de
+/// [`MAX_SNAPSHOT_AGE_HOURS`] heures et si le coup d'envoi est dans le futur. Les bookmakers de `excluded`
+/// (`excluded_bookmakers` de la configuration) ne sont jamais retenus : leurs prix restent dans l'archive, c'est tout.
+pub fn scan(
+    conn: &Connection,
+    method: MarginMethod,
+    min_edge: f64,
+    excluded: &[String],
+    now: DateTime<Utc>,
+) -> Result<Scan> {
+    let mut scan = Scan {
+        events: 0,
+        without_reference: 0,
+        implausible_quotes: 0,
+        opportunities: Vec::new(),
+    };
+    for event in latest_quotes(conn, now)? {
+        scan.events += 1;
+        let reference = event
+            .books
             .get(SHARP_BOOKMAKER)
             .and_then(BookQuotes::complete)
             .filter(plausible);
@@ -176,7 +205,7 @@ pub fn scan(
         };
 
         let mut best: Option<Opportunity> = None;
-        for (bookmaker, book) in &books {
+        for (bookmaker, book) in &event.books {
             if bookmaker == SHARP_BOOKMAKER || excluded.contains(bookmaker) {
                 continue;
             }
@@ -195,12 +224,12 @@ pub fn scan(
                 .is_none_or(|b| selection.edge > b.selection.edge)
             {
                 best = Some(Opportunity {
-                    event_id: event_id.clone(),
-                    api_call_id: call_id,
-                    sport_key: sport_key.clone(),
-                    home_team: home.clone(),
-                    away_team: away.clone(),
-                    kickoff: parse_timestamp(&kickoff)?,
+                    event_id: event.event_id.clone(),
+                    api_call_id: event.api_call_id,
+                    sport_key: event.sport_key.clone(),
+                    home_team: event.home_team.clone(),
+                    away_team: event.away_team.clone(),
+                    kickoff: event.kickoff,
                     bookmaker: bookmaker.clone(),
                     minimal_odds: minimal_odds(selection.probability, min_edge),
                     selection,
@@ -236,7 +265,8 @@ pub fn size_stakes(
     Ok(())
 }
 
-fn plausible(odds: &Odds1x2) -> bool {
+/// Vrai si la somme des probabilités implicites est plausible (voir [`IMPLIED_SUM_RANGE`]).
+pub(crate) fn plausible(odds: &Odds1x2) -> bool {
     (IMPLIED_SUM_RANGE.0..=IMPLIED_SUM_RANGE.1).contains(&odds.implied_sum())
 }
 

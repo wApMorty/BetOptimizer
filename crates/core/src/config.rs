@@ -141,6 +141,9 @@ pub struct Config {
     /// Adresse du site telle qu'un autre appareil la tape (`http://portable.local:8737/`) : rappelée dans le message
     /// Discord, qui ne joint alors plus le rapport HTML. Absente : le rapport reste joint.
     pub site_url: Option<String>,
+    /// Valeur supposée d'un euro de freebet converti par couverture, pour le calcul d'un premier pari remboursé en freebet
+    /// (`edge bonus`). Défaut : 0,53, bas de la fourchette mesurée sur l'archive (`docs/bonus-bienvenue.md` §4).
+    pub bonus_freebet_value: f64,
 }
 
 impl Default for Config {
@@ -181,6 +184,7 @@ impl Default for Config {
             discord_webhook_url: None,
             serve_bind: SocketAddr::from(([127, 0, 0, 1], 8737)),
             site_url: None,
+            bonus_freebet_value: crate::bonus::DEFAULT_FREEBET_VALUE,
         }
     }
 }
@@ -229,6 +233,11 @@ impl Config {
         if !(self.kelly_fraction > 0.0 && self.kelly_fraction <= 1.0) {
             return Err(Error::InvalidConfig(
                 "kelly_fraction doit être dans ]0 ; 1]".to_string(),
+            ));
+        }
+        if !(self.bonus_freebet_value > 0.0 && self.bonus_freebet_value < 1.0) {
+            return Err(Error::InvalidConfig(
+                "bonus_freebet_value doit être dans ]0 ; 1[".to_string(),
             ));
         }
         if !(self.min_stake.is_finite() && self.min_stake >= 0.0) {

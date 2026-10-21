@@ -380,7 +380,8 @@ impl SettlementSource {
         }
     }
 
-    fn parse(text: &str) -> Result<SettlementSource> {
+    /// Relit une source stockée en base.
+    pub(crate) fn parse(text: &str) -> Result<SettlementSource> {
         match text {
             "football-data" => Ok(SettlementSource::FootballData),
             "manual" => Ok(SettlementSource::Manual),

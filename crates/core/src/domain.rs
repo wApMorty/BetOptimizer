@@ -27,6 +27,17 @@ impl Euros {
         Euros::new(tenths / 10.0)
     }
 
+    /// Arrondit un montant au dixième d'euro **le plus proche**. Sert aux mises de couverture d'un bonus : on cherche à
+    /// égaliser le gain entre les issues, pas à rester sous un plafond, donc l'arrondi au plus proche est le plus juste.
+    pub fn round_to_step(amount: f64) -> Option<Euros> {
+        if !amount.is_finite() || amount < 0.0 {
+            return None;
+        }
+        // Même epsilon et même division par 10 que `floor_to_step`, pour les mêmes raisons.
+        let tenths = (amount / Euros::STEP + 1e-9).round();
+        Euros::new(tenths / 10.0)
+    }
+
     /// Valeur en euros.
     pub fn get(self) -> f64 {
         self.0
@@ -384,6 +395,18 @@ mod tests {
         // 2,30 représenté comme 2,2999999… ne doit pas perdre un dixième.
         assert_eq!(floor(0.1 + 0.2 + 2.0), 2.3);
         assert!(Euros::floor_to_step(-1.0).is_none());
+    }
+
+    #[test]
+    fn cover_stakes_are_rounded_to_the_nearest_tenth() {
+        let round = |x: f64| Euros::round_to_step(x).unwrap().get();
+        assert_eq!(round(2.34), 2.3);
+        assert_eq!(round(2.36), 2.4);
+        assert_eq!(round(2.0), 2.0);
+        assert_eq!(round(0.04), 0.0);
+        assert_eq!(round(170.449), 170.4);
+        assert!(Euros::round_to_step(-0.5).is_none());
+        assert!(Euros::round_to_step(f64::NAN).is_none());
     }
 
     #[test]

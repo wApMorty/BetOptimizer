@@ -74,3 +74,8 @@ min_stake = 1.0
 serve_bind = "127.0.0.1:8737"
 # Adresse du site vue depuis un autre appareil, rappelée dans le message Discord (qui ne joint alors plus le rapport).
 # site_url = "http://portable.local:8737/"
+
+# Bonus de bienvenue (`edge bonus`, docs/bonus-bienvenue.md) : valeur supposée d'un euro de freebet converti par couverture.
+# Elle sert au calcul d'un premier pari remboursé en freebet, dont le gain n'est garanti que si le freebet reçu est ensuite
+# converti à cette valeur au moins. 0,53 : bas de la fourchette mesurée sur l'archive (0,53 à 0,56, meilleur match du jour).
+bonus_freebet_value = 0.53

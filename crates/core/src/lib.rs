@@ -5,6 +5,7 @@
 
 pub mod backtest;
 pub mod betting;
+pub mod bonus;
 pub mod boost;
 pub mod config;
 pub mod domain;

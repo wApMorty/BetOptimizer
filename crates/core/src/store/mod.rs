@@ -2,6 +2,7 @@
 
 pub mod archive;
 pub mod backtests;
+pub mod bonus;
 pub mod history;
 pub mod journal;
 pub mod migrate;
