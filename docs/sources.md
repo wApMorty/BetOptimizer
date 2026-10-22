@@ -1254,3 +1254,61 @@ mieux ; tous les poids optimaux sont compatibles avec 0. Plus de capacité ne co
 - Les choix des MLP (CLV −8,3 % et −8,7 %) sont environ 1,5 point meilleurs que la référence sans information (−9,8 %). Non vérifié :
   la méthode `power` charge davantage la marge sur les outsiders, si bien qu'une sélection penchant vers les favoris améliore le CLV
   mécaniquement. Sans effet sur le verdict : il manque environ 10 points pour couvrir la marge et la décote.
+
+## 36. Forme récente et croisement de moyennes exponentielles contre le marché (2026-10-22)
+
+Demande de Paul : une équipe qui surperforme depuis quelques matchs serait « sur une bonne lancée » ; analogie avec le trading (prix
+au-dessus de ses EMA, croisement EMA rapide/lente). Le §35 incluait la forme aux points parmi 34 variables, jamais isolée ni mesurée
+contre les attentes du marché. Étude ponctuelle en Python (venv jetable : pandas 3.1.0, numpy 2.5.4, scipy 1.18.1), script dans le
+scratchpad, non versionné ; lecture seule des CSV football-data. Aucun crédit dépensé.
+
+**Littérature** : les parieurs misent davantage sur les équipes en série (NBA, NFL), mais la cote absorbe ce biais. Ni parier avec la
+série ni parier contre ne rapporte après la marge (Camerer 1989 ; Brown & Sauer 1993 ; Paul, Weinbach & Humphreys 2011). Aucune
+étude en football mesurée contre la clôture de Pinnacle.
+
+**Protocole, validé avant tout calcul.**
+- Six ligues, matchs avec les cotes Pinnacle d'avant-match ; référence : probabilités sans marge `power`.
+- Surperformance d'une équipe sur un match : points obtenus − (3 p_victoire + p_nul) du marché. Trois signaux, différence
+  domicile − extérieur : **S3** (somme sur 3 matchs), **S6** (sur 6), **SX** (EMA α = 0,5 − EMA α = 0,1 de la surperformance).
+  Remise à zéro à chaque saison ; matchs évalués seulement si les deux équipes en ont joué au moins 6 dans la saison (choix fait à
+  l'écriture du script, le protocole ne le précisait pas). **Test de fuite** : signaux recalculés sur les seuls matchs antérieurs au
+  2022-01-01 (11 135), identiques au bit près.
+- Test d'information : p ∝ p_marché · exp(β z x), x = +1 domicile, 0 nul, −1 extérieur, z = signal divisé par son écart-type
+  d'entraînement. β > 0 : élan non intégré par le marché ; β < 0 : sur-réaction du marché. β estimé sur 2017/18–2022/23
+  (10 155 matchs), vérifié sur 2023/24–2024/25 (3 307).
+- Test de pari : décile extrême du signal (seuils de l'entraînement), sens « élan » (parier l'équipe en forme) ou « contre » (parier
+  son adversaire), cote Pinnacle d'avant-match × 0,910, CLV contre la clôture sans marge de Pinnacle.
+- Bootstrap par blocs de semaines ISO, 2 000 tirages, graine 20261022. **Configurations : 3 signaux × 2 sens = 6.**
+
+**Test d'information** (log loss du marché en vérification : 0,95878).
+
+| Signal | β entraînement [IC 95 %] | β vérification [IC 95 %] | Δ log loss, β gelé [IC 95 %] |
+|---|---|---|---|
+| S3 | −0,018 [−0,046 ; +0,010] | −0,031 [−0,073 ; +0,008] | −0,00023 [−0,00065 ; +0,00016] |
+| S6 | −0,019 [−0,044 ; +0,008] | −0,007 [−0,049 ; +0,037] | +0,00003 [−0,00044 ; +0,00054] |
+| SX | −0,006 [−0,034 ; +0,022] | −0,028 [−0,069 ; +0,010] | −0,00009 [−0,00022 ; +0,00004] |
+
+Les β sont tous légèrement négatifs (sens d'une sur-réaction du marché, comme dans la littérature), mais compatibles avec 0. À
+β = −0,03, une équipe au décile extrême (z ≈ 1,5) perd moins d'un point de probabilité : très loin de la marge.
+
+**Test de pari (vérification).** CLV de référence sans signal, au prix Pinnacle brut : domicile −3,5 %, nul −4,4 %, extérieur −7,0 %
+(la méthode `power` charge la marge sur les outsiders) ; au prix décoté : −12,1 % à −15,4 %.
+
+| Signal | Sens | Paris | CLV décotée [IC 95 %] | ROI décoté [IC 95 %] | CLV Pinnacle brute |
+|---|---|---|---|---|---|
+| S3 | élan | 614 | −12,8 % [−13,6 ; −12,0] | −22,7 % [−31,7 ; −13,0] | −4,2 % |
+| S3 | contre | 614 | −14,6 % [−15,7 ; −13,6] | −15,0 % [−25,2 ; −4,8] | −6,2 % |
+| S6 | élan | 645 | −13,4 % [−14,1 ; −12,7] | −18,8 % [−28,2 ; −9,2] | −4,8 % |
+| S6 | contre | 645 | −13,5 % [−14,4 ; −12,7] | −24,9 % [−34,7 ; −15,0] | −5,0 % |
+| SX | élan | 635 | −12,7 % [−13,4 ; −12,0] | −25,3 % [−34,1 ; −15,8] | −4,1 % |
+| SX | contre | 635 | −14,4 % [−15,2 ; −13,6] | −10,1 % [−21,6 ; +2,1] | −6,0 % |
+
+Les CLV restent dans la fourchette de la référence sans signal ; aucun ROI n'est positif. Les résultats d'entraînement vont dans le
+même sens (CLV décotée de −11,9 % à −12,6 %).
+
+**Verdict : piste close.** La forme récente, mesurée contre les attentes du marché, n'apporte aucune information que Pinnacle n'a pas
+déjà. L'analogie avec le trading ne tient pas : l'EMA porte ici sur une donnée publique que le marché intègre déjà dans son prix ; le
+seul équivalent du prix, le mouvement de la cote de Pinnacle, a été mesuré au §34 (inexploitable).
+
+**Limites.** Pas de Pinnacle d'avant-match en 2025/26 et 2026/27, donc pas de vérification sur ces saisons ; surperformance mesurée
+en points seulement (ni buts, ni tirs, ni xG) ; une seule fenêtre de seuil (décile).
