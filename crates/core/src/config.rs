@@ -18,6 +18,9 @@ use crate::market::margin::MarginMethod;
 /// Nom de la variable d'environnement qui contient la clé API.
 pub const API_KEY_ENV: &str = "EDGE_ODDS_API_KEY";
 
+/// Nom de la variable d'environnement qui contient la clé d'OddsPapi (historique des cotes, phase 13).
+pub const ODDSPAPI_KEY_ENV: &str = "EDGE_ODDSPAPI_KEY";
+
 /// Nom de la variable d'environnement qui contient l'URL du webhook Discord.
 pub const WEBHOOK_ENV: &str = "EDGE_DISCORD_WEBHOOK";
 
@@ -117,6 +120,10 @@ pub struct Config {
     pub margin_method: MarginMethod,
     /// Clé API écrite dans le fichier (alternative à la variable d'environnement).
     pub odds_api_key: Option<ApiKey>,
+    /// Clé d'OddsPapi écrite dans le fichier (alternative à `EDGE_ODDSPAPI_KEY`). Secret : fichier en permissions 0600.
+    pub oddspapi_api_key: Option<ApiKey>,
+    /// Plafond de requêtes OddsPapi décomptées par mois (l'offre gratuite en donne 250 ; l'historique n'est pas décompté).
+    pub oddspapi_monthly_cap: u32,
     /// Bankroll de départ, en euros. La bankroll courante en déduit les gains et les mises de tes paris enregistrés.
     pub initial_bankroll: f64,
     /// Archiver aussi les cotes des tournois de tennis en cours (clés découvertes par `/sports`, 1 crédit par tournoi).
@@ -173,6 +180,8 @@ impl Default for Config {
             markets: owned(&["h2h"]),
             margin_method: MarginMethod::Power,
             odds_api_key: None,
+            oddspapi_api_key: None,
+            oddspapi_monthly_cap: 200,
             tennis_archive: true,
             tennis_max_tournaments: 6,
             nba_archive: true,
@@ -211,7 +220,10 @@ impl Config {
             source,
         })?;
         config.validate()?;
-        if config.odds_api_key.is_some() || config.discord_webhook_url.is_some() {
+        if config.odds_api_key.is_some()
+            || config.oddspapi_api_key.is_some()
+            || config.discord_webhook_url.is_some()
+        {
             check_permissions(path)?;
         }
         Ok(config)
@@ -223,6 +235,11 @@ impl Config {
         if self.monthly_credit_cap == 0 {
             return Err(Error::InvalidConfig(
                 "monthly_credit_cap doit être supérieur à 0".to_string(),
+            ));
+        }
+        if self.oddspapi_monthly_cap == 0 {
+            return Err(Error::InvalidConfig(
+                "oddspapi_monthly_cap doit être supérieur à 0".to_string(),
             ));
         }
         if !(self.initial_bankroll.is_finite() && self.initial_bankroll > 0.0) {
@@ -313,6 +330,22 @@ impl Config {
     }
 }
 
+impl Config {
+    /// Détermine la clé d'OddsPapi : la variable d'environnement (`from_env`) prime, sinon celle du fichier.
+    ///
+    /// Même règle que [`Config::api_key`] ; seule l'erreur diffère, pour dire quelle clé manque.
+    pub fn oddspapi_key(&self, from_env: Option<&str>) -> Result<ApiKey> {
+        match from_env.map(str::trim).filter(|value| !value.is_empty()) {
+            Some(value) => Ok(ApiKey::new(value)),
+            None => self
+                .oddspapi_api_key
+                .clone()
+                .filter(|key| !key.expose().is_empty())
+                .ok_or(Error::MissingOddsPapiKey),
+        }
+    }
+}
+
 /// Les clés de The Odds API (`soccer_epl`, `winamax_fr`, `h2h`) sont en minuscules, chiffres et `_`.
 /// Cela garantit aussi qu'aucun caractère spécial ne peut se glisser dans l'URL.
 fn is_api_name(name: &str) -> bool {
@@ -362,6 +395,18 @@ mod tests {
     fn example_file_matches_the_defaults() {
         // Garantit que l'exemple documenté et les valeurs par défaut du code ne divergent jamais.
         assert_eq!(Config::parse(EXAMPLE_TOML).unwrap(), Config::default());
+    }
+
+    #[test]
+    fn oddspapi_key_prefers_the_environment_and_names_itself_when_missing() {
+        let config = Config::parse(r#"oddspapi_api_key = "du-fichier""#).unwrap();
+        assert_eq!(
+            config.oddspapi_key(Some("de-l-env")).unwrap().expose(),
+            "de-l-env"
+        );
+        assert_eq!(config.oddspapi_key(None).unwrap().expose(), "du-fichier");
+        let err = Config::default().oddspapi_key(Some("  ")).unwrap_err();
+        assert!(err.to_string().contains("EDGE_ODDSPAPI_KEY"));
     }
 
     #[test]

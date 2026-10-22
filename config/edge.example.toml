@@ -56,6 +56,12 @@ margin_method = "power"
 # La variable d'environnement EDGE_ODDS_API_KEY a priorité sur cette valeur.
 # odds_api_key = "..."
 
+# OddsPapi (phase 13, `edge latency`) : historique des cotes à chaque changement de prix, gratuit. Même règle de secret ;
+# la variable EDGE_ODDSPAPI_KEY a priorité. Le plafond porte sur les requêtes décomptées (250 par mois dans l'offre
+# gratuite) : seule la liste des matchs l'est, 6 requêtes par passage hebdomadaire.
+# oddspapi_api_key = "..."
+oddspapi_monthly_cap = 200
+
 # Mises. La bankroll courante part de initial_bankroll, ajoute les gains et retire les mises de TES paris enregistrés
 # (`edge bet log`). Demi-Kelly (0,5) est le choix du projet depuis le 2026-10-20 : en Kelly complet, un avantage annoncé
 # surestimé fait décroître la bankroll (docs/sources.md §27). Les rapports comparent ×1, ½ et ¼.

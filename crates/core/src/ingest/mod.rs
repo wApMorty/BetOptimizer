@@ -7,5 +7,6 @@ pub mod closing;
 pub mod football_data;
 pub mod nba;
 pub mod odds_api;
+pub mod oddspapi;
 pub mod snapshot;
 pub mod tennis;

@@ -4,4 +4,5 @@
 //! taux de bons pronostics. Plus un score est bas, meilleure est la prévision.
 
 pub mod bootstrap;
+pub mod latency;
 pub mod metrics;

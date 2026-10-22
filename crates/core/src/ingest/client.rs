@@ -74,7 +74,7 @@ impl OddsApiClient {
 }
 
 /// Remplace toute occurrence de la clé par `***`.
-fn redact(text: &str, key: &ApiKey) -> String {
+pub(crate) fn redact(text: &str, key: &ApiKey) -> String {
     // Garde-fou : remplacer une chaîne vide insérerait `***` entre chaque caractère.
     if key.expose().is_empty() {
         return text.to_string();

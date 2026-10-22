@@ -7,6 +7,7 @@ pub mod history;
 pub mod journal;
 pub mod migrate;
 pub mod nba;
+pub mod oddspapi;
 pub mod predictions;
 pub mod tennis;
 

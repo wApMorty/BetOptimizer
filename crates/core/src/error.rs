@@ -43,6 +43,12 @@ pub enum Error {
     )]
     MissingApiKey,
 
+    /// Aucune clé OddsPapi n'est disponible, ni dans l'environnement ni dans le fichier.
+    #[error(
+        "clé OddsPapi introuvable : définis la variable EDGE_ODDSPAPI_KEY ou ajoute oddspapi_api_key dans le fichier de configuration"
+    )]
+    MissingOddsPapiKey,
+
     /// Aucune URL de webhook Discord n'est disponible, ni dans l'environnement ni dans le fichier.
     #[error(
         "webhook Discord introuvable : définis la variable EDGE_DISCORD_WEBHOOK ou ajoute discord_webhook_url dans le fichier de configuration"
