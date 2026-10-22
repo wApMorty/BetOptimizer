@@ -1159,3 +1159,24 @@ mieux relevé ; le filtre n'exclut pas un reste d'artefact. Taille d'échantillo
 - Marchés dérivés (BTTS, double chance) contre une référence sharp : aucune étude ; testé ici, rien sur données propres.
 - Buchdahl (football-data.co.uk, 2026-10-09, 61 979 paris) : part de l'avantage annoncé qui survit à la clôture, environ 30 % sous
   500 $ de limite Pinnacle, environ 75 % au-delà de 2 000 $.
+
+**Mise en production (phase 13, 2026-10-22).** Le test prospectif est porté en Rust dans `edge` (le script Python de la veille est
+retiré : un composant récurrent passe par `core`) :
+- `edge latency fetch` : un passage par semaine (timer `edge-latency`, lundi 9 h) ;
+- `edge latency report` : la règle et le verdict ;
+- page `/latence` du site ;
+- archive immuable : migration 14 (`oddspapi_call`, `oddspapi_fixture`, `oddspapi_price`).
+
+Règle figée dans `crates/core/src/eval/latency.rs` (constantes) :
+- celle de l'étude, plus le filtre de suivi de 10 changements en 24 h (20 en lecture secondaire) ;
+- matchs à partir du 2026-10-22 ;
+- verdict unique sur les 32 premiers paris ; échéance le 2027-01-18.
+
+Faits relevés à la mise en route :
+- `GET /v4/fixtures` répond **404 `FIXTURE_NOT_FOUND`** quand aucun match ne correspond, au lieu d'une liste vide : traité comme une liste
+  vide ;
+- un 4xx est décompté comme une requête (documentation « Requests & Quota ») ;
+- consommation au 2026-10-22 : 33 requêtes sur 250.
+
+Table d'alias : 80 variantes OddsPapi ajoutées (six ligues). Red Star, Rodez, Arbroath et Dunfermline (matchs de barrage) n'ont pas de
+nom chez The Odds API : ils restent hors table et seraient signalés par le contrôle de qualité.
