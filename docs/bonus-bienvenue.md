@@ -117,12 +117,13 @@ règlement de l'opérateur au moment de l'ouverture.
 | PMU | 100 € remboursés | argent | oui |
 | Betclic | 100 € remboursés | freebets | oui |
 | Unibet (et ZEturf, même société) | premier pari doublé jusqu'à 110 € | à préciser | oui |
+| ZEbet | à relever | | même cotes qu'Unibet (100 %, §10) : même plateforme, offre distincte peu probable |
 | NetBet | à relever | | oui (écarté des recommandations) |
-| bet365 (agréé depuis mai 2026) | jusqu'à 100 € remboursés | à préciser | non |
+| bet365 (agréé depuis mai 2026) | jusqu'à 100 € remboursés | à préciser | historique OddsPapi seulement (§10) |
 | Betsson | 10 € sans dépôt + 100 € de freebets | freebets | non |
-| bwin | à relever | | non |
-| PokerStars Sports (et Betstars) | à relever | | non |
-| Genybet | à relever | | non |
+| bwin | à relever | | historique OddsPapi seulement (§10) |
+| PokerStars Sports (et Betstars) | à relever | | historique OddsPapi, octobre seulement (§10) |
+| Genybet | à relever | | non (inclus dans OddsPapi, mais aucun historique) |
 | Vbet | à relever | | non |
 | Feelingbet | à relever | | non |
 | Olybet | à relever | | non |
@@ -130,7 +131,9 @@ règlement de l'opérateur au moment de l'ouverture.
 | DAZN Bet | à relever | | non |
 | Yesorno | à relever | | non |
 
-La liste ANJ lue ne mentionnait ni Parions Sport (FDJ) ni ZEbet : à revérifier avant de les écarter.
+La liste ANJ lue ne mentionnait ni Parions Sport (FDJ) ni ZEbet : à revérifier avant de les écarter. Selon une source tierce (2026-10-21),
+Parions Sport en ligne et ZEbet sont fusionnés dans Unibet depuis mars 2026 et leurs domaines redirigent vers unibet.fr ; les cotes
+identiques le confirment pour ZEbet (§10).
 
 ## 8. Suivi : `edge bonus`, onglet Bonus, page `/bonus` (phase 12)
 
@@ -148,6 +151,48 @@ compte de couverture.
    « à jouer » chez l'opérateur, avec ses propres propositions.
 
 Valeur d'un euro de freebet supposée pour le premier pari remboursé en freebet : `bonus_freebet_value = 0.53` dans la configuration.
+
+## 10. Opérateurs absents de The Odds API : mesures sur l'historique OddsPapi (2026-10-22)
+
+Étude ponctuelle, en lecture seule. Données : historique OddsPapi (`docs/sources.md` §34), Big 5 et Écosse, octobre 2026 (du 1er au
+18). Décision chaque jour à 12 h UTC, comme le relevé quotidien, sur les matchs des 7 jours suivants. Un opérateur n'est retenu sur un
+match que s'il a au moins 10 changements de cote relevés dans les 24 h avant ce match : c'est le filtre contre l'artefact du §34.
+Références : Pinnacle sans marge, méthode puissance. Betclic est absent d'OddsPapi.
+
+| Opérateur | Surronde moyenne du 1X2 | Freebet de 1 € sans couverture, `r − p`, cote 3–4,5 | idem, cote 4,5–6,5 |
+|---|---|---|---|
+| Winamax | 1,099 | 0,65 | 0,68 |
+| PMU | 1,099 | 0,64 | 0,68 |
+| bet365.fr | 1,103 | 0,64 | 0,70 |
+| Unibet / ZEbet | 1,111 | 0,64 | 0,67 |
+| PokerStars | 1,129 | 0,62 | 0,67 |
+| bwin.fr | 1,149 | 0,59 | 0,59 |
+
+Freebet couvert, gain garanti par euro sur le meilleur match de chaque jour (médiane sur les jours observés, minimum–maximum) :
+
+| Opérateur du bonus | Couverture chez Winamax, Unibet et PMU | Couverture chez tous les opérateurs suivis |
+|---|---|---|
+| Winamax | 0,55 (0,53–0,61) | 0,60 (0,54–0,62) |
+| Unibet / ZEbet | 0,54 (0,49–0,60) | 0,57 (0,52–0,64) |
+| PMU | 0,54 (0,51–0,62) | 0,55 (0,51–0,62) |
+| bet365.fr | 0,56 (0,52–0,62) | 0,56 (0,52–0,63) |
+| PokerStars (6 jours) | 0,56 (0,53–0,58) | 0,57 (0,54–0,58) |
+| bwin.fr (8 jours) | 0,50 (0,19–0,54) | 0,52 (0,20–0,54) |
+
+Lecture :
+- **bet365.fr vaut un opérateur de premier rang** pour un bonus : marge proche de Winamax et PMU, conversion couverte de 0,56.
+  C'est l'offre nouvelle la plus intéressante.
+- **PokerStars** est comparable, mais il n'est mesuré que sur 6 jours.
+- **bwin.fr** a la marge la plus lourde (14,9 %) ; sa conversion est plus basse et irrégulière.
+- **Ajouter des comptes de couverture** rapporte de 0,01 à 0,05 € par euro de freebet. Une fois leur bonus consommé, bet365, bwin et
+  PokerStars ont donc une utilité de plus comme comptes de couverture.
+- **ZEbet** affiche exactement les cotes d'Unibet (3 230 cotes comparées sur 3 230). Il ne faut pas compter sur une offre ZEbet séparée
+  sans l'avoir lue.
+
+Limites :
+- 18 jours d'octobre seulement, avec des observations corrélées : ce sont des ordres de grandeur.
+- `edge bonus pick` ne connaît pas ces opérateurs : il lit l'archive The Odds API. Pour une offre bet365, bwin ou PokerStars, on
+  calcule la couverture sur les cotes affichées (`edge bonus cover`, ou le calculateur de l'onglet Bonus).
 
 ## 9. À ajuster
 
