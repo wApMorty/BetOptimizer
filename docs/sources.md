@@ -1312,3 +1312,141 @@ seul équivalent du prix, le mouvement de la cote de Pinnacle, a été mesuré a
 
 **Limites.** Pas de Pinnacle d'avant-match en 2025/26 et 2026/27, donc pas de vérification sur ces saisons ; surperformance mesurée
 en points seulement (ni buts, ni tirs, ni xG) ; une seule fenêtre de seuil (décile).
+
+## 37. Loto Foot (FDJ) : jeu à répartition, public biaisé, jackpots garantis (2026-10-22)
+
+**Pourquoi cette piste.** Les marges françaises tuent tout petit avantage contre Pinnacle (§33 à §36). Un jeu **à répartition**
+échappe à ce mur : les gagnants se partagent les mises des autres joueurs. L'opérateur n'a aucun intérêt à limiter un gagnant, le
+jeu est anonyme en point de vente, et le prix d'une issue dépend de ce que joue le public, pas d'un bookmaker. Si le public se
+trompe plus que le prélèvement, une grille choisie sur les probabilités du marché a une espérance positive (Clair & Letscher,
+*Operations Research* 2007, « Optimal Strategies for Sports Betting Pools »).
+
+**OddsPapi indisponible ce jour.** Tous les points d'accès répondent HTTP 500 « Authentication error occurred » avec notre clé ;
+une clé inventée reçoit 401 `INVALID_API_KEY`. La clé existe donc, le compte côté serveur est en défaut. Le test prospectif
+`edge latency` (§34) en dépend : à surveiller lundi.
+
+**Règles** (règlement FDJ « Loto Foot 7 & 15 », PDF media.fdj.fr, version ancienne ; décision ANJ 2026-146 pour le taux ;
+règlement v6 du 24 juillet 2026 non lu : site de l'ANJ en maintenance le 2026-10-22) :
+- grille simple 1 € ; doubles et triples multiplient le prix ; 70 % des mises reviennent aux gagnants ;
+- rangs : LF7 et LF8 45 % / 55 % (1er rang : sans faute, 2e rang : une erreur) ; LF12 et LF15 40 / 20 / 20 / 20 % ; masse d'un rang
+  partagée à parts égales entre ses gagnants ;
+- certaines listes ont un 1er rang **garanti** (« pactole ») : 150 000 € (LF8), 200 000 € (LF12), 500 000 € (LF15), augmenté de
+  500 000 € à chaque liste LF15 sans gagnant ; le complément vient d'un fonds de l'opérateur ;
+- jeu de point de vente : grille préparée dans l'application, validée chez un buraliste (à vérifier par Paul).
+Ces parts sont confirmées par les rapports récents (rapprochement des masses par rang, tableau des pages de prono-match.fr).
+
+**Sources de données.**
+- Pronosoft et le site des points de vente FDJ ont tout l'historique, mais **Pronosoft appartient à FDJ United** (mentions légales :
+  contact en fdjunited.com). Rien n'y a été collecté (règle du projet : pas de collecte automatisée chez un opérateur).
+- prono-match.fr (tiers, `robots.txt` permissif) : grille en cours avec la **répartition officielle FDJ** par match, relevée toutes
+  les heures, et rapports des 8 dernières grilles de chaque jeu. Relevé horaire lancé le 2026-10-22 (étude ponctuelle,
+  `scripts/lotofoot/live_get.sh`).
+- secretsdujeu.com : historique LF7 et LF15 depuis 2004, mais derrière des paramètres d'URL que son `robots.txt` interdit. Utilisé
+  seulement à travers les **copies de la Wayback Machine** de la page « dernier résultat » (151 copies, 2016 à 2026).
+- Cotes : notre archive The Odds API (Pinnacle) ; 3 crédits dépensés par `edge snapshot --home` dans une base séparée pour la
+  Ligue 2, la Ligue Europa et la Ligue Conférence (79 sur 450) ; football-data.co.uk pour l'historique (18 ligues, 2015/16 à 2026/27).
+
+**Modèle d'espérance** (`scripts/lotofoot/lf_ev.py`, `lf_fast.py`). Ticket simple t, issues indépendantes de probabilités p (marché
+sans marge, méthode puissance). Grilles du public : S grilles d'un euro, signes choisis match par match selon la répartition q. Pour
+une issue o, le nombre de concurrents à e erreurs suit une loi de Poisson de moyenne λ = S · P_q(n − e bons | o) (loi de
+Poisson-binomiale). Notre part d'une masse M est M · E[1/(1 + W)] = M · (1 − e^{−λ})/λ. Espérance exacte par énumération des issues à
+moins de R erreurs (4 106 issues au LF15). Contrôle : l'espérance moyenne d'une grille du public, pondérée par q, vaut **0,700**
+(LF7), soit exactement le taux de retour.
+
+**Public.** Sur 18 matchs des grilles du jour couverts par Pinnacle : q ∝ p^γ · e^{δ·nul}, **γ = 1,67**, δ = 0,075, divergence de
+Kullback-Leibler moyenne 0,010. Le public surjoue les favoris et les clubs populaires (exemples du 2026-10-22 : Inter 90 % joué contre
+73 % au marché, Bayern à Fribourg 87 % contre 71 %, Lyon à Hoffenheim 45 % contre 30 %, Monaco 61 % contre 45 %).
+
+**Calibration sur 46 grilles passées** (copies Wayback, 21 LF15 et 25 LF7 entièrement appariées à football-data, 134 observations ;
+protocole figé en tête de `calib.py` ; 86 grilles écartées : coupes, sélections nationales, matchs hors football-data, un
+résultat discordant). Régression de Poisson des gagnants publiés sur les gagnants prédits : log E[W] = 0,14 + **0,976** log λ,
+β IC 95 % [0,92 ; 1,04] (bootstrap des grilles). Rapport réel / prédit : 1,15 [0,65 ; 1,97] à λ = 1, 1,03 à λ = 100, 0,98 à λ = 1 000.
+Dispersion d'une grille à l'autre : facteur log-normal d'écart-type ≈ 0,6. **Écart** : aux rangs 1 où le modèle prédit moins de
+2 gagnants, 17 gagnants observés pour 7,9 prédits (les joueurs à systèmes couvrent aussi les combinaisons improbables).
+
+**Grilles du 2026-10-22, 10 tickets distincts par grille** (κ = 1,15, β = 0,976 ; « plancher » = concurrents ajoutés à chaque
+combinaison pour représenter les systèmes) :
+
+| Jeu (mises estimées) | Espérance par euro, plancher 0 | plancher 3 | plancher 10 | P(gain) par grille |
+|---|---|---|---|---|
+| LF7 n°132 (≈ 160 k€) | 2,93 | 2,79 | 2,48 | 11 % |
+| LF8 n°146 (≈ 520 k€, pactole 150 k€) | 3,55 | 2,99 | 2,46 | 2 % |
+| LF12 n°91 (≈ 550 k€, pactole 200 k€) | 2,12 | 1,60 | 1,37 | 14 % |
+| LF15 n°88 (≈ 1,27 M€, pactole 500 k€) | 1,45 | 0,98 | 0,75 | 2 % |
+
+Grille « tous les favoris » : 1,18 (LF7), 0,60 (LF8), 0,89 (LF12), 0,29 (LF15). Les espérances changent peu avec S, car pour λ grand
+l'espérance vaut environ 0,7 · p(c)/q(c). Croissance logarithmique (bankroll 1 000 €, plancher 3) : LF7 +109 ‱ par grille à 10
+tickets, +237 ‱ à 40 ; LF8 +26 ‱ à 10 ; **LF12 négative** dès 2 tickets (gains trop rares pour la bankroll).
+
+**Backtest sur les gains réellement versés : non concluant.** Mêmes 46 grilles, 10 tickets par grille choisis sur les cotes
+d'avant-match et le modèle q ∝ p^1,67 (pas de répartition historique) : 0 € gagné pour 460 € (protocole en tête de
+`backtest_lf.py`). Le diagnostic (`bt_diag.py`) montre que ces tickets n'avaient que **0,41 grille payée attendue** au total : sans
+la vraie répartition, l'optimiseur part vers des combinaisons extrêmes (environ 1 % de chance de gain par grille), là où le modèle
+extrapole. Ce backtest n'a donc aucune puissance ; il ne confirme ni n'infirme l'avantage.
+
+**Ce qui est établi, ce qui ne l'est pas.**
+- Établi : la structure (70 %, rangs, garanties), le biais massif du public, la calibration du nombre de gagnants dans la zone
+  λ ≥ 1 où se trouvent les tickets LF7 et LF8 du jour.
+- Non établi : un gain réalisé. La preuve demande des grilles avec la **vraie** répartition FDJ et les rapports : relevé prospectif
+  (quelques semaines pour une calibration, plusieurs centaines de grilles pour un ROI), ou les copies Wayback des pages de grilles du
+  site des points de vente FDJ (plus de 2 000 copies LF7 recensées, non collectées : contenu de l'opérateur).
+- Configurations regardées : 1 modèle du public, 4 jeux, 4 scénarios de plancher, K = 10 (et 1 à 40 pour la croissance).
+
+**Pistes voisines notées.** Les « Grilles » de Winamax (pari mutuel en ligne, Grille 7 à 50/50, Grille 9 à 50/25/25, Grille 12 à
+40/20/20/20, dotation minimale parfois garantie, règlement des paris 2024 §9) : prélèvement, garanties et volumes ne sont publiés que
+sur le site de Winamax. Une dotation garantie supérieure aux mises nettes y donnerait un gain sans modèle, à lire à la main.
+
+**Backtest avec la vraie répartition (copies Wayback des grilles FDJ, accord de Paul du 2026-10-22).** La Wayback Machine conserve
+2 260 pages de grilles du site des points de vente FDJ (938 LF7, 570 LF8, 387 LF12, 365 LF15, 2021 à 2026). Leur état JSON embarqué
+donne, par match, le nombre de grilles jouées sur chaque signe (donc q et S exacts), le résultat, les gagnants et le gain de chaque
+rang, et la garantie annoncée. Collecte : 3 requêtes en parallèle ; archive.org plafonne à environ 15 pages par minute par adresse,
+quel que soit le nombre de requêtes ou le langage (mesuré). 1 589 grilles exploitables (496 copies sans données, 85 sans résultat,
+81 illisibles ou de format ancien, 9 échecs de téléchargement).
+Masse réellement versée : 72 à 77 % de S, pas 70 % (mises unitaires de 2 ou 5 €) ; le backtest garde 70 %, par prudence.
+Protocole figé avant lecture dans `scripts/lotofoot/PROTOCOLE_FDJ.md` (amendements datés, tous antérieurs à la lecture du test) :
+- entraînement avant 2024, test unique à partir de 2024 ;
+- LF7/LF8 et LF12/LF15 ajustés séparément ;
+- concurrents W ~ binomiale négative de moyenne κ λ^β + φ · S / 3^n (λ calculé avec le vrai q) ;
+- 10 tickets par grille ;
+- cotes d'avant-match de football-data (clôture pour les ligues « new »).
+
+**Calibration du nombre de gagnants avec le vrai q** (`fdj_calib.py`). Le modèle d'indépendance est juste : rapport observé / prédit de
+0,97 à 1,16 pour λ de 3 à 10 000.
+- LF7/LF8, 1 660 observations d'entraînement : κ = 0,870, β = 1,021, φ = 0,104, dispersion relative 0,30 ; sur le test, rapport 0,96
+  à 1,08 dès λ ≥ 10.
+- LF12/LF15, 1 260 observations : κ = 1,080, β = 0,995, φ = 0,437. Pour λ de 0,3 à 3, le modèle sous-prédit les concurrents d'un
+  facteur 1,37 : il surestime l'espérance des tickets les plus à contre-courant.
+
+**Gains réalisés** (10 € par grille, gain = masse du rang / (gagnants publiés + nos tickets)) :
+
+| Jeu | Grilles | Misé | Gagné | ROI [IC 95 %, semaines] | Espérance annoncée | Grilles payées | ROI sans le meilleur gain |
+|---|---|---|---|---|---|---|---|
+| LF7 | 252 | 2 520 € | 3 374 € | +34 % [−84 ; +257] | 1,47 | 16 | −65 % |
+| LF8 | 157 | 1 570 € | 1 544 € | −2 % [−100 ; +171] | 1,90 | 3 | −81 % |
+| LF12 | 25 | 250 € | 35 € | −86 % [−100 ; −65] | 2,45 | 3 | −95 % |
+| LF15 | 84 | 840 € | 3 593 € | +328 % [−100 ; +1 231] | 2,73 | 1 | −100 % |
+| **Tous** | **518** | **5 180 €** | **8 545 €** | **+65 % [−77 ; +262]** | 1,85 | 23 | −4 % |
+
+- **Test figé, LF7/LF8** (90 grilles, 2024-2025) : −96,5 % ; 4,2 grilles payées attendues, 1 observée ; gain réalisé sous le
+  5e centile de la loi simulée (P = 0,03). LF7/LF8 par année : 2021 −64 %, 2022 −87 %, 2023 +309 % (gains de 2 500 € et 1 244 €),
+  2024 −95 %, 2025 −100 %.
+- **Test figé, LF12/LF15** (32 grilles) : +1 027 % [−100 ; +3 377], dû à une seule grille (LF15 n°76 du 2025-10-25 : 4 tickets à 12
+  bons sur 14, 3 593 €, calcul vérifié sur la masse publiée du rang).
+- **Contre l'hypothèse nulle** « 10 tickets tirés comme le public » (même modèle de concurrents) : gain moyen −28,7 % ; probabilité
+  d'atteindre le gain réalisé : 0,025 sur les 518 grilles, 0,071 sur LF7/LF8 seuls.
+- Signes à contre-courant (p − q ≥ 0,05) : marché d'avant-match 0,279, clôture 0,272, fréquence réelle 0,267, public 0,205. La clôture
+  est calibrée ; l'avant-match du vendredi surestime ces signes de 0,7 point. L'écart avec le public est réel et grand.
+
+**Verdict.** Le mécanisme est établi : le public sous-joue les signes à contre-courant d'environ 6,7 points, et le nombre de gagnants
+est bien prédit. La sélection fait mieux que le public (P = 0,025). Aucun gain n'est démontré pour autant : le ROI réalisé de +65 %
+a un intervalle de [−77 % ; +262 %], il dépend de deux ou trois gros gains, et le test figé LF7/LF8 échoue. C'est une loterie à
+espérance probablement positive : dans l'historique, 4 années LF7/LF8 sur 5 sont fortement négatives. Une année de jeu (≈ 500 grilles)
+ne donnerait pas plus de précision que tout cet historique.
+
+**Limites.**
+- q et S finaux, au lieu de la répartition visible une heure avant la clôture.
+- Une seule stratégie testée (10 tickets) ; aucune variante à gains plus fréquents n'a été essayée, pour ne pas fouiller le test.
+- Couverture des cotes : 518 grilles sur 1 589 (sélections nationales et coupes d'Europe absentes de football-data). L'analyse
+  secondaire (foule débiaisée sur les matchs sans cote, 444 grilles de test) va dans le même sens : LF7/LF8 −89 %, LF12/LF15 +134 %
+  (une grille).
+- 496 copies vides non remplacées par une copie antérieure de la même page.
