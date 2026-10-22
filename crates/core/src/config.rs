@@ -151,6 +151,21 @@ pub struct Config {
     /// Valeur supposée d'un euro de freebet converti par couverture, pour le calcul d'un premier pari remboursé en freebet
     /// (`edge bonus`). Défaut : 0,53, bas de la fourchette mesurée sur l'archive (`docs/bonus-bienvenue.md` §4).
     pub bonus_freebet_value: f64,
+    /// Loto Foot : nombre maximal de tickets d'un euro par séance (budget plafond, pas une obligation ; choix de Paul du
+    /// 2026-10-22 : 16 €).
+    pub lotofoot_max_tickets: u32,
+    /// Loto Foot : espérance minimale d'un ticket dans le scénario défavorable pour qu'il soit joué (τ = 1,2).
+    pub lotofoot_threshold: f64,
+    /// Loto Foot : poids μ de la probabilité de gain dans la recherche des tickets (10).
+    pub lotofoot_frequency_weight: f64,
+    /// Loto Foot : heures minimales entre la séance et la clôture d'une grille (temps d'aller valider chez le buraliste).
+    pub lotofoot_min_hours_before_close: u32,
+    /// Loto Foot : âge maximal, en heures, d'une cote Pinnacle de l'archive pour qu'elle serve sans nouveau relevé.
+    pub lotofoot_max_odds_age_hours: u32,
+    /// Loto Foot : crédits The Odds API au plus par séance pour relever les ligues absentes de l'archive (1 crédit chacune).
+    pub lotofoot_session_credits: u32,
+    /// Loto Foot : compétitions où chercher les rencontres des grilles (`/events`, gratuit), en plus de `leagues`.
+    pub lotofoot_leagues: Vec<String>,
 }
 
 impl Default for Config {
@@ -194,6 +209,47 @@ impl Default for Config {
             serve_bind: SocketAddr::from(([127, 0, 0, 1], 8737)),
             site_url: None,
             bonus_freebet_value: crate::bonus::DEFAULT_FREEBET_VALUE,
+            lotofoot_max_tickets: 16,
+            lotofoot_threshold: 1.2,
+            lotofoot_frequency_weight: 10.0,
+            lotofoot_min_hours_before_close: 3,
+            lotofoot_max_odds_age_hours: 30,
+            lotofoot_session_credits: 8,
+            // Ligues vues dans les grilles LF7/LF8 de 2025-2026 (`docs/sources.md` §38) ; clés vérifiées sur `/sports`
+            // le 2026-10-22.
+            lotofoot_leagues: owned(&[
+                "soccer_france_ligue_two",
+                "soccer_uefa_champs_league",
+                "soccer_uefa_europa_league",
+                "soccer_uefa_europa_conference_league",
+                "soccer_efl_champ",
+                "soccer_germany_bundesliga2",
+                "soccer_italy_serie_b",
+                "soccer_spain_segunda_division",
+                "soccer_netherlands_eredivisie",
+                "soccer_portugal_primeira_liga",
+                "soccer_belgium_first_div",
+                "soccer_turkey_super_league",
+                "soccer_switzerland_superleague",
+                "soccer_austria_bundesliga",
+                "soccer_greece_super_league",
+                "soccer_denmark_superliga",
+                "soccer_norway_eliteserien",
+                "soccer_sweden_allsvenskan",
+                "soccer_poland_ekstraklasa",
+                "soccer_league_of_ireland",
+                "soccer_usa_mls",
+                "soccer_brazil_campeonato",
+                "soccer_argentina_primera_division",
+                "soccer_uefa_nations_league",
+                "soccer_fifa_world_cup_qualifiers_europe",
+                "soccer_france_coupe_de_france",
+                "soccer_germany_dfb_pokal",
+                "soccer_england_efl_cup",
+                "soccer_fa_cup",
+                "soccer_spain_copa_del_rey",
+                "soccer_italy_coppa_italia",
+            ]),
         }
     }
 }
@@ -262,11 +318,28 @@ impl Config {
                 "min_stake doit être un montant positif ou nul".to_string(),
             ));
         }
+        if self.lotofoot_max_tickets == 0 {
+            return Err(Error::InvalidConfig(
+                "lotofoot_max_tickets doit être supérieur à 0".to_string(),
+            ));
+        }
+        if !(self.lotofoot_threshold.is_finite() && self.lotofoot_threshold >= 1.0) {
+            return Err(Error::InvalidConfig(
+                "lotofoot_threshold doit être au moins 1 (un ticket d'espérance inférieure à la mise perd en moyenne)"
+                    .to_string(),
+            ));
+        }
+        if !(self.lotofoot_frequency_weight.is_finite() && self.lotofoot_frequency_weight >= 0.0) {
+            return Err(Error::InvalidConfig(
+                "lotofoot_frequency_weight doit être positif ou nul".to_string(),
+            ));
+        }
         let lists = [
             ("leagues", &self.leagues),
             ("bookmakers", &self.bookmakers),
             ("markets", &self.markets),
             ("nba_markets", &self.nba_markets),
+            ("lotofoot_leagues", &self.lotofoot_leagues),
         ];
         for (field, names) in lists {
             if names.is_empty() {

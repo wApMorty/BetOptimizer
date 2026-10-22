@@ -14,6 +14,7 @@ pub mod eval;
 pub mod format;
 pub mod ingest;
 pub mod init;
+pub mod lotofoot;
 pub mod market;
 pub mod models;
 pub mod notify;

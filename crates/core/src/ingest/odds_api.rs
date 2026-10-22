@@ -338,6 +338,32 @@ pub fn parse_scores(body: &str) -> Result<ParsedScores> {
     Ok(parsed)
 }
 
+/// Chemin de la liste des matchs à venir d'une compétition (`/events`, gratuit d'après la documentation et vérifié le
+/// 2026-10-18 : `docs/sources.md` §2).
+pub fn events_path(sport_key: &str) -> String {
+    format!("/sports/{sport_key}/events")
+}
+
+/// Un match listé par `/events` (sans cotes).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ListedEvent {
+    /// Identifiant The Odds API.
+    pub id: String,
+    /// Clé de la compétition.
+    pub sport_key: String,
+    /// Coup d'envoi (UTC).
+    pub commence_time: DateTime<Utc>,
+    /// Équipe à domicile, nom brut.
+    pub home_team: String,
+    /// Équipe à l'extérieur, nom brut.
+    pub away_team: String,
+}
+
+/// Lit le corps d'une réponse `/events` réussie.
+pub fn parse_events(body: &str) -> Result<Vec<ListedEvent>> {
+    Ok(serde_json::from_str(body)?)
+}
+
 /// Une compétition est-elle active (en saison) selon la réponse gratuite de `/sports` ?
 pub fn sport_is_active(sports_body: &str, sport_key: &str) -> Result<bool> {
     let sports: Vec<RawSport> = serde_json::from_str(sports_body)?;
@@ -369,6 +395,19 @@ pub fn api_error(status: u16, body: &str) -> Error {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn listed_events_are_read_without_odds() {
+        let body = r#"[{"id":"e1","sport_key":"soccer_france_ligue_two","sport_title":"Ligue 2 - France",
+            "commence_time":"2026-10-23T18:00:00Z","home_team":"Pau FC","away_team":"Grenoble"}]"#;
+        let events = super::parse_events(body).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].home_team, "Pau FC");
+        assert_eq!(
+            super::events_path("soccer_france_ligue_two"),
+            "/sports/soccer_france_ligue_two/events"
+        );
+    }
+
     use super::*;
 
     const EPL: &str = include_str!("../../tests/fixtures/odds_epl.json");

@@ -5,6 +5,7 @@ pub mod backtests;
 pub mod bonus;
 pub mod history;
 pub mod journal;
+pub mod lotofoot;
 pub mod migrate;
 pub mod nba;
 pub mod oddspapi;

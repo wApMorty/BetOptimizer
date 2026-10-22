@@ -94,8 +94,8 @@ impl Probability {
 }
 
 /// Issue d'un match de football, dans l'ordre ordinal victoire domicile < nul < victoire extérieur.
-/// Cet ordre sert au RPS (voir `eval`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Cet ordre sert au RPS (voir `eval`) ; `Ord` dérivé suit l'ordre de déclaration, donc ce même ordre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Outcome {
     /// Victoire de l'équipe à domicile.
     Home,
