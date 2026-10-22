@@ -114,9 +114,9 @@ règlement de l'opérateur au moment de l'ouverture.
 | Opérateur | Offre annoncée (comparateur) | Forme | Prix dans notre archive |
 |---|---|---|---|
 | Winamax | 100 € remboursés | argent | oui — **exclu** (dépôt passé) |
-| PMU | 100 € remboursés | argent | oui |
-| Betclic | 100 € remboursés | freebets | oui |
-| Unibet (et ZEturf, même société) | premier pari doublé jusqu'à 110 € | à préciser | oui |
+| PMU | **vérifié le 2026-10-22** : 1er pari perdant recrédité en « Bonus cash », 100 € max ; premier compte ou dernier compte clôturé depuis plus de 2 ans ; résultat connu sous 15 jours ; offre jusqu'au 31/12/2026 | « Bonus cash » (retirable ? CG illisibles) | oui |
+| Betclic | **vérifié le 2026-10-22** : 1er pari perdant remboursé en Feebets non retirables, 100 € max ; aucun compte ouvert dans les 12 derniers mois ; paris en cash simples ou combinés | freebets | oui |
+| Unibet (et ZEturf, même société) | **vérifié le 2026-10-22** : 100 % du 1er pari (5 € min., 60 jours) crédité en BonusBet non retirables, 100 € max, **quel que soit le résultat** ; exclu si toi ou ton foyer avez parié en argent réel chez Parions Sport, Unibet, ZEbet ou ZEturf dans les 24 derniers mois ; offre du 01/09 au **26/10/2026** | BonusBet (mise non rendue, 365 jours) | oui |
 | ZEbet | à relever | | même cotes qu'Unibet (100 %, §10) : même plateforme, offre distincte peu probable |
 | NetBet | à relever | | oui (écarté des recommandations) |
 | bet365 (agréé depuis mai 2026) | jusqu'à 100 € remboursés | à préciser | historique OddsPapi seulement (§10) |

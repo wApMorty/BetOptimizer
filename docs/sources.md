@@ -1007,6 +1007,24 @@ Une fois PMU consommé et devenu compte de couverture : Betclic +15,47 €.
 **Choix de Paul.** Tout couvrir (2026-10-21) : il veut être sûr de retrouver l'argent avancé. Site en lecture seule, sans saisie ; les
 bonus restent hors de la courbe de bankroll du modèle.
 
+**Règlements lus le 2026-10-22** (pages officielles ; citations courtes) :
+- **PMU** (pmu.fr/ouverture-compte/conditions/conditions-offre.html, offre Sport du 01/10/2024 au 31/12/2026) : réservée à qui ouvre un
+  compte « pour la première fois, ou plus de 2 ans après la clôture de son dernier compte » ; 1er pari dont le résultat est connu sous
+  15 jours ; s'il est perdant, l'enjeu est « recrédité sous forme de Bonus cash […] dans la limite de 100€ » (25 % sous 10 jours ouvrés,
+  75 % après confirmation du compte) ; exclus : paris système, Ticket Sport, paris annulés ou remboursés, « remboursé si égalité »,
+  CashOut. Statut retirable du « Bonus cash » : non trouvé (la page des conditions générales est rendue en JavaScript, illisible ici).
+- **Betclic** (betclic.fr/content/spo_wbt, sans date) : « nouveaux joueurs Betclic n'ayant pas eu de compte ouvert dans les 12 derniers
+  mois » ; « jusqu'à 100€ remboursés en Feebets si ton premier pari sportif est perdant », crédits « non retirables » ; seuls les paris
+  en cash simples et combinés comptent. Cote minimale, durée de validité : non trouvées (CGU non lues).
+- **Unibet** (unibet.fr/paris-sportifs/bonus, offre du 01/09 au 26/10/2026) : « 100% du montant de votre 1er pari seront crédités […]
+  sous forme de bonus bet non retirables et dans la limite de 100€ », crédit « après le résultat de votre 1er pari », **sans condition
+  de perte** ; 1er dépôt et 1er pari de 5 € minimum dans les 60 jours ; CashOut exclu ; 365 jours pour utiliser les bonus bet. Exclusion
+  commune aux trois bonus : prise de jeu en argent réel chez Parions Sport, Unibet, ZEbet ou ZEturf dans les 24 derniers mois (le joueur
+  ou son foyer), ou offre de bienvenue Unibet déjà reçue. Règlement des paris sportifs (applicable au 29/09/2026), art. 3.3 : BonusBet gagnant,
+  « Gain net = mise x (cote – 1) » ; plusieurs BonusBet cumulables dans une prise de jeu. Aucune clause sur les paris couverts dans ce
+  règlement.
+- Conséquence pour l'outil : l'offre Unibet n'est aucune des trois formes de `edge bonus` (le bonus est dû même si le 1er pari gagne).
+
 ## 32. Reste à vérifier
 
 - Date de réinitialisation du quota gratuit : le compte date du 2026-10-18, donc probablement le 18 de chaque mois
