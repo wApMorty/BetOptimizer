@@ -1,0 +1,10 @@
+[Unit]
+Description=Loto Foot : séance le samedi à 12 h, heure de Paris (validation chez le buraliste l'après-midi)
+
+[Timer]
+OnCalendar=Sat *-*-* 12:00:00 Europe/Paris
+# Un samedi midi manqué se rattrape au réveil, le jour même : les grilles qui ferment trop tôt sont écartées d'office.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

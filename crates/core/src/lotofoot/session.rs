@@ -55,6 +55,8 @@ pub struct Evaluated {
     pub stakes: f64,
     /// Espérance défavorable du meilleur ticket.
     pub best_pessimistic: f64,
+    /// Rencontres, dans l'ordre du bulletin (noms de prono-match).
+    pub matches: Vec<(String, String)>,
 }
 
 /// Bilan d'une séance.
@@ -258,6 +260,8 @@ pub fn run(
             closes_at: grid.row.closes_at,
             stakes: grid.stakes,
             best_pessimistic: best,
+            // `clone` : le bilan possède ses données, car il survit aux grilles préparées (`ready`).
+            matches: grid.row.matches.clone(),
         });
         all.extend(candidates);
     }

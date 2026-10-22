@@ -9,6 +9,8 @@ Prérequis : lingering activé (`loginctl enable-linger $USER`) et binaire insta
 | `edge-nba` | 22 h UTC | cotes de la NBA (vainqueur, handicaps, totaux) et, un jour sur deux, résultats (`edge nba snapshot`) | 3 par jour + 2 tous les deux jours |
 | `edge-closing` | toutes les 10 minutes | clôture de Pinnacle des matchs suivis qui commencent dans 30 minutes (`edge closing`) | 1 par match suivi, 0 sinon |
 | `edge-latency` | lundi 9 h | historique OddsPapi des matchs terminés et verdict du test de latence (`edge latency fetch`, `edge latency report`, sources §34) | 0 (6 requêtes OddsPapi sur 250 par mois) |
+| `edge-lotofoot-fetch` | toutes les heures (minute 7) | grilles LF7 et LF8, répartition FDJ, résultats et rapports sur prono-match (`edge lotofoot fetch`, sources §38) | 0 |
+| `edge-lotofoot-recommend` | samedi 12 h (Paris) | séance du Loto Foot : tickets au-dessus du seuil, journal, Discord (`edge lotofoot recommend --notify`) | 1 par compétition absente de l'archive, 8 au plus |
 
 Service permanent (pas un timer) : `edge-serve`, le site de rapports (voir plus bas). Aucun crédit.
 
@@ -20,8 +22,22 @@ cargo install --path crates/cli --locked --root ~/.local
 mkdir -p ~/.config/systemd/user
 cp deploy/systemd/edge-*.service deploy/systemd/edge-*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now edge-snapshot.timer edge-recommend.timer edge-closing.timer edge-nba.timer edge-latency.timer
+systemctl --user enable --now edge-snapshot.timer edge-recommend.timer edge-closing.timer edge-nba.timer edge-latency.timer \
+    edge-lotofoot-fetch.timer edge-lotofoot-recommend.timer
 ```
+
+## Loto Foot
+
+`edge-lotofoot-fetch` relève chaque heure la grille en cours du LF7 et du LF8 sur prono-match (répartition FDJ), et les derniers résultats
+et rapports : la dérive de la répartition jusqu'à la clôture est ainsi mesurée, et chaque grille est réglée dès ses résultats publiés.
+`edge-lotofoot-recommend` lance la séance le samedi à midi : tickets simples d'un euro dont l'espérance, dans le scénario défavorable, atteint
+1,2, seize au plus ; le message Discord donne l'ordre des rencontres de chaque grille et les signes à cocher.
+
+- `edge lotofoot recommend --dry-run` : la séance sans rien écrire ni relever (aucun crédit).
+- `edge lotofoot played --last-session` : après validation chez le buraliste, déclare les tickets joués (ou `played 12 13`, ou
+  `played --grid lf7:133 --ticket 1N22121` pour un ticket saisi à la main, hors modèle s'il ne correspond à aucune recommandation).
+- `edge lotofoot report`, page `/lotofoot` du site : bilans et vérification du modèle (critère figé, points de contrôle à 26 et 52 semaines).
+- Un nom d'équipe inconnu écarte sa grille : l'ajouter à la section `LOTOFOOT` de `config/aliases.toml`, puis réinstaller `edge`.
 
 ## NBA
 

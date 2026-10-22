@@ -1,0 +1,11 @@
+[Unit]
+Description=Loto Foot : relevé de prono-match toutes les heures (dérive de la répartition, résultats, rapports)
+
+[Timer]
+# Le site met à jour la répartition FDJ toutes les heures ; à la minute 7, sa mise à jour est faite.
+OnCalendar=*-*-* *:07:00
+# Un relevé manqué (portable en veille) n'est pas rattrapé en rafale : un seul passage au réveil.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1661,7 +1661,7 @@ fn print_report(report: &SnapshotReport, cap: u32) {
 }
 
 /// La clé vient de l'environnement, sinon du fichier de configuration.
-fn api_key_from(config: &Config) -> Result<edge_core::config::ApiKey> {
+pub(crate) fn api_key_from(config: &Config) -> Result<edge_core::config::ApiKey> {
     // `.ok()` transforme `Result<String, VarError>` en `Option<String>` : variable absente = `None`.
     let from_env = std::env::var(API_KEY_ENV).ok();
     // `as_deref` : de `Option<String>` à `Option<&str>`, sans copier ni consommer la valeur.

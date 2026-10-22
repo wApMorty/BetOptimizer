@@ -12,10 +12,11 @@ use serde::Serialize;
 use super::bonus_page;
 use super::daily::{self, DailyReport};
 use super::latency_page;
+use super::lotofoot_page;
 use super::recommend_report::{Row, league_name, row};
 use super::render::{
-    render_site_bonus, render_site_latency, render_site_message, render_site_opportunities,
-    render_site_paper, render_site_reports,
+    render_site_bonus, render_site_latency, render_site_lotofoot, render_site_message,
+    render_site_opportunities, render_site_paper, render_site_reports,
 };
 use super::svg::cumulative_units_chart;
 use crate::betting::paper::{self, PaperBet, PaperTrading, Status};
@@ -197,6 +198,7 @@ pub fn respond(site: &Site, path: &str, now: DateTime<Utc>) -> Page {
         "/paper" => paper_page(site, now),
         "/bonus" => bonus(site, now),
         "/latence" => latency(site, now),
+        "/lotofoot" => lotofoot(site, now),
         _ => match path.strip_prefix("/rapports/") {
             Some(name) => archived(site, name),
             None => not_found(),
@@ -351,6 +353,16 @@ fn latency(site: &Site, now: DateTime<Utc>) -> Result<Page> {
         &report,
         generated_at(now),
     ))?)
+}
+
+/// `/lotofoot` : la dernière séance du Loto Foot, les bilans et la vérification du modèle (phase 14).
+fn lotofoot(site: &Site, now: DateTime<Utc>) -> Result<Page> {
+    let conn = store::open_read_only(&site.db_file)?;
+    ok(render_site_lotofoot(&lotofoot_page::page(
+        &conn,
+        now,
+        generated_at(now),
+    )?)?)
 }
 
 /// `/paper` : le bilan du paper trading.
@@ -608,6 +620,16 @@ mod tests {
         assert!(html.contains("class=\"on\">Latence"));
         assert!(html.contains("En attente : 0 pari(s) sur 32"));
         assert!(html.contains("Aucun pari pour l'instant"));
+    }
+
+    #[test]
+    fn the_lotofoot_page_waits_for_a_first_session() {
+        let (_dir, site) = site();
+        let (status, html) = get(&site, "/lotofoot");
+        assert_eq!(status, 200);
+        assert!(html.contains("Loto Foot (LF7, LF8)"), "{html}");
+        assert!(html.contains("class=\"on\">Loto Foot"));
+        assert!(html.contains("Aucune séance pour l'instant"));
     }
 
     #[test]

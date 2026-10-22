@@ -1,0 +1,60 @@
+{% extends "site_base.html" %}
+{% block title %}Loto Foot{% endblock %}
+{% block content %}
+<h1>Loto Foot (LF7, LF8)</h1>
+<p class="meta">{{ generated_at }} (heure de Paris) · jeu à répartition de la FDJ, validé en point de vente. Séance le samedi midi : tickets simples à 1 €, joués seulement si leur espérance dans le scénario défavorable atteint le seuil (<code>docs/sources.md</code> §37 et §38). Lecture seule : aucun pari n'est placé.</p>
+<div class="{{ verdict_class }} card">{{ verdict }}</div>
+
+<h2>Dernière séance{% if session %} — {{ session }}{% endif %}</h2>
+{% if tickets %}
+<p class="meta">{{ tickets|length }} ticket(s), {{ stake }}. Les signes se lisent dans l'ordre des rencontres de la grille. Après validation : <code>edge lotofoot played --last-session</code>.</p>
+{% for g in grids %}
+<div class="card"><strong>{{ g.grid }}</strong> — clôture {{ g.closes }}<br>
+<span class="meta">{% for m in g.matches %}{{ m }}{% if not loop.last %} · {% endif %}{% endfor %}</span></div>
+{% endfor %}
+<div class="scroll">
+<table>
+<thead><tr><th>N°</th><th>Grille</th><th>Ticket</th><th class="num">Espérance</th><th class="num">Défavorable</th><th class="num">P(payé)</th><th>Règlement</th></tr></thead>
+<tbody>
+{% for t in tickets %}<tr><td>{{ t.id }}</td><td>{{ t.grid }}</td><td><code>{{ t.ticket }}</code></td><td class="num">{{ t.ev }}</td><td class="num">{{ t.ev_low }}</td><td class="num">{{ t.paid }}</td><td>{{ t.status }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% elif session %}
+<div class="card">Aucun ticket ne passait le seuil : rien à jouer cette semaine.</div>
+{% else %}
+<div class="card">Aucune séance pour l'instant. Le relevé horaire (<code>edge lotofoot fetch</code>) archive les grilles ; la séance (<code>edge lotofoot recommend</code>) a lieu le samedi midi.</div>
+{% endif %}
+{% if skipped %}<div class="warn">Grilles écartées : {{ skipped|join(" ; ") }}.</div>{% endif %}
+{% if unknown_names %}<div class="warn">Noms absents de <code>config/aliases.toml</code> : {{ unknown_names|join(", ") }}.</div>{% endif %}
+
+<h2>Bilan</h2>
+<div class="scroll">
+<table>
+<thead><tr><th></th><th class="num">Tickets</th><th class="num">Réglés</th><th class="num">Mises</th><th class="num">Gains</th><th class="num">Rendement</th><th class="num">Payés</th></tr></thead>
+<tbody>
+{% for l in ledgers %}<tr><td>{{ l.label }}</td><td class="num">{{ l.tickets }}</td><td class="num">{{ l.settled }}</td><td class="num">{{ l.staked }}</td><td class="num">{{ l.returned }}</td><td class="num">{{ l.roi }}</td><td class="num">{{ l.paid }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+<p class="meta">Le rendement est affiché pour information : avec des gains rares et parfois gros, il ne dit rien avant des années. Ce qui décide, c'est la vérification ci-dessous.</p>
+
+<h2>Vérification du modèle</h2>
+<p class="meta"><strong>Gain :</strong> {{ gain }}.<br><strong>Fréquence :</strong> {{ frequency }}.</p>
+{% if bands %}
+<div class="scroll">
+<table>
+<thead><tr><th>λ prédit (gagnants du public)</th><th class="num">Observations</th><th class="num">Publiés / prédits</th></tr></thead>
+<tbody>
+{% for b in bands %}<tr{% if b.failing %} class="bad"{% endif %}><td>{{ b.range }}</td><td class="num">{{ b.observations }}</td><td class="num">{{ b.ratio }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+<p class="meta">Bornes jugées : [0,8 ; 1,25] pour λ ≥ 10, à partir de 10 observations.</p>
+{% else %}
+<div class="card">Aucune grille réglée avec sa répartition finale pour l'instant.</div>
+{% endif %}
+{% endblock %}

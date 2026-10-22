@@ -7,6 +7,7 @@ mod bonus;
 mod boost;
 mod commands;
 mod latency;
+mod lotofoot;
 mod serve;
 
 use std::path::PathBuf;
@@ -125,6 +126,45 @@ enum Command {
         #[command(subcommand)]
         command: LatencyCommand,
     },
+    /// Loto Foot (LF7, LF8) : relevé de prono-match, séance du samedi, tickets joués, bilan (phase 14).
+    Lotofoot {
+        #[command(subcommand)]
+        command: LotofootCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum LotofootCommand {
+    /// Relève les pages du LF7, du LF8 et des résultats sur prono-match (sans crédit ; timer horaire).
+    Fetch,
+    /// Séance : relevé frais, cotes Pinnacle, tickets au-dessus du seuil, écrits au journal.
+    Recommend {
+        /// Envoie la séance sur Discord.
+        #[arg(long)]
+        notify: bool,
+        /// N'écrit rien et ne relève aucune compétition (aucun crédit).
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Enregistre les tickets réellement joués (numéros des tickets recommandés, ou toute la dernière séance).
+    Played {
+        /// Numéros des tickets recommandés (colonne « N° » de la page /lotofoot).
+        ids: Vec<i64>,
+        /// Tous les tickets de la dernière séance.
+        #[arg(long)]
+        last_session: bool,
+        /// Grille d'un ticket saisi à la main, au format lf7:133.
+        #[arg(long, requires = "ticket")]
+        grid: Option<String>,
+        /// Ticket saisi à la main (1N22121) ; hors modèle s'il ne correspond à aucune recommandation.
+        #[arg(long, requires = "grid")]
+        ticket: Option<String>,
+        /// Mise par ticket, en euros (1 € pour une grille simple).
+        #[arg(long, default_value_t = 1.0)]
+        stake: f64,
+    },
+    /// Bilans (recommandés, joués) et vérification du modèle (lecture seule).
+    Report,
 }
 
 #[derive(Subcommand)]
@@ -509,6 +549,29 @@ fn main() -> Result<()> {
         Command::Latency { command } => match command {
             LatencyCommand::Fetch { dry_run } => latency::fetch(&paths, dry_run),
             LatencyCommand::Report => latency::report(&paths),
+        },
+        Command::Lotofoot { command } => match command {
+            LotofootCommand::Fetch => lotofoot::fetch(&paths),
+            LotofootCommand::Recommend { notify, dry_run } => {
+                lotofoot::recommend(&paths, notify, dry_run)
+            }
+            LotofootCommand::Played {
+                ids,
+                last_session,
+                grid,
+                ticket,
+                stake,
+            } => lotofoot::played(
+                &paths,
+                &lotofoot::PlayedOptions {
+                    ids,
+                    last_session,
+                    grid,
+                    ticket,
+                    stake,
+                },
+            ),
+            LotofootCommand::Report => lotofoot::report(&paths),
         },
         Command::Fd { command } => match command {
             FdCommand::Fetch { force } => commands::fd_fetch(&paths, force),

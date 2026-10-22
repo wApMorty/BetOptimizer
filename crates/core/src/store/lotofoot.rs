@@ -404,6 +404,19 @@ pub fn record_session(
     Ok(session_id)
 }
 
+/// Dernière séance : identifiant, instant et notes (JSON des grilles évaluées et écartées).
+pub fn last_session(conn: &Connection) -> Result<Option<(i64, DateTime<Utc>, String)>> {
+    let row: Option<(i64, String, String)> = conn
+        .query_row(
+            "SELECT id, created_at, notes FROM lotofoot_session ORDER BY id DESC LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    row.map(|(id, at, notes)| Ok((id, parse_timestamp(&at)?, notes)))
+        .transpose()
+}
+
 /// Un ticket recommandé, relu du journal.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecoRow {
