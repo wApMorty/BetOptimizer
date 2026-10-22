@@ -1055,3 +1055,107 @@ bonus restent hors de la courbe de bankroll du modèle.
 - Phase 12 : règlement de l'offre de bienvenue de chaque opérateur (seul celui de Winamax a été lu) ; valeur réelle de conversion
   d'un freebet couvert (`bonus_freebet_value`, 0,53 supposé) ; règle de chaque opérateur pour un match annulé pendant un premier pari
   remboursé ; présence de Parions Sport et ZEbet dans la liste de l'ANJ.
+
+## 33. Recherche d'un avantage restant : latence, combinés boostés, promus, littérature (2026-10-21)
+
+Demande de Paul : « tous les moyens » pour améliorer le modèle et trouver un système rentable. Scripts ponctuels en lecture seule
+(scratchpad, non versionnés) ; trois recherches documentaires. Aucun crédit dépensé.
+
+**Archive en direct** (2026-10-18 au 2026-10-21, 384 couples relevé × match avec le 1X2 de Pinnacle, 4 317 lignes françaises, méthode
+`power`).
+- Espérance moyenne contre Pinnacle sans marge : de −9 % à −16 % selon l'opérateur et l'issue (Winamax, extérieur : −16,2 %). Surronde
+  moyenne 1,107 (PMU) à 1,132 (Winamax).
+- Meilleure issue française de chaque match : médiane −5,5 %, 90e centile −2,3 %, 99e centile +0,7 %. Le nul est la meilleure issue
+  dans 22 % des matchs.
+- **Suivi des mouvements de Pinnacle** (2 901 paires de relevés successifs espacés d'au moins 12 h) : pente du mouvement français sur
+  celui de Pinnacle 0,70. Quand Pinnacle bouge de 3 points de probabilité (162 cas), les opérateurs français bougent de 2,1 à 2,4 points :
+  l'espérance passe de −12,2 % à −9,0 %, toujours négative. Le retard existe à l'échelle du jour, il ne couvre pas la marge.
+- Relevés à moins de 6 h du coup d'envoi : 60 lignes seulement (relevés de clôture), aucune au-dessus de −2 %. Trop peu pour conclure sur
+  la fenêtre des compositions.
+
+**Bonus permanents sur les combinés** (règlements lus le 2026-10-21 : Betclic Multiboost, cash, 5 % à 5 sélections jusqu'à 100 % à 23 ;
+Winamax Combo Booster, tirage d'espérance 2,24 × base, en bonus à rejouer ; Unibet Combi Boosté, Bonus Bets, 50 % à 15 ; PMU CombiMax,
+barème lu chez un tiers, 75 % à 15). Gain d'une mise 1 : `P · (1 + (O − 1)(1 + b)) − 1`, `O` = produit des cotes, `P` = produit des
+probabilités sans marge de Pinnacle (matchs distincts supposés indépendants). Avec les n meilleures sélections de chaque relevé :
+espérance de −11 % (PMU, 4 sélections) à −63 % (Betclic, 20). Marge réelle par sélection : 3,6 % à 7,3 %, contre un point mort de 0,7 %
+à 3,6 % par sélection selon le barème. **Écarté.** Non mesuré : autres sports et autres marchés.
+
+**Promus en début de saison** (Deutscher, Frick & Ötting 2018 ; football-data, Big 5 + Écosse, 2017/18 à 2026/27, cotes Pinnacle
+d'avant-match). Pour ou contre le promu, journées 1–6, 7–12, 13+ : aucun rendement positif distinguable de zéro, CLV de −2 % à −8 %.
+**Écarté.**
+
+**Calibration du nul selon la méthode de retrait de marge** (Pinnacle avant-match, 19 109 matchs). Fréquence observée 0,2491 ;
+multiplicative 0,2470, Shin 0,2451, additive 0,2444, `power` 0,2437 (−0,54 point, environ 1,7 erreur-type). `power` garde le meilleur
+log loss global (0,96049 contre 0,96071) mais sous-estime le nul : la valeur repérée sur les nuls n'est pas un artefact de la méthode,
+elle serait plutôt sous-évaluée.
+
+**Littérature** (détail des références dans le compte rendu du 2026-10-21) :
+- seul résultat mesuré contre la clôture de Pinnacle sur un grand échantillon : la méthode « Wisdom of the Crowd » de Buchdahl
+  (football-data.co.uk, blog), 26 960 paris, valeur ≥ 2 % contre Pinnacle, rendement +4,9 %, valeur contre la clôture +2,9 %, un tiers des
+  paris perdant leur valeur avant la clôture ;
+- Kaunitz, Zhong & Kreiner 2017 (arXiv 1710.02824) : +3,5 % à +9,9 % selon le moment du relevé, contre la cote maximale, comptes limités
+  ensuite ;
+- aucun modèle sur données publiques (xG, notes de joueurs, tirs) n'est mesuré contre la clôture de Pinnacle ; les résultats positifs
+  publiés le sont contre des cotes moyennes ou maximales, souvent sur une seule ligue, non répliqués ;
+- latence des bookmakers : 1xBet suit Pinnacle en 6 à 12 min, bet365 en 47 à 67 min (blog d'OddsPapi, 28 matchs, indicatif) ; aucune
+  étude sur la fenêtre des compositions.
+
+**Sources de cotes à haute fréquence** (pages lues le 2026-10-21).
+- **OddsPapi** : offre gratuite de 250 requêtes par mois ; Pinnacle, Betfair Exchange, Winamax, Unibet, PMU (pas Betclic) ;
+  `/historical-odds` jusqu'à 3 bookmakers par appel, données depuis janvier 2026. Conditions d'usage introuvables (404) : à lire avant tout
+  usage. Seul moyen gratuit trouvé de mesurer la latence française autour des compositions sans attendre l'archive.
+- The Odds API payante : 20 000 crédits pour 30 $ par mois (hors budget « gratuit uniquement »).
+- Betfair Exchange : API bloquée pour les adresses IP françaises, compte impossible pour un résident (échanges non agréés par l'ANJ).
+- odds-api.io (nouvelles clés gratuites suspendues), SportsGameOdds, SportMonks, BetsAPI, Sportradar : Pinnacle ou cotes absents du gratuit.
+
+## 34. Historique OddsPapi : latence française, marchés dérivés, tests issus du trading (2026-10-22)
+
+**Source.** OddsPapi v4, offre gratuite (compte de Paul, clé dans `~/.config/edge/oddspapi.key`, 0600, hors dépôt). Conditions
+(oddspapi.io/us/legal/terms, lues le 2026-10-21) : revente, redistribution, partage de clé et scraping interdits ; un usage
+d'analyse personnel n'est pas exclu. Quota : 250 requêtes par mois ; **`/v4/historical-odds` n'est pas décompté** (documentation
+« Requests & Quota », vérifié : compteur inchangé après deux appels), 5 s entre deux appels, 3 bookmakers au plus, et un seul
+bookmaker avec un seul `outcomeId` pour `betfair-ex` et `polymarket`. Inclus : Pinnacle, Winamax, Unibet, PMU, ZEbet, bet365.fr,
+bwin.fr, PokerStars, Genybet, Feelingbet, NetBet, Polymarket, Kalshi, Betfair Exchange ; **pas Betclic**. Marché 1X2 = 101
+(issues 101/102/103), plus/moins 2,5 = 1010, BTTS = 104. Une entrée = un changement de prix. Malgré la documentation (« depuis
+janvier 2026 »), l'historique de ces bookmakers commence en pratique début avril 2026 : 776 matchs exploitables (Big 5 + Écosse,
+2026-04-10 au 2026-10-19). Requêtes consommées pour l'étude : 13.
+
+**Protocole figé avant lecture** (scripts `scripts/oddspapi/` : `download.py` télécharge dans `hist/` du dossier courant, `latency.py` et `study.py` portent le protocole en tête, `trading_tests.py`, `progress.py` affiche l’avancement) : référence Pinnacle sans marge
+(puissance) au même instant, clôture = dernier prix Pinnacle avant le coup d'envoi, issue de plus grand avantage, seuil 1 %,
+fenêtre 60–15 min, un pari par match et par opérateur, succès si CLV ≥ +1 % et borne basse > 0 (bootstrap ligue × semaine).
+
+**Résultat brut : « succès » sur les trois marchés, invalidé par un artefact de données.**
+
+| Marché | Paris (fenêtre) | CLV brute |
+|---|---|---|
+| 1X2 | 102 (98 Winamax) | +5,1 % [+3,8 ; +6,4] |
+| Plus/moins 2,5 | 18 | +4,2 % [+1,8 ; +6,8] |
+| BTTS | 8 | +6,5 % [+2,6 ; +13,5] |
+
+La « valeur » vient de cotes Winamax qu'OddsPapi ne relevait pas : en avril-mai, 0 changement relevé dans les 24 h avant le match
+(cote figée depuis environ 300 h), 45 paris ; en août-septembre, 14 à 19 changements, 18 paris ; en octobre, 44 changements (relevé
+complet, 98 % de cotes identiques à notre archive The Odds API sur 84 comparaisons), **0 pari**. Unibet, bien relevé sur toute la
+période, ne donne que 4 paris.
+
+**Données propres** (filtre de qualité ajouté après coup : au moins 10 changements relevés dans les 24 h) : 1X2, 24 paris sur 619
+couples match × opérateur, CLV +3,0 % [+1,7 ; +4,7], σ = 4,5 %, cote médiane 3,5, tous entre le 2026-05-24 et le 2026-09-12 ; au moins
+20 changements : 7 paris, +2,8 % [+0,4 ; +5,5]. Plus/moins : 1 pari ; BTTS : 0. Signal fragile : aucun pari en octobre, le mois le
+mieux relevé ; le filtre n'exclut pas un reste d'artefact. Taille d'échantillon pour trancher (unilatéral 5 %, puissance 80 %) :
+14 paris pour une CLV de 3 %, 32 pour 2 %, 127 pour 1 %.
+
+**Tests issus du trading (descriptifs).**
+- Momentum de Pinnacle (Moskowitz 2021, Sung et al. 2019) : la pente du mouvement jusqu'à la clôture sur le mouvement des 24 h
+  précédentes vaut +0,33 [+0,06 ; +0,60] à 24 h ; elle est nulle à 6 h, 3 h et 60 min. R² de l'ordre de 1 % : inexploitable face
+  à 10 % de marge.
+- Durée d'une cote française au moins 1 % au-dessus de Pinnacle dans les 6 h avant le match (données propres) : Winamax 48
+  épisodes, médiane 23,5 min (p25 2,7, p75 57) ; Unibet 49 épisodes, médiane 3,7 min (p25 1,0, p75 14). Une saisie à la main reste
+  possible chez Winamax, rarement chez Unibet.
+
+**Recherches documentaires du 2026-10-21** (détail dans le compte rendu de la session) :
+- Polymarket : bloqué en France (décision ANJ du 16 juillet 2026, API comprises) ; écart avec Pinnacle de 0,5 à 1 point ; aucune
+  preuve sérieuse qu'il mène Pinnacle. Lecture possible seulement via un agrégateur.
+- Popularité et sentiment : en football européen, les bookmakers donnent de meilleures cotes aux clubs populaires (Forrest &
+  Simmons 2008 ; Franck, Verbeek & Nüesch 2011) ; le signal Twitter de Brown et al. (2018) n'existe qu'en direct.
+- Marchés dérivés (BTTS, double chance) contre une référence sharp : aucune étude ; testé ici, rien sur données propres.
+- Buchdahl (football-data.co.uk, 2026-10-09, 61 979 paris) : part de l'avantage annoncé qui survit à la clôture, environ 30 % sous
+  500 $ de limite Pinnacle, environ 75 % au-delà de 2 000 $.
