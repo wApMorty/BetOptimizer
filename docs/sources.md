@@ -1450,3 +1450,128 @@ ne donnerait pas plus de précision que tout cet historique.
   secondaire (foule débiaisée sur les matchs sans cote, 444 grilles de test) va dans le même sens : LF7/LF8 −89 %, LF12/LF15 +134 %
   (une grille).
 - 496 copies vides non remplacées par une copie antérieure de la même page.
+
+**Optimisation de la stratégie (2026-10-22, demande de Paul : budget fixe de 10 € par semaine, objectif « espérance maximale avec au
+moins environ 4 grilles payées par an »).** Calculs ex ante, sans aucun résultat de match (`frontier.py`, `robust.py`,
+`year_sim.py`). Tickets gloutons maximisant EV + μ · P(payé), μ ∈ {0 ; 3 ; 10 ; 30}, k = 1 à 10 ; les 518 grilles appariées.
+
+| Jeu | EV/€ μ=0, k=10 | P(grille payée) | EV/€ μ=30, k=10 | P(grille payée) | EV/€ μ=10, k=10, scénario S3 |
+|---|---|---|---|---|---|
+| LF7 | 1,40 | 8,0 % | 1,18 | 18,1 % | 1,21 |
+| LF8 | 1,79 | 2,6 % | 1,72 | 5,5 % | 1,56 |
+| LF12 | 2,34 | 8,0 % | 1,74 | 21,7 % | 1,76 |
+| LF15 | 2,58 | 2,6 % | 2,46 | 5,3 % | 1,97 |
+
+- Plus de tickets sur une même grille fait baisser l'espérance par euro (les meilleurs tickets passent d'abord).
+- μ achète de la fréquence de gain au prix de l'espérance.
+- Les garanties augmentent un peu l'espérance du LF7 (1,19 sans, 1,25 avec 100 k€) et du LF8 (1,43 sans, 1,63 avec 150 k€).
+- Scénario S3 (concurrents × 1,4 pour λ < 3, et p rapproché de q de 10 %) : l'espérance baisse de 10 à 25 % et reste au-dessus de 1
+  partout dans le modèle.
+
+Année simulée (52 semaines, 10 €/semaine, tickets répartis chaque semaine sur les grilles disponibles) :
+
+| Option | Grilles payées/an | Résultat net médian | P(année positive) | P(perte > 400 €) |
+|---|---|---|---|---|
+| A : LF7 seul, μ = 10 | 6,8 | −94 € (S3 −131 €) | 42 % (S3 40 %) | 12 % (S3 15 %) |
+| B : tous jeux, μ = 30 | 3,8–4,0 | −277 € (S3 −316 €) | 32 % (S3 27 %) | 34 % (S3 38 %) |
+| C : LF7 + LF8, μ = 30 | 4,8–4,9 | −187 € (S3 −226 €) | 38 % (S3 35 %) | 25 % (S3 28 %) |
+
+L'espérance annuelle simulée est positive pour les trois options, de +240 € à +840 €. Mais elle est instable d'une simulation à
+l'autre, car elle dépend de jackpots rares (B est plus élevé en S3 qu'en base, par le seul effet du bruit) ; la médiane et
+P(année positive) sont robustes. **Dans le modèle, l'année médiane est perdante pour toutes les options.** La perte maximale est le
+budget (520 €). Tout reste à confirmer en prospectif : le test figé LF7/LF8 a échoué (§37 ci-dessus).
+
+**Sans plancher de fréquence (décision de Paul : budget indolore, seule l'espérance compte).** Résultat cumulé simulé
+(`horizon_sim.py`, médiane et P(positif), 10 €/semaine) :
+
+| Option | 1 an | 3 ans | 5 ans | 10 ans |
+|---|---|---|---|---|
+| Espérance max : tous jeux, μ = 0 (base) | −311 €, 32 % | −224 €, 45 % | +120 €, 52 % | +1 454 €, 63 % |
+| idem, S3 | −358 €, 28 % | −503 €, 38 % | −376 €, 44 % | +363 €, 54 % |
+| A : LF7 seul, μ = 10 (base) | −88 €, 43 % | +318 €, 60 % | +860 €, 67 % | +2 334 €, 80 % |
+| idem, S3 | −130 €, 39 % | +146 €, 55 % | +594 €, 63 % | +1 808 €, 74 % |
+
+L'option d'espérance maximale a une moyenne plus haute (environ +660 € par an contre +290 €), mais son surplus vient de jackpots
+LF15/LF12 trop rares pour se réaliser en dix ans. Il dépend aussi de la zone la moins fiable du modèle (λ < 3, concurrents
+sous-prédits). L'espérance de A vient des rangs du LF7, où la calibration est solide, et se réalise : moyenne et médiane sur 10 ans
+sont proches.
+
+**LF7 + LF8 seulement** (Paul écarte LF12 et LF15, trop proches de la loterie ; `horizon_78.py`, médiane et P(positif)) :
+
+| Option | Moyenne/an | Part LF8 | 1 an | 3 ans | 5 ans | 10 ans |
+|---|---|---|---|---|---|---|
+| LF7 + LF8, μ = 0 | +490 € (S3 +386) | 62 % | −171 €, 40 % | +196 €, 54 % | +816 €, 63 % | +2 997 €, 77 % (S3 +2 107 €, 69 %) |
+| **LF7 + LF8, μ = 10** | **+490 € (S3 +403)** | 64 % | −156 €, 41 % | +239 €, 56 % | +911 €, 64 % | **+2 990 €, 78 % (S3 +2 214 €, 71 %)** |
+| LF7 + LF8, μ = 30 | +464 € (S3 +367) | 69 % | −193 €, 38 % | +147 €, 54 % | +712 €, 62 % | +2 735 €, 75 % (S3 +1 769 €, 68 %) |
+| A : LF7 seul, μ = 10 | +295 € (S3 +246) | 0 % | −88 €, 43 % | +318 €, 60 % | +860 €, 67 % | +2 334 €, 80 % (S3 +1 808 €, 74 %) |
+
+**Stratégie candidate retenue : LF7 + LF8, μ = 10, 10 € par semaine.** Espérance supérieure d'environ deux tiers à celle du LF7
+seul ; meilleure médiane à 5 et 10 ans, y compris en S3 ; probabilité d'être gagnant inférieure de 2 à 3 points ; premières années
+un peu plus creuses. À confirmer en prospectif : le test figé LF7/LF8 a échoué.
+
+**Budget maximal de 16 € par semaine, séance du samedi** (décision de Paul : 16 € colle au prix d'une grille à 4 doubles ; c'est un
+plafond, pas une obligation ; `budget16.py`, `threshold_sat.py`). Espérance par euro, avec le partage entre nos propres tickets (base / S3) :
+
+| 16 € sur une grille | LF7 | LF8 |
+|---|---|---|
+| 16 simples distincts d'au moins 2 signes | 1,23 / 1,13 | 1,63 / 1,45 |
+| **16 simples libres (seulement distincts)** | **1,40 / 1,29** | **1,85 / 1,62** |
+| Multiple à 4 doubles (16 €) | 1,33 / 1,23 | 1,72 / 1,56 |
+| Multiple à 3 doubles (8 €) | 1,33 / 1,23 | 1,81 / 1,61 |
+
+La contrainte d'écart de 2 signes, choisie dans le protocole par souci de diversité, coûte environ 12 % d'espérance : elle est
+abandonnée pour la production. Une multiple fait 5 à 7 % de moins que des simples libres, mais elle se remplit en une ligne.
+
+Règle d'arrêt (grilles ouvertes le samedi à 15 h, 133 samedis de l'historique) : un ticket n'est joué que si son espérance S3 dépasse τ.
+
+| τ | Dépense moyenne | Samedis sans jeu | Gain espéré par an (S3) |
+|---|---|---|---|
+| 1,0 | 15,0 € | 1 % | +656 € (+490 €) |
+| **1,2** | **13,5 €** | 5 % | **+640 € (+481 €)** |
+| 1,5 | 9,1 € | 24 % | +527 € (+400 €) |
+| 2,0 | 1,9 € | 74 % | +162 € (+125 €) |
+
+Ce tableau somme les espérances individuelles des tickets ; le partage entre nos propres tickets (quelques pour cent) n'y est pas
+déduit. **Règle retenue pour le plan : tickets simples libres, μ = 10, τ = 1,2 sur l'espérance S3, 16 € au plus par samedi.**
+
+## 38. Phase 14 — Loto Foot en production : vérifications et choix (2026-10-22)
+
+**Règlement Loto Sports v6** (ANJ, décision 2026-PR-087 du 24 juillet 2026, PDF lu le 2026-10-22 ; décision 2026-146 du 21 juillet 2026) :
+- **aucun jeu en ligne** : l'application et le site ParionsSport servent seulement à *préparer* une prise de jeu (un code), qui
+  s'enregistre en point de vente (art. 3.1.5 et 3.3) ; la séance du samedi chez le buraliste reste donc la seule voie ;
+- bulletin papier de 8 grilles, deux par formule (art. 3.1.2 et 3.1.3) ; nombre de grilles par code de l'application : non précisé,
+  à constater sur place (repli : une grille à 4 doubles, 16 €) ;
+- LF7 et LF8 : 45 % et 55 % de 70 % des mises (art. 7.6 et 10.1) ;
+- pactoles (art. 10.1.7) : LF7 100 000 € les dimanches avec au moins 3 matchs de Ligue 1 (+10 000 € par liste sans gagnant) ; LF8
+  150 000 € les mardis, vendredis et samedis avec au moins 5 matchs de Ligue 2, et les mercredis avec au moins 5 matchs de Ligue des
+  champions (+25 000 €) ;
+- **à revoir en juin 2027** : la décision 2026-146 autorise une « Option Boost » facultative (+50 % de mise) qui ajoute des gains et un
+  rang ; le modèle ne la connaît pas.
+
+**prono-match.fr** (mentions légales lues le 2026-10-22) : « toute reproduction sans autorisation est interdite ». Décision de Paul :
+seuls les faits extraits sont stockés (rencontres, pourcents FDJ, résultats, rapports), jamais les pages. Les classes CSS du site sont
+des identifiants générés ; la lecture s'appuie sur les textes et sur l'attribut `title` des signes. Une grille « pas encore ouverte aux
+paris » est lue (clôture, pactole) sans répartition. La FDJ publie la répartition quelques heures après l'ouverture : à vérifier sur les
+premiers samedis pour le LF7 du dimanche.
+
+**Cotes des rencontres.** Clés de The Odds API vérifiées sur `/sports` (gratuit) le 2026-10-22 : 67 compétitions de football, dont la
+liste `lotofoot_leagues` (31 clés vues dans les grilles LF7 et LF8 de 2025-2026 : Ligue 2, coupes d'Europe, championnats étrangers,
+coupes nationales). Une grille LF7/LF8 récente compte en moyenne 1,6 compétition hors de l'archive quotidienne (Big 5 + Écosse) ; une
+séance coûte donc environ 3 à 5 crédits, 8 au plus (`lotofoot_session_credits`), soit 15 à 30 par mois sur une marge d'environ 90.
+`/events` (gratuit) trouve la compétition d'un match ; seules les compétitions actives selon `/sports` sont interrogées.
+
+**Essai réel du 2026-10-22** (copie de la base) : relevé de prono-match (LF7 n°133 pas encore ouvert, LF8 n°146 avec répartition), séance :
+la Ligue 2 est trouvée par `/events` et relevée (1 crédit, 80 utilisés sur 450), 16 tickets LF8 retenus, espérance défavorable de 2,36
+à 3,19, probabilité de gain de 0,2 à 0,5 % chacun.
+
+**Écarts avec le plan annoncé.** Pas de commande `settle` : le règlement se recalcule à la demande à partir du journal (`settle.rs`).
+La loi simulée du gain tire seulement les issues (générateur SplitMix64 écrit dans le projet, sans dépendance) et prend le nombre de
+concurrents à sa valeur attendue. Le module n'a ni générique ni exception de lint.
+
+**Critère de vérification, figé avant le premier ticket** (`crates/core/src/lotofoot/verify.rs`) : aux points de contrôle de 26 et 52
+semaines après la première séance, le modèle est en défaut si une tranche `λ ≥ 10` d'au moins 10 observations a un rapport gagnants
+publiés / prédits hors de [0,8 ; 1,25], ou si le gain réalisé des tickets recommandés tombe sous le 5e centile de sa loi simulée
+(20 000 tirages, graine 20 261 022). Fréquence des tickets payés : test de Poisson unilatéral, affiché. ROI : affiché, sans rôle.
+
+**Collecte d'archive.org.** Le débit est plafonné à environ 15 pages par minute par adresse IP, qu'on envoie 3 ou 5 requêtes en
+parallèle (mesuré le 2026-10-22). Un client écrit dans un autre langage n'irait pas plus vite.

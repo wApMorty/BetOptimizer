@@ -19,3 +19,4 @@ trois questions pour vérifier la compréhension, trois fichiers à relire en pr
 | 11 | Cotes boostées : étude historique sur WePari (grille calée sur le marché, antisélection) | [docs/learning/phase-11.md](docs/learning/phase-11.md) |
 | 12 | Bonus de bienvenue couverts (`edge bonus`, onglet Bonus, page `/bonus`, journal des offres) | [docs/learning/phase-12.md](docs/learning/phase-12.md) |
 | 13 | Test prospectif de la latence française (OddsPapi, `edge latency`, page `/latence`, verdict figé à 32 paris) | [docs/learning/phase-13.md](docs/learning/phase-13.md) |
+| 14 | Loto Foot LF7 et LF8 (`edge lotofoot`, séance du samedi, page `/lotofoot`, vérification figée à 26 et 52 semaines) | [docs/learning/phase-14.md](docs/learning/phase-14.md) |
