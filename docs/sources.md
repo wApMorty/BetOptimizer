@@ -1180,3 +1180,59 @@ Faits relevés à la mise en route :
 
 Table d'alias : 80 variantes OddsPapi ajoutées (six ligues). Red Star, Rodez, Arbroath et Dunfermline (matchs de barrage) n'ont pas de
 nom chez The Odds API : ils restent hors table et seraient signalés par le contrôle de qualité.
+
+## 35. Modèles d'apprentissage automatique contre le marché : logistique, LightGBM, réseau de neurones (2026-10-21)
+
+Demande de Paul : un modèle « plus puissant » (réseau de neurones) qui prédirait mieux les résultats que le marché, sur les mêmes
+données publiques. Étude ponctuelle en Python (venv jetable : pandas 3.0.6, scikit-learn 1.9.1, LightGBM 4.7.0), scripts dans le
+scratchpad, non versionnés ; lecture seule des CSV football-data. Aucun crédit dépensé.
+
+**Protocole, validé avant tout calcul.**
+- 20 513 matchs (six ligues, 2016/17 à 2026/27) ; 2016/17 sert au rodage des variables. Entraînement 2017/18 à 2023/24 (14 153 matchs),
+  validation 2024/25 (1 980), **test unique** du 2025-07-01 au 2026-10-12 (2 325 matchs, les mêmes qu'au §16).
+- 34 variables d'avant-match, calculées dans l'ordre chronologique (l'état d'une équipe est lu, puis mis à jour avec le résultat) :
+  Elo (K = 20, avantage du terrain 65, multiplicateur d'écart de buts du World Football Elo), moyennes exponentielles (α = 0,08) des buts,
+  tirs, tirs cadrés et corners pour et contre, forme aux points (α = 0,2), repos, matchs joués, ligue. **Test de fuite** : recalculées sur
+  les seuls matchs antérieurs au 2025-01-01, les variables de ces matchs sont identiques au bit près.
+- Variante A : variables seules. Variante B : plus les probabilités sans marge (`power`) de la moyenne d'avant-match, sa surronde et
+  l'écart de logits.
+- Trois modèles à hyperparamètres fixés a priori : régression logistique multinomiale (C = 1), LightGBM (feuilles 15, pas 0,02, arbres
+  choisis par arrêt précoce sur la validation), MLP 32-16 (époques choisies sur la validation). Réajustement sur entraînement + validation
+  avec le nombre d'itérations gelé, puis une seule prédiction du test.
+- Juge 1 : log loss et RPS contre la moyenne du marché d'avant-match (Pinnacle absent du test), bootstrap par semaines civiles ; poids
+  optimal du modèle dans le mélange géométrique p ∝ p_marché^(1−w) · p_modèle^w.
+- Juge 2 : un pari par match sur l'issue de plus forte espérance si p · cote − 1 > seuil ; cote = moyenne d'avant-match × 0,977
+  (Betclic = 0,957 × Pinnacle d'après le §18, Pinnacle = 1,021 × moyenne, médiane mesurée sur l'entraînement). Seuils 0, 2, 5, 8 % ;
+  retenu sur la validation : CLV moyen le plus haut avec au moins 50 paris (0 % pour les six modèles).
+- **Configurations essayées : 6 modèles et 24 couples modèle × seuil**, tous gelés avant la lecture du test.
+
+**Validation (2024/25).** Marché d'avant-match 0,96205. Aucun modèle n'est meilleur : variante A de +0,0166 à +0,0223 ; variante B de
++0,0018 [−0,0016 ; +0,0051] (logistique) à +0,0056.
+
+**Test.** Marché d'avant-match : log loss 0,97537, RPS 0,19702 ; clôture 0,97436. Parier toutes les issues au prix décoté donne un CLV
+de −9,76 % (référence sans information).
+
+| Modèle | Δ log loss [IC 95 %] | Δ RPS | Poids optimal [IC 95 %] | Paris | CLV [IC 95 %] | ROI [IC 95 %] |
+|---|---|---|---|---|---|---|
+| Logistique A | +0,0101 [+0,0046 ; +0,0156] | +0,0029 | +0,05 [−0,23 ; +0,29] | 1 462 | −9,4 % [−9,9 ; −8,9] | −11,6 % [−18,6 ; −4,2] |
+| LightGBM A | +0,0112 [+0,0065 ; +0,0158] | +0,0033 | −0,01 [−0,23 ; +0,23] | 1 435 | −10,4 % [−10,9 ; −9,9] | −18,0 % [−24,6 ; −11,7] |
+| MLP A | +0,0179 [+0,0103 ; +0,0249] | +0,0046 | +0,05 [−0,13 ; +0,22] | 1 862 | −8,7 % [−8,9 ; −8,4] | −7,7 % [−13,2 ; −1,9] |
+| Logistique B | +0,0210 [+0,0132 ; +0,0293] | +0,0064 | +0,03 [−0,13 ; +0,21] | 2 110 | −9,9 % [−10,4 ; −9,5] | −10,9 % [−17,4 ; −3,9] |
+| **LightGBM B** | **+0,0019 [−0,0015 ; +0,0053]** | +0,0003 | +0,25 [−0,26 ; +0,68] | 844 | −10,1 % [−10,7 ; −9,6] | −6,2 % [−16,2 ; +4,7] |
+| MLP B | +0,0188 [+0,0080 ; +0,0295] | +0,0038 | +0,13 [−0,07 ; +0,33] | 1 946 | −8,3 % [−8,7 ; −7,9] | −7,2 % [−13,9 ; −0,3] |
+
+Espérance annoncée des paris : +5,8 % (LightGBM B) à +15,6 % (MLP B) ; le CLV et le ROI la démentent, comme pour Dixon-Coles (§18).
+
+**Verdict : piste close.** Aucun modèle ne bat le marché d'avant-match ; le meilleur (LightGBM avec les cotes en entrée) le rejoint au
+mieux ; tous les poids optimaux sont compatibles avec 0. Plus de capacité ne compense pas l'absence d'information nouvelle : sur
+20 000 matchs bruités, le réseau de neurones fait moins bien que la logistique.
+
+**Limites.**
+- Hyperparamètres fixés sans grille ; modèles gelés au 2025-07-01 (pas de réajustement hebdomadaire) ; pas de sortie de Dixon-Coles
+  en variable.
+- **Rupture de la surronde** de la moyenne d'avant-match : 1,046 à 1,053 de 2016/17 à 2024/25, 1,065 en 2025/26 et 1,066 en 2026/27
+  (football-data a perdu Pinnacle et une partie des bookmakers). Les variantes B logistique et MLP extrapolent hors du domaine
+  d'entraînement, d'où leur dégradation entre validation et test ; LightGBM y est insensible. Le verdict n'en dépend pas.
+- Les choix des MLP (CLV −8,3 % et −8,7 %) sont environ 1,5 point meilleurs que la référence sans information (−9,8 %). Non vérifié :
+  la méthode `power` charge davantage la marge sur les outsiders, si bien qu'une sélection penchant vers les favoris améliore le CLV
+  mécaniquement. Sans effet sur le verdict : il manque environ 10 points pour couvrir la marge et la décote.
