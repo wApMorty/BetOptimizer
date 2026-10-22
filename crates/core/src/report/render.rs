@@ -9,6 +9,7 @@ use serde::Serialize;
 
 use super::backtest_report::BacktestReport;
 use super::bonus_page::BonusPage;
+use super::latency_page::LatencyPage;
 use super::market_report::MarketReport;
 use super::models_report::ModelsReport;
 use super::nba_report::NbaReport;
@@ -31,6 +32,7 @@ const SITE_REPORTS_TEMPLATE: &str = include_str!("templates/site_reports.html");
 const SITE_OPPORTUNITIES_TEMPLATE: &str = include_str!("templates/site_opportunities.html");
 const SITE_PAPER_TEMPLATE: &str = include_str!("templates/site_paper.html");
 const SITE_MESSAGE_TEMPLATE: &str = include_str!("templates/site_message.html");
+const SITE_LATENCY_TEMPLATE: &str = include_str!("templates/site_latency.html");
 const SITE_BONUS_TEMPLATE: &str = include_str!("templates/site_bonus.html");
 
 /// Nombre au format français (virgule décimale), `digits` décimales.
@@ -115,6 +117,11 @@ pub fn render_site_paper(page: &PaperPage) -> Result<String> {
 /// Génère la page « bonus » du site.
 pub fn render_site_bonus(page: &BonusPage) -> Result<String> {
     render_template("site_bonus.html", SITE_BONUS_TEMPLATE, page)
+}
+
+/// Génère la page `/latence` du site.
+pub fn render_site_latency(page: &LatencyPage) -> Result<String> {
+    render_template("site_latency.html", SITE_LATENCY_TEMPLATE, page)
 }
 
 /// Génère une page de message du site (aucun rapport, page introuvable, erreur).

@@ -8,6 +8,7 @@ Prérequis : lingering activé (`loginctl enable-linger $USER`) et binaire insta
 | `edge-recommend` | 14 h 10 | recommandations du jour et notification Discord (`edge recommend --notify`) | 0 |
 | `edge-nba` | 22 h UTC | cotes de la NBA (vainqueur, handicaps, totaux) et, un jour sur deux, résultats (`edge nba snapshot`) | 3 par jour + 2 tous les deux jours |
 | `edge-closing` | toutes les 10 minutes | clôture de Pinnacle des matchs suivis qui commencent dans 30 minutes (`edge closing`) | 1 par match suivi, 0 sinon |
+| `edge-latency` | lundi 9 h | historique OddsPapi des matchs terminés et verdict du test de latence (`edge latency fetch`, `edge latency report`, sources §34) | 0 (6 requêtes OddsPapi sur 250 par mois) |
 
 Service permanent (pas un timer) : `edge-serve`, le site de rapports (voir plus bas). Aucun crédit.
 
@@ -19,7 +20,7 @@ cargo install --path crates/cli --locked --root ~/.local
 mkdir -p ~/.config/systemd/user
 cp deploy/systemd/edge-*.service deploy/systemd/edge-*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now edge-snapshot.timer edge-recommend.timer edge-closing.timer edge-nba.timer
+systemctl --user enable --now edge-snapshot.timer edge-recommend.timer edge-closing.timer edge-nba.timer edge-latency.timer
 ```
 
 ## NBA

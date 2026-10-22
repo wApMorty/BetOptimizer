@@ -6,6 +6,7 @@
 mod bonus;
 mod boost;
 mod commands;
+mod latency;
 mod serve;
 
 use std::path::PathBuf;
@@ -119,6 +120,23 @@ enum Command {
         #[command(subcommand)]
         command: FdCommand,
     },
+    /// Test prospectif de la latence des opérateurs français contre Pinnacle (historique OddsPapi, phase 13).
+    Latency {
+        #[command(subcommand)]
+        command: LatencyCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum LatencyCommand {
+    /// Archive l'historique OddsPapi des matchs terminés depuis le début du test (6 requêtes décomptées par passage).
+    Fetch {
+        /// Affiche le coût prévu sans appeler l'API.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Applique la règle figée aux matchs archivés et affiche le verdict (lecture seule).
+    Report,
 }
 
 #[derive(Subcommand)]
@@ -487,6 +505,10 @@ fn main() -> Result<()> {
         },
         Command::Boost { command } => match command {
             BoostCommand::Study => boost::study(&paths),
+        },
+        Command::Latency { command } => match command {
+            LatencyCommand::Fetch { dry_run } => latency::fetch(&paths, dry_run),
+            LatencyCommand::Report => latency::report(&paths),
         },
         Command::Fd { command } => match command {
             FdCommand::Fetch { force } => commands::fd_fetch(&paths, force),

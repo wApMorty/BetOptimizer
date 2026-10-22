@@ -1,0 +1,15 @@
+[Unit]
+Description=Test prospectif de la latence française : historique OddsPapi et verdict (edge)
+Documentation=file://%h/Documents/Workspace/BetOptimizer/docs/sources.md
+
+[Service]
+Type=oneshot
+# Après un réveil du portable, le réseau peut ne pas être prêt : on attend le DNS (5 minutes au plus).
+ExecStartPre=/usr/bin/sh -c 'for i in $(seq 1 30); do getent hosts api.oddspapi.io >/dev/null && exit 0; sleep 10; done; exit 1'
+# 6 requêtes décomptées par passage (une liste de matchs par championnat) ; l'historique de chaque match est gratuit.
+# La clé se lit dans EDGE_ODDSPAPI_KEY ou dans oddspapi_api_key du fichier de configuration (0600).
+ExecStart=%h/.local/bin/edge latency fetch
+# Le verdict s'affiche dans le journal (`journalctl --user -u edge-latency`) ; la page /latence du site le montre aussi.
+ExecStart=%h/.local/bin/edge latency report
+# Une soixantaine de matchs par semaine à 5 s d'intervalle : quelques minutes ; marge large.
+TimeoutStartSec=3600

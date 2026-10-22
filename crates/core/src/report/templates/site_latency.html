@@ -1,0 +1,32 @@
+{% extends "site_base.html" %}
+{% block title %}Latence{% endblock %}
+{% block content %}
+<h1>Latence des opérateurs français</h1>
+<p class="meta">{{ generated_at }} (heure de Paris) · test prospectif depuis le {{ start }}, verdict unique à {{ min_bets }} paris, échéance le {{ deadline }} (<code>docs/sources.md</code> §34). Lecture seule : aucun pari n'est placé.</p>
+<div class="{{ verdict_class }} card">{{ verdict }}</div>
+
+<p class="meta"><strong>Règle figée.</strong> 1X2, Winamax et Unibet ; à 60, 45, 30 puis 15 minutes du coup d'envoi, l'issue dont la cote dépasse de 1 % au moins la probabilité de Pinnacle sans marge (méthode puissance) ; un pari au plus par match et par opérateur. L'opérateur doit avoir au moins {{ primary.min_changes }} changements de cote relevés dans les 24 h : sinon OddsPapi ne le suivait pas. <strong>CLV</strong> = cote × probabilité de clôture de Pinnacle sans marge − 1.</p>
+
+<div class="tiles">
+  <div class="tile"><div class="k">Paris</div><div class="v">{{ primary.bets }} / {{ min_bets }}</div><div class="meta">{{ primary.matches }} match(s) · {{ primary.tracked }} couple(s) suivis</div></div>
+  <div class="tile"><div class="k">CLV moyenne</div><div class="v">{{ primary.clv }}</div><div class="meta">IC 95 % {{ primary.ci }}</div></div>
+  <div class="tile"><div class="k">Filtre ≥ {{ secondary.min_changes }} (lecture secondaire)</div><div class="v">{{ secondary.clv }}</div><div class="meta">{{ secondary.bets }} pari(s) · IC 95 % {{ secondary.ci }}</div></div>
+  <div class="tile"><div class="k">Concordance avec notre archive</div><div class="v">{{ identical_share }}</div><div class="meta">{{ identical }} cote(s) identique(s) sur {{ compared }}</div></div>
+</div>
+{% if unknown_names %}<div class="warn">Noms absents de <code>config/aliases.toml</code> (matchs exclus du seul contrôle de qualité) : {{ unknown_names|join(", ") }}.</div>{% endif %}
+
+<h2>Paris de la règle</h2>
+{% if bets %}
+<div class="scroll">
+<table>
+<thead><tr><th>Coup d'envoi</th><th>Match</th><th>Opérateur</th><th>Horizon</th><th>Issue</th><th class="num">Cote</th><th class="num">Avantage</th><th class="num">CLV</th></tr></thead>
+<tbody>
+{% for b in bets %}<tr><td>{{ b.kickoff }}</td><td>{{ b.fixture }}<br><span class="meta">{{ b.league }}</span></td><td>{{ b.bookmaker }}</td><td>{{ b.horizon }}</td><td>{{ b.outcome }}</td><td class="num">{{ b.odds }}</td><td class="num">{{ b.edge }}</td><td class="num">{{ b.clv }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% else %}
+<div class="card">Aucun pari pour l'instant. Le relevé hebdomadaire (<code>edge latency fetch</code>, lundi 9 h) archive les matchs terminés.</div>
+{% endif %}
+{% endblock %}

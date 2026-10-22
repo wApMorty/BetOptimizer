@@ -11,10 +11,11 @@ use serde::Serialize;
 
 use super::bonus_page;
 use super::daily::{self, DailyReport};
+use super::latency_page;
 use super::recommend_report::{Row, league_name, row};
 use super::render::{
-    render_site_bonus, render_site_message, render_site_opportunities, render_site_paper,
-    render_site_reports,
+    render_site_bonus, render_site_latency, render_site_message, render_site_opportunities,
+    render_site_paper, render_site_reports,
 };
 use super::svg::cumulative_units_chart;
 use crate::betting::paper::{self, PaperBet, PaperTrading, Status};
@@ -195,6 +196,7 @@ pub fn respond(site: &Site, path: &str, now: DateTime<Utc>) -> Page {
         "/opportunites" => opportunities(site, now),
         "/paper" => paper_page(site, now),
         "/bonus" => bonus(site, now),
+        "/latence" => latency(site, now),
         _ => match path.strip_prefix("/rapports/") {
             Some(name) => archived(site, name),
             None => not_found(),
@@ -337,6 +339,17 @@ fn bonus(site: &Site, now: DateTime<Utc>) -> Result<Page> {
         &board,
         generated_at(now),
         now,
+    ))?)
+}
+
+/// `/latence` : l'état du test prospectif de la latence française (phase 13).
+fn latency(site: &Site, now: DateTime<Utc>) -> Result<Page> {
+    let conn = store::open_read_only(&site.db_file)?;
+    let today = now.with_timezone(&Paris).date_naive();
+    let report = crate::eval::latency::evaluate(&conn, &site.aliases, today)?;
+    ok(render_site_latency(&latency_page::view(
+        &report,
+        generated_at(now),
     ))?)
 }
 
@@ -584,6 +597,17 @@ mod tests {
         assert!(html.contains("remboursé en argent"));
         // Aucun relevé dans cette base : l'offre est listée, sans opération proposée.
         assert!(html.contains("Aucune opération rentable"));
+    }
+
+    #[test]
+    fn the_latency_page_shows_the_frozen_rule_and_waits_without_data() {
+        let (_dir, site) = site();
+        let (status, html) = get(&site, "/latence");
+        assert_eq!(status, 200);
+        assert!(html.contains("Latence des opérateurs français"), "{html}");
+        assert!(html.contains("class=\"on\">Latence"));
+        assert!(html.contains("En attente : 0 pari(s) sur 32"));
+        assert!(html.contains("Aucun pari pour l'instant"));
     }
 
     #[test]
