@@ -34,6 +34,8 @@ pub struct TicketView {
     pub paid: String,
     /// Règlement (« en attente », « perdu », « rang 2 : 21,90 € »).
     pub status: String,
+    /// Déjà déclaré joué (`edge lotofoot played`).
+    pub played: bool,
 }
 
 /// Une grille de la séance, avec l'ordre de ses rencontres (celui du bulletin).
@@ -203,6 +205,10 @@ pub fn page(conn: &Connection, now: DateTime<Utc>, generated_at: String) -> Resu
         .into_iter()
         .filter(|r| r.session_id == session_id)
         .collect();
+    let played: Vec<i64> = store::plays(conn)?
+        .iter()
+        .filter_map(|p| p.reco_id)
+        .collect();
     let mut seen: Vec<(Game, u32)> = Vec::new();
     for reco in &recos {
         let grid = store::grid(conn, reco.game, reco.number)?;
@@ -257,6 +263,7 @@ pub fn page(conn: &Connection, now: DateTime<Utc>, generated_at: String) -> Resu
             ev_low: decimal(reco.ev_pessimistic, 2),
             paid: format!("{} %", decimal(reco.paid_probability * 100.0, 1)),
             status,
+            played: played.contains(&reco.id),
         });
     }
     page.stake = format!("{} €", decimal(recos.len() as f64 * TICKET_PRICE, 0));

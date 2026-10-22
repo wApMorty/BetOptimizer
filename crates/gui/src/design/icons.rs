@@ -41,6 +41,8 @@ pub enum Icon {
     Pause,
     /// Bonus (paquet cadeau).
     Gift,
+    /// Loto Foot (bulletin : une ligne par rencontre, trois cases 1 N 2).
+    Grid,
 }
 
 /// Dessine une icône dans `rect`.
@@ -222,6 +224,25 @@ pub fn draw(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             line(&[(0.5, 0.3), (0.3, 0.12), (0.24, 0.24), (0.5, 0.3)], false);
             line(&[(0.5, 0.3), (0.7, 0.12), (0.76, 0.24), (0.5, 0.3)], false);
         }
+        Icon::Grid => {
+            painter.rect_stroke(
+                Rect::from_min_max(at(0.12, 0.1), at(0.88, 0.9)),
+                3.0,
+                stroke,
+                eframe::egui::StrokeKind::Inside,
+            );
+            let thin = Stroke::new(1.2, color);
+            for x in [0.37, 0.63] {
+                painter.line_segment([at(x, 0.1), at(x, 0.9)], thin);
+            }
+            for y in [0.37, 0.63] {
+                painter.line_segment([at(0.12, y), at(0.88, y)], thin);
+            }
+            // Une case cochée par ligne : les signes d'un ticket.
+            for (x, y) in [(0.245, 0.235), (0.755, 0.5), (0.5, 0.765)] {
+                painter.circle_filled(at(x, y), radius(0.06), color);
+            }
+        }
     }
 }
 
@@ -253,6 +274,7 @@ mod tests {
                 Icon::Check,
                 Icon::Pause,
                 Icon::Gift,
+                Icon::Grid,
             ] {
                 draw(ui.painter(), rect, icon, Color32::WHITE);
             }

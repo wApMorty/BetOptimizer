@@ -18,6 +18,7 @@ use edge_core::config::Config;
 use edge_core::domain::Euros;
 use edge_core::ingest::aliases::Aliases;
 use edge_core::paths::Paths;
+use edge_core::report::lotofoot_page::{self, LotofootPage};
 use edge_core::store::journal::{self, StoredBet, StoredRecommendation};
 use edge_core::store::open_migrated;
 use edge_core::store::{archive, history, nba, tennis};
@@ -99,6 +100,8 @@ pub struct Data {
     pub credits: Option<Credits>,
     /// Bonus de bienvenue : offres, propositions du dernier relevé, opérations.
     pub bonus: Board,
+    /// Loto Foot : dernière séance, bilans et vérification (le contenu de la page `/lotofoot` du site).
+    pub lotofoot: LotofootPage,
 }
 
 /// Lit le journal et l'archive.
@@ -172,6 +175,7 @@ pub fn load(paths: &Paths, now: DateTime<Utc>) -> Result<Data> {
         reliability: overview::reliability(&conn, &aliases, RELIABILITY_BINS)?,
         reports: report_files(paths),
         bonus: tracking::board(&conn, config.bonus_freebet_value, now)?,
+        lotofoot: lotofoot_page::page(&conn, now, edge_core::format::long_date(now))?,
         curve,
         config,
     })
@@ -220,6 +224,10 @@ mod tests {
         assert!(data.bets.is_empty());
         assert_eq!(data.curve.available, 1000.0);
         assert!(data.clv.groups.iter().any(|g| g.n == 1));
+        // La séance Loto Foot, lue comme la page `/lotofoot` du site.
+        assert_eq!(data.lotofoot.tickets.len(), 2);
+        assert_eq!(data.lotofoot.grids[0].matches.len(), 7);
+        assert!(data.lotofoot.tickets.iter().all(|t| !t.played));
     }
 
     #[test]

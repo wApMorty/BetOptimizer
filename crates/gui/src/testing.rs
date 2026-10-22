@@ -1,11 +1,17 @@
-//! Assistants de test : un dossier de données avec un relevé, une recommandation et un match à venir.
+//! Assistants de test : un dossier de données avec un relevé, une recommandation, un match à venir et une séance
+//! Loto Foot.
 
 use chrono::{DateTime, Duration, Utc};
 use edge_core::betting::recommend::{self, RECOMMEND_MIN_EDGE};
 use edge_core::domain::{Euros, Event, Odds, Quota, Quote};
+use edge_core::lotofoot::pronomatch::{GridPage, OpenGrid};
+use edge_core::lotofoot::{Game, Ticket};
 use edge_core::market::margin::MarginMethod;
 use edge_core::paths::Paths;
 use edge_core::store::archive::{Endpoint, NewApiCall, record_api_call, record_snapshot};
+use edge_core::store::lotofoot::{
+    NewReco, NewSession, Page, record_fetch, record_grid_page, record_session,
+};
 use edge_core::store::open_migrated;
 
 /// Un dossier temporaire garni, à garder en vie pendant le test.
@@ -16,7 +22,8 @@ pub struct Sample {
 }
 
 /// Relevé d'il y a une heure : Pinnacle donne 2,00 à la victoire à domicile et Betclic 2,30, pour un match dans deux jours.
-/// La recommandation correspondante (n° 1, mise suggérée) est déjà écrite dans le journal.
+/// La recommandation correspondante (n° 1, mise suggérée) est déjà écrite dans le journal, ainsi qu'une séance Loto Foot de
+/// deux tickets sur un LF7.
 pub fn sample() -> Sample {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::under(dir.path());
@@ -69,9 +76,59 @@ pub fn sample() -> Sample {
         code_version: "test".to_string(),
     };
     recommend::run(&mut conn, &settings, now).unwrap();
+    lotofoot_session(&mut conn, now);
     Sample {
         _dir: dir,
         paths,
         now,
     }
+}
+
+/// Une grille LF7 relevée il y a une heure et une séance de deux tickets dessus, pas encore déclarés joués.
+fn lotofoot_session(conn: &mut edge_core::store::Connection, now: DateTime<Utc>) {
+    let fetched = now - Duration::hours(1);
+    let fetch_id = record_fetch(conn, fetched, Page::Grid(Game::Lf7), 200, None).unwrap();
+    let page = GridPage {
+        open: Some(OpenGrid {
+            game: Game::Lf7,
+            accepting: true,
+            number: 133,
+            closes_at: now + Duration::days(1),
+            jackpot: None,
+            matches: (1..=7)
+                .map(|i| (format!("H{i}"), format!("A{i}")))
+                .collect(),
+            split: Some(vec![[50, 30, 20]; 7]),
+            split_at: None,
+        }),
+        history: vec![],
+    };
+    record_grid_page(conn, fetch_id, Game::Lf7, &page).unwrap();
+    let tickets = [
+        Ticket::parse("1N21N21").unwrap(),
+        Ticket::parse("2N21N21").unwrap(),
+    ];
+    let recos: Vec<NewReco<'_>> = tickets
+        .iter()
+        .enumerate()
+        .map(|(i, ticket)| NewReco {
+            game: Game::Lf7,
+            number: 133,
+            ticket,
+            position: i + 1,
+            ev_base: 1.8,
+            ev_pessimistic: 1.4,
+            paid_probability: 0.02,
+            stakes_estimate: 200_000.0,
+            split_fetch_id: fetch_id,
+            inputs: "{}",
+        })
+        .collect();
+    let session = NewSession {
+        created_at: fetched,
+        model_version: "test",
+        params: "{}",
+        notes: "{}",
+    };
+    record_session(conn, &session, &recos).unwrap();
 }

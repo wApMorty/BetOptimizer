@@ -8,6 +8,7 @@ pub mod fetch;
 pub mod model;
 pub mod odds;
 pub mod optimize;
+pub mod played;
 pub mod pronomatch;
 pub mod session;
 pub mod settle;

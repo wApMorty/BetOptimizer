@@ -199,6 +199,7 @@ impl App {
                 Key::Num4,
                 Key::Num5,
                 Key::Num6,
+                Key::Num7,
             ];
             for (index, key) in keys.into_iter().enumerate() {
                 if input.key_pressed(key) {

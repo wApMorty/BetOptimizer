@@ -162,3 +162,14 @@ rang 1 (le « pactole » : 100 000 € pour le LF7, 150 000 € pour le LF8).
 2. **`crates/core/src/lotofoot/session.rs`** : l'enchaînement du samedi, et chaque raison d'écarter une grille. C'est là que se joue
    l'absence de fuite du futur (aucune donnée postérieure à la séance n'est lue).
 3. **`crates/core/src/lotofoot/verify.rs`** : le critère figé qui dira, à 26 puis 52 semaines, s'il faut continuer.
+
+## Complément (2026-10-23) : l'écran Loto Foot de l'application
+
+- La déclaration des tickets joués vit désormais dans `crates/core/src/lotofoot/played.rs` (`declare`, `declare_last_session`,
+  `declare_manual`) : `edge lotofoot played` et le bouton « J'ai joué la séance » de `edge-gui` appellent la même fonction, donc
+  la même règle anti-doublon (un ticket recommandé déjà déclaré est ignoré, jamais réécrit).
+- L'écran (`crates/gui/src/pages/lotofoot.rs`, 7ᵉ onglet, touche 7) affiche `LotofootPage`, la photographie déjà construite pour
+  la page `/lotofoot` du site : aucune logique de calcul n'est dupliquée dans l'interface. Un champ `played` signale les tickets
+  déjà déclarés (colonne « Joué » sur le site).
+- Tests : idempotence dans le cœur (`played.rs`), dans l'application (`actions.rs`) et par le vrai binaire
+  (`crates/cli/tests/lotofoot.rs`).

@@ -10,6 +10,7 @@ use edge_core::format::{decimal, kickoff_label};
 use edge_core::ingest::aliases::Aliases;
 use edge_core::ingest::client::OddsApiClient;
 use edge_core::lotofoot::fetch::{self, FetchReport, PronoMatchClient};
+use edge_core::lotofoot::played::{self, Declared, Manual};
 use edge_core::lotofoot::session::{self, SessionReport};
 use edge_core::lotofoot::settle::{self, Ledger};
 use edge_core::lotofoot::verify;
@@ -17,7 +18,7 @@ use edge_core::lotofoot::{Game, Ticket};
 use edge_core::notify::discord;
 use edge_core::paths::Paths;
 use edge_core::report::lotofoot_page;
-use edge_core::store::{self, lotofoot as journal};
+use edge_core::store;
 
 use crate::commands::api_key_from;
 
@@ -182,50 +183,25 @@ pub struct PlayedOptions {
 }
 
 /// `edge lotofoot played` : enregistre les tickets réellement joués (journal immuable ; hors modèle si aucune
-/// recommandation ne correspond).
+/// recommandation ne correspond). La logique est dans `edge_core::lotofoot::played`, partagée avec l'application.
 pub fn played(paths: &Paths, options: &PlayedOptions) -> Result<()> {
+    let asked = options.last_session || !options.ids.is_empty() || options.grid.is_some();
+    if !asked {
+        bail!("rien à enregistrer : indique des numéros, --last-session, ou --grid et --ticket");
+    }
     let conn = store::open_migrated(&paths.db_file)
         .context("base inaccessible : lance d'abord `edge init`")?;
     let stake = Euros::new(options.stake)
         .filter(|s| s.get() > 0.0)
         .context("mise invalide")?;
-    let recos = journal::recos(&conn)?;
-    let already: Vec<i64> = journal::plays(&conn)?
-        .iter()
-        .filter_map(|p| p.reco_id)
-        .collect();
     let now = Utc::now();
-    let mut chosen: Vec<&journal::RecoRow> = Vec::new();
-    if options.last_session {
-        let Some((session_id, _, _)) = journal::last_session(&conn)? else {
-            bail!("aucune séance au journal")
-        };
-        chosen.extend(recos.iter().filter(|r| r.session_id == session_id));
-    }
-    for id in &options.ids {
-        match recos.iter().find(|r| r.id == *id) {
-            Some(reco) => chosen.push(reco),
-            None => bail!("ticket recommandé n°{id} introuvable"),
-        }
-    }
     let mut written = 0;
-    for reco in chosen {
-        if already.contains(&reco.id) {
-            println!("  ticket n°{} déjà déclaré joué : ignoré", reco.id);
-            continue;
-        }
-        journal::record_play(
-            &conn,
-            &journal::NewPlay {
-                played_at: now,
-                game: reco.game,
-                number: reco.number,
-                ticket: &reco.ticket,
-                stake,
-                reco_id: Some(reco.id),
-            },
-        )?;
-        written += 1;
+    // Les numéros d'abord : un numéro inconnu est refusé avant que rien ne soit écrit.
+    if !options.ids.is_empty() {
+        written += print_declared(&played::declare(&conn, &options.ids, now, stake)?);
+    }
+    if options.last_session {
+        written += print_declared(&played::declare_last_session(&conn, now, stake)?);
     }
     if let (Some(grid), Some(code)) = (&options.grid, &options.ticket) {
         let (game, number) = grid
@@ -233,55 +209,32 @@ pub fn played(paths: &Paths, options: &PlayedOptions) -> Result<()> {
             .and_then(|(g, n)| Some((Game::from_code(g)?, n.parse::<u32>().ok()?)))
             .context("grille attendue au format lf7:133")?;
         let ticket = Ticket::parse(code).context("ticket attendu au format 1N22121")?;
-        if ticket.len() != game.matches() {
-            bail!(
-                "{game} : {} signes attendus, {} donnés",
-                game.matches(),
-                ticket.len()
-            );
-        }
-        if journal::grid(&conn, game, number)?.is_none() {
-            bail!("{game} n°{number} inconnue : elle n'a jamais été relevée");
-        }
-        // Un ticket saisi à la main qui correspond à une recommandation lui est rattaché ; sinon il est hors modèle.
-        let reco_id = recos
-            .iter()
-            .find(|r| r.game == game && r.number == number && r.ticket == ticket)
-            .map(|r| r.id);
-        if let Some(id) = reco_id.filter(|id| already.contains(id)) {
-            println!(
+        match played::declare_manual(&conn, game, number, &ticket, now, stake)? {
+            Manual::AlreadyDeclared(id) => println!(
                 "  {game} n°{number} {ticket} : ticket recommandé n°{id} déjà déclaré joué, ignoré"
-            );
-            println!("{written} ticket(s) joué(s) enregistré(s).");
-            return Ok(());
-        }
-        journal::record_play(
-            &conn,
-            &journal::NewPlay {
-                played_at: now,
-                game,
-                number,
-                ticket: &ticket,
-                stake,
-                reco_id,
-            },
-        )?;
-        println!(
-            "  {game} n°{number} {ticket} enregistré{}",
-            if reco_id.is_none() {
-                " (hors modèle)"
-            } else {
-                ""
+            ),
+            Manual::Recorded(reco_id) => {
+                println!(
+                    "  {game} n°{number} {ticket} enregistré{}",
+                    if reco_id.is_none() {
+                        " (hors modèle)"
+                    } else {
+                        ""
+                    }
+                );
+                written += 1;
             }
-        );
-        written += 1;
-    }
-    let asked = options.last_session || !options.ids.is_empty() || options.grid.is_some();
-    if !asked {
-        bail!("rien à enregistrer : indique des numéros, --last-session, ou --grid et --ticket");
+        }
     }
     println!("{written} ticket(s) joué(s) enregistré(s).");
     Ok(())
+}
+
+fn print_declared(declared: &Declared) -> usize {
+    for id in &declared.already {
+        println!("  ticket n°{id} déjà déclaré joué : ignoré");
+    }
+    declared.written.len()
 }
 
 /// `edge lotofoot report` : bilans et vérification du modèle (lecture seule).

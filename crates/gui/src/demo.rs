@@ -15,6 +15,8 @@ use edge_core::bonus::tracking::{self, Board, Plan};
 use edge_core::config::Config;
 use edge_core::domain::{Euros, Odds, Outcome, Probability};
 use edge_core::eval::bootstrap::MeanCi;
+use edge_core::format::{kickoff_label, long_date};
+use edge_core::report::lotofoot_page::{BandView, GridView, LedgerView, LotofootPage, TicketView};
 use edge_core::store::bonus::{
     Eligibility, EventRef, Leg, MatchResult, NewOffer, Role, Settled, StoredOffer, StoredOperation,
 };
@@ -495,6 +497,119 @@ pub fn data(now: DateTime<Utc>) -> Data {
             cap: 450,
         }),
         bonus: bonus_board(now),
+        lotofoot: lotofoot_page(now),
+    }
+}
+
+/// Clubs imaginaires des grilles Loto Foot de démonstration.
+const LOTOFOOT_CLUBS: [(&str, &str); 15] = [
+    ("FC Aurore", "Olympique Brume"),
+    ("Union Cobalt", "Real Estuaire"),
+    ("SC Rivage", "Dynamo Falaise"),
+    ("Atletico Mistral", "Sporting Lagune"),
+    ("Borussia Quartz", "Inter Zéphyr"),
+    ("Celtic Brumaire", "Hearts Aubépine"),
+    ("AS Galet", "Racing Embrun"),
+    ("Stade Ondée", "US Marée"),
+    ("FC Lichen", "AC Bruyère"),
+    ("Rapid Ardoise", "Vitesse Argile"),
+    ("Athletic Grêle", "Unión Sirocco"),
+    ("Spartak Givre", "Lokomotiv Aube"),
+    ("Real Cormoran", "CD Albatros"),
+    ("Hertha Basalte", "Fortuna Silex"),
+    ("Royal Écume", "Standard Varech"),
+];
+
+/// Loto Foot fictif : une séance de quatre tickets sur un LF7 et un LF8, le premier déjà déclaré joué.
+fn lotofoot_page(now: DateTime<Utc>) -> LotofootPage {
+    let saturday = now - Duration::hours(3);
+    let grid = |name: &str, closes: DateTime<Utc>, clubs: &[(&str, &str)]| GridView {
+        grid: name.to_string(),
+        closes: kickoff_label(closes),
+        matches: clubs
+            .iter()
+            .enumerate()
+            .map(|(i, (h, a))| format!("{}. {h} – {a}", i + 1))
+            .collect(),
+    };
+    let lf7_closes = now + Duration::hours(26);
+    let lf8_closes = now + Duration::hours(28);
+    let ticket =
+        |id: i64, lf8: bool, signs: &str, ev: &str, ev_low: &str, paid: &str, played: bool| {
+            TicketView {
+                id,
+                grid: if lf8 { "LF8 n°147" } else { "LF7 n°133" }.to_string(),
+                closes: kickoff_label(if lf8 { lf8_closes } else { lf7_closes }),
+                ticket: signs.to_string(),
+                ev: ev.to_string(),
+                ev_low: ev_low.to_string(),
+                paid: paid.to_string(),
+                status: "en attente".to_string(),
+                played,
+            }
+        };
+    let ledger =
+        |label, tickets, settled, staked: &str, returned: &str, roi: &str, paid: &str| LedgerView {
+            label,
+            tickets,
+            settled,
+            staked: staked.to_string(),
+            returned: returned.to_string(),
+            roi: roi.to_string(),
+            paid: paid.to_string(),
+        };
+    LotofootPage {
+        nav: false,
+        active: "lotofoot",
+        generated_at: long_date(now),
+        session: long_date(saturday),
+        grids: vec![
+            grid("LF7 n°133", lf7_closes, &LOTOFOOT_CLUBS[..7]),
+            grid("LF8 n°147", lf8_closes, &LOTOFOOT_CLUBS[7..]),
+        ],
+        tickets: vec![
+            ticket(41, false, "1N21N21", "1,84", "1,31", "2,4 %", true),
+            ticket(42, false, "2N21N21", "1,62", "1,22", "1,9 %", false),
+            ticket(43, true, "21N12222", "2,71", "1,58", "0,6 %", false),
+            ticket(44, true, "21N1N222", "2,35", "1,40", "0,5 %", false),
+        ],
+        stake: "4 €".to_string(),
+        skipped: vec!["LF7 n°134 : répartition pas encore publiée".to_string()],
+        unknown_names: Vec::new(),
+        ledgers: vec![
+            ledger(
+                "Tickets recommandés (suivi du modèle, joués ou non)",
+                18,
+                14,
+                "14 €",
+                "21,90 €",
+                "+56,4 %",
+                "1 / 0,3",
+            ),
+            ledger("Tickets joués du modèle", 15, 11, "11 €", "21,90 €", "+99,1 %", "1"),
+            ledger("Tickets joués hors modèle", 0, 0, "0 €", "0,00 €", "—", "0"),
+        ],
+        verdict: "Pas de verdict avant 26 semaines (4 écoulée(s) depuis la première séance). Le critère est figé : \
+                  calibration des concurrents, et gain réalisé au-dessus du 5e centile de sa loi simulée."
+            .to_string(),
+        verdict_class: "warn",
+        bands: vec![
+            BandView {
+                range: "3 – 10".to_string(),
+                observations: 6,
+                ratio: "1,12".to_string(),
+                failing: false,
+            },
+            BandView {
+                range: "≥ 10".to_string(),
+                observations: 4,
+                ratio: "0,94".to_string(),
+                failing: false,
+            },
+        ],
+        gain: "21,90 € réalisés pour 17,64 € attendus ; centile 0,712 de la loi simulée (14 ticket(s) réglé(s))"
+            .to_string(),
+        frequency: "1 payé(s) pour 0,30 attendu(s) ; probabilité d'en avoir aussi peu : 1,000".to_string(),
     }
 }
 

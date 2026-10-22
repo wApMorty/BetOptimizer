@@ -4,6 +4,7 @@
 pub mod bets;
 pub mod bonus;
 pub mod common;
+pub mod lotofoot;
 pub mod opportunities;
 pub mod performance;
 pub mod reports;
@@ -32,17 +33,20 @@ pub enum Tab {
     Reports,
     /// Bonus de bienvenue couverts.
     Bonus,
+    /// Loto Foot (LF7, LF8) : séance du samedi.
+    Lotofoot,
 }
 
 impl Tab {
     /// Tous les écrans, dans l'ordre de la barre latérale.
-    pub const ALL: [Tab; 6] = [
+    pub const ALL: [Tab; 7] = [
         Tab::Today,
         Tab::Opportunities,
         Tab::Bets,
         Tab::Performance,
         Tab::Reports,
         Tab::Bonus,
+        Tab::Lotofoot,
     ];
 
     /// Titre dans la barre latérale.
@@ -54,6 +58,7 @@ impl Tab {
             Tab::Performance => "Performance",
             Tab::Reports => "Rapports",
             Tab::Bonus => "Bonus",
+            Tab::Lotofoot => "Loto Foot",
         }
     }
 
@@ -66,6 +71,7 @@ impl Tab {
             Tab::Performance => Icon::Chart,
             Tab::Reports => Icon::Doc,
             Tab::Bonus => Icon::Gift,
+            Tab::Lotofoot => Icon::Grid,
         }
     }
 }
@@ -122,5 +128,6 @@ pub fn show(
         Tab::Performance => performance::show(ui, ctx, data, &mut states.performance),
         Tab::Reports => reports::show(ui, ctx, data),
         Tab::Bonus => bonus::show(ui, ctx, data, &mut states.bonus),
+        Tab::Lotofoot => lotofoot::show(ui, ctx, data),
     }
 }

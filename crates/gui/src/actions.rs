@@ -9,9 +9,10 @@ use edge_core::betting::ledger::{self, FollowedInput};
 use edge_core::betting::settle;
 use edge_core::bonus::operator_name;
 use edge_core::bonus::tracking::{self, OperationRequest};
-use edge_core::domain::Outcome;
+use edge_core::domain::{Euros, Outcome};
 use edge_core::format;
 use edge_core::ingest::aliases::Aliases;
+use edge_core::lotofoot::{TICKET_PRICE, played};
 use edge_core::paths::Paths;
 use edge_core::store::bonus::{self, MatchResult, NewOffer};
 use edge_core::store::journal::{self, Settlement, SettlementSource};
@@ -66,6 +67,8 @@ pub enum Action {
         /// Résultat du match.
         result: MatchResult,
     },
+    /// Déclarer jouée toute la dernière séance Loto Foot (comme `edge lotofoot played --last-session`).
+    LotofootPlayedSession,
 }
 
 /// Exécute une action qui touche le journal et renvoie le message de succès à afficher.
@@ -151,6 +154,21 @@ pub fn apply(paths: &Paths, action: &Action, now: DateTime<Utc>) -> Result<Strin
         } => {
             tracking::settle_operation(&conn, *operation_id, *result, now)?;
             Ok(format!("Opération n° {operation_id} réglée à la main."))
+        }
+        Action::LotofootPlayedSession => {
+            let stake = Euros::new(TICKET_PRICE).context("prix du ticket invalide")?;
+            let declared = played::declare_last_session(&conn, now, stake)?;
+            let mut message = format!(
+                "{} ticket(s) Loto Foot déclaré(s) joué(s).",
+                declared.written.len()
+            );
+            if !declared.already.is_empty() {
+                message.push_str(&format!(
+                    " {} déjà déclaré(s) : ignoré(s).",
+                    declared.already.len()
+                ));
+            }
+            Ok(message)
         }
     }
 }
@@ -315,5 +333,33 @@ mod tests {
                 .unwrap()
                 .contains("0 opération(s)")
         );
+    }
+
+    #[test]
+    fn declaring_the_lotofoot_session_twice_writes_each_ticket_once() {
+        use edge_core::store::lotofoot::plays;
+
+        let sample = sample();
+        let action = Action::LotofootPlayedSession;
+
+        let first = apply(&sample.paths, &action, sample.now).unwrap();
+        let again = apply(&sample.paths, &action, sample.now).unwrap();
+
+        assert!(first.starts_with("2 ticket(s)"), "{first}");
+        assert!(again.starts_with("0 ticket(s)"), "{again}");
+        assert!(again.contains("2 déjà déclaré(s)"), "{again}");
+        let conn = open_migrated(&sample.paths.db_file).unwrap();
+        assert_eq!(plays(&conn).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn declaring_without_any_lotofoot_session_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        open_migrated(&paths.db_file).unwrap();
+
+        let error = apply(&paths, &Action::LotofootPlayedSession, Utc::now()).unwrap_err();
+
+        assert!(error.to_string().contains("aucune séance"), "{error}");
     }
 }

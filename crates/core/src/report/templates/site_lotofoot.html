@@ -14,9 +14,9 @@
 {% endfor %}
 <div class="scroll">
 <table>
-<thead><tr><th>N°</th><th>Grille</th><th>Ticket</th><th class="num">Espérance</th><th class="num">Défavorable</th><th class="num">P(payé)</th><th>Règlement</th></tr></thead>
+<thead><tr><th>N°</th><th>Grille</th><th>Ticket</th><th class="num">Espérance</th><th class="num">Défavorable</th><th class="num">P(payé)</th><th>Joué</th><th>Règlement</th></tr></thead>
 <tbody>
-{% for t in tickets %}<tr><td>{{ t.id }}</td><td>{{ t.grid }}</td><td><code>{{ t.ticket }}</code></td><td class="num">{{ t.ev }}</td><td class="num">{{ t.ev_low }}</td><td class="num">{{ t.paid }}</td><td>{{ t.status }}</td></tr>
+{% for t in tickets %}<tr><td>{{ t.id }}</td><td>{{ t.grid }}</td><td><code>{{ t.ticket }}</code></td><td class="num">{{ t.ev }}</td><td class="num">{{ t.ev_low }}</td><td class="num">{{ t.paid }}</td><td>{% if t.played %}oui{% else %}—{% endif %}</td><td>{{ t.status }}</td></tr>
 {% endfor %}
 </tbody>
 </table>
