@@ -1,0 +1,11 @@
+[Unit]
+Description=Test prospectif OddsPapi chaque lundi à 9 h, heure de Paris
+
+[Timer]
+# Le lundi matin, les matchs du week-end sont terminés ; la fenêtre de 8 jours recouvre le passage précédent.
+OnCalendar=Mon *-*-* 09:00:00 Europe/Paris
+# Un lundi manqué se rattrape au réveil : l'historique reste disponible.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
