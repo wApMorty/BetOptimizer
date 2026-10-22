@@ -9,8 +9,8 @@
 
 use crate::domain::Outcome;
 
-use super::Ticket;
 use super::model::{Competitors, GridModel, TicketValue};
+use super::{Game, Ticket};
 
 /// Poids de la probabilité de gain dans l'objectif de la recherche gloutonne.
 pub const FREQUENCY_WEIGHT: f64 = 10.0;
@@ -106,9 +106,9 @@ pub fn best_tickets(
 
 /// Un ticket candidat d'une séance, évalué dans le modèle de base et dans le scénario défavorable.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Candidate<K> {
-    /// Grille du ticket (le type de la clé est libre : couple formule et numéro en production).
-    pub grid: K,
+pub struct Candidate {
+    /// Grille du ticket : formule et numéro.
+    pub grid: (Game, u32),
     /// Le ticket.
     pub ticket: Ticket,
     /// Valeur dans le modèle de base.
@@ -119,18 +119,18 @@ pub struct Candidate<K> {
 
 /// Candidats d'une grille : ses `MAX_TICKETS` meilleurs tickets pour le poids de fréquence `weight`, évalués dans les
 /// deux scénarios.
-pub fn candidates<K: Clone>(
-    key: &K,
+pub fn candidates(
+    key: (Game, u32),
     grid: &GridModel,
     competitors: &Competitors,
     weight: f64,
-) -> Vec<Candidate<K>> {
+) -> Vec<Candidate> {
     let worse = grid.pessimistic();
     let worse_competitors = competitors.pessimistic();
     best_tickets(grid, competitors, MAX_TICKETS, weight)
         .into_iter()
         .map(|ticket| Candidate {
-            grid: key.clone(),
+            grid: key,
             base: grid.value(&ticket, competitors),
             pessimistic: worse.value(&ticket, &worse_competitors),
             ticket,
@@ -140,11 +140,11 @@ pub fn candidates<K: Clone>(
 
 /// Sélection de la séance : espérance défavorable au moins égale à `threshold`, par espérance défavorable décroissante,
 /// `max_tickets` au plus. Une séance peut ne retenir aucun ticket.
-pub fn select<K>(
-    mut candidates: Vec<Candidate<K>>,
+pub fn select(
+    mut candidates: Vec<Candidate>,
     threshold: f64,
     max_tickets: usize,
-) -> Vec<Candidate<K>> {
+) -> Vec<Candidate> {
     candidates.retain(|c| c.pessimistic.expected_return >= threshold);
     // `total_cmp` ordonne aussi les flottants spéciaux : le tri ne peut pas paniquer. À égalité, le ticket le plus
     // petit dans l'ordre des codes passe d'abord (sélection reproductible).
@@ -210,7 +210,6 @@ fn to_ticket(signs: &[usize]) -> Ticket {
 mod tests {
     use super::*;
     use crate::domain::{Euros, Probs1x2};
-    use crate::lotofoot::Game;
     use crate::lotofoot::model::FROZEN;
 
     fn grid() -> GridModel {
@@ -296,7 +295,7 @@ mod tests {
 
     #[test]
     fn selection_respects_the_threshold_the_budget_and_the_order() {
-        let cands = candidates(&"grille", &grid(), &FROZEN, FREQUENCY_WEIGHT);
+        let cands = candidates((Game::Lf7, 1), &grid(), &FROZEN, FREQUENCY_WEIGHT);
         let chosen = select(cands.clone(), 1.2, 5);
         assert!(chosen.len() <= 5);
         assert!(chosen.iter().all(|c| c.pessimistic.expected_return >= 1.2));

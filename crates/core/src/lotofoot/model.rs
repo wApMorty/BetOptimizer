@@ -176,42 +176,28 @@ impl GridModel {
 
     /// Espérance et probabilité de gain d'un ticket simple. Un ticket de mauvaise longueur ne gagne rien.
     pub fn value(&self, ticket: &Ticket, competitors: &Competitors) -> TicketValue {
-        let mut acc = Accumulator::default();
+        let mut walk = Walk {
+            ticket: ticket.signs(),
+            competitors,
+            outcome: Vec::with_capacity(self.len()),
+            gain: 0.0,
+            paid: 0.0,
+        };
         if ticket.len() == self.len() {
-            let mut outcome = Vec::with_capacity(self.len());
-            self.visit(
-                ticket.signs(),
-                0,
-                0,
-                1.0,
-                &mut outcome,
-                competitors,
-                &mut acc,
-            );
+            self.visit(&mut walk, 0, 0, 1.0);
         }
         TicketValue {
-            expected_return: acc.gain / TICKET_PRICE,
-            paid_probability: acc.paid,
+            expected_return: walk.gain / TICKET_PRICE,
+            paid_probability: walk.paid,
         }
     }
 
-    /// Parcourt en profondeur toutes les issues où le ticket fait au plus `R − 1` erreurs : à chaque rencontre, on garde
-    /// le signe du ticket, ou on le remplace par l'un des deux autres tant qu'il reste des erreurs permises.
-    ///
-    /// `outcome` est un seul vecteur réutilisé (empilé puis dépilé) : on évite d'allouer un vecteur par issue.
-    #[allow(clippy::too_many_arguments)]
-    fn visit(
-        &self,
-        ticket: &[Outcome],
-        i: usize,
-        errors: usize,
-        prob: f64,
-        outcome: &mut Vec<usize>,
-        competitors: &Competitors,
-        acc: &mut Accumulator,
-    ) {
-        let Some(&sign) = ticket.get(i) else {
-            self.leaf(outcome, errors, prob, competitors, acc);
+    /// Parcourt en profondeur toutes les issues où le ticket fait au plus `R − 1` erreurs : à chaque rencontre `i`, on
+    /// garde le signe du ticket, ou on le remplace par l'un des deux autres tant qu'il reste des erreurs permises.
+    /// `errors` : erreurs jusqu'ici ; `prob` : probabilité, selon le marché, des signes déjà fixés.
+    fn visit(&self, walk: &mut Walk<'_>, i: usize, errors: usize, prob: f64) {
+        let Some(&sign) = walk.ticket.get(i) else {
+            self.leaf(walk, errors, prob);
             return;
         };
         let ours = sign.index();
@@ -221,42 +207,41 @@ impl GridModel {
                 continue;
             }
             let p = self.p.get(i).map_or(0.0, |row| row[real]);
-            outcome.push(real);
-            self.visit(
-                ticket,
-                i + 1,
-                errors + wrong,
-                prob * p,
-                outcome,
-                competitors,
-                acc,
-            );
-            outcome.pop();
+            // Un seul vecteur pour tout le parcours, empilé puis dépilé : aucune allocation par issue.
+            walk.outcome.push(real);
+            self.visit(walk, i + 1, errors + wrong, prob * p);
+            walk.outcome.pop();
         }
     }
 
     /// Une issue complète : notre rang, la part attendue de sa masse, et la probabilité de l'issue.
-    fn leaf(
-        &self,
-        outcome: &[usize],
-        errors: usize,
-        prob: f64,
-        competitors: &Competitors,
-        acc: &mut Accumulator,
-    ) {
+    fn leaf(&self, walk: &mut Walk<'_>, errors: usize, prob: f64) {
         let n = self.len();
-        let a: Vec<f64> = outcome
+        let a: Vec<f64> = walk
+            .outcome
             .iter()
             .zip(&self.q)
             .map(|(&real, q)| q[real])
             .collect();
         let public = poisson_binomial(&a);
         let lambda = self.stakes * public.get(n - errors).copied().unwrap_or(0.0);
-        let mu = competitors.expected(lambda, self.stakes, n);
+        let mu = walk.competitors.expected(lambda, self.stakes, n);
         let mass = self.masses.get(errors).copied().unwrap_or(0.0);
-        acc.gain += prob * mass * expected_share(mu);
-        acc.paid += prob;
+        walk.gain += prob * mass * expected_share(mu);
+        walk.paid += prob;
     }
+}
+
+/// État du parcours des issues d'un ticket : ce qui ne change pas (ticket, paramètres), l'issue en construction, et les
+/// sommes accumulées. Le `'a` dit que `Walk` emprunte le ticket et les paramètres sans les copier : il ne peut pas leur
+/// survivre, ce qui est le cas puisqu'il ne vit que le temps d'un appel à [`GridModel::value`].
+struct Walk<'a> {
+    ticket: &'a [Outcome],
+    competitors: &'a Competitors,
+    /// Signe réel (0, 1, 2) de chaque rencontre déjà fixée.
+    outcome: Vec<usize>,
+    gain: f64,
+    paid: f64,
 }
 
 impl GridModel {
@@ -330,13 +315,6 @@ pub fn public_split(split: &[[u32; 3]]) -> Option<Vec<Probs1x2>> {
             Probs1x2::new(home, draw, 1.0 - home - draw)
         })
         .collect()
-}
-
-/// Sommes accumulées pendant le parcours des issues.
-#[derive(Default)]
-struct Accumulator {
-    gain: f64,
-    paid: f64,
 }
 
 /// Part espérée d'une masse partagée entre nous et `W ~ Poisson(μ)` concurrents : `E[1/(1 + W)] = (1 − e^{−μ}) / μ`.

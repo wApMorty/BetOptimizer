@@ -71,7 +71,7 @@ pub struct SessionReport {
     /// Recherche des compétitions manquantes.
     pub leagues: LeagueSearch,
     /// Tickets retenus, du meilleur au moins bon.
-    pub chosen: Vec<Candidate<(Game, u32)>>,
+    pub chosen: Vec<Candidate>,
     /// Séance enregistrée (`None` à blanc).
     pub session_id: Option<i64>,
 }
@@ -245,11 +245,11 @@ pub fn run(
     }
 
     // 3. Tickets de chaque grille, puis seuil et budget sur l'ensemble de la séance.
-    let mut all: Vec<Candidate<(Game, u32)>> = Vec::new();
+    let mut all: Vec<Candidate> = Vec::new();
     for grid in &ready {
         let key = (grid.row.game, grid.row.number);
         let candidates =
-            optimize::candidates(&key, &grid.model, &FROZEN, config.lotofoot_frequency_weight);
+            optimize::candidates(key, &grid.model, &FROZEN, config.lotofoot_frequency_weight);
         let best = candidates
             .iter()
             .map(|c| c.pessimistic.expected_return)
