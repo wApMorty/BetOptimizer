@@ -11,6 +11,7 @@ Prérequis : lingering activé (`loginctl enable-linger $USER`) et binaire insta
 | `edge-latency` | lundi 9 h | historique OddsPapi des matchs terminés et verdict du test de latence (`edge latency fetch`, `edge latency report`, sources §34) | 0 (6 requêtes OddsPapi sur 250 par mois) |
 | `edge-lotofoot-fetch` | toutes les heures (minute 7) | grilles LF7 et LF8, répartition FDJ, résultats et rapports sur prono-match (`edge lotofoot fetch`, sources §38) | 0 |
 | `edge-lotofoot-recommend` | samedi 12 h (Paris) | séance du Loto Foot : tickets au-dessus du seuil, journal, Discord (`edge lotofoot recommend --notify`) | 1 par compétition absente de l'archive, 8 au plus |
+| `edge-loto` | 22 h 30 (Paris) | historique FDJ, alerte EuroMillions au plafond, séance du Grand Loto dû dans les 3 jours (`edge loto fetch --notify`, `edge loto recommend --notify`, sources §44) | 0 |
 
 Service permanent (pas un timer) : `edge-serve`, l'application Web (voir plus bas). Aucun crédit.
 
@@ -23,8 +24,18 @@ mkdir -p ~/.config/systemd/user
 cp deploy/systemd/edge-*.service deploy/systemd/edge-*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now edge-snapshot.timer edge-recommend.timer edge-closing.timer edge-nba.timer edge-latency.timer \
-    edge-lotofoot-fetch.timer edge-lotofoot-recommend.timer
+    edge-lotofoot-fetch.timer edge-lotofoot-recommend.timer edge-loto.timer
 ```
+
+## Grand Loto et EuroMillions
+
+`edge-loto` relève chaque soir l'historique officiel de la FDJ (archives ZIP publiques), cherche l'alerte EuroMillions (quatrième tirage
+consécutif au plafond sans gagnant : le cinquième verse le jackpot au rang 2), puis lance la séance d'un Grand Loto inscrit dans
+`grand_loto_editions` (edge.toml) s'il a lieu dans les 3 jours. Une alerte n'est envoyée qu'une fois ; une séance n'est jamais refaite.
+
+- `edge loto recommend --date 2026-12-25 --dry-run` : la séance d'une édition sans rien écrire.
+- `edge loto played --last-session` : après validation, déclare les grilles jouées (ou `played 3 4`, ou `--grid 2-3-30-35-44+10 --date 2026-12-25`).
+- `edge loto study` : rapport HTML (Grand Loto passés, préférences du public validées hors échantillon, EuroMillions au plafond, journal).
 
 ## Loto Foot
 

@@ -1,0 +1,10 @@
+[Unit]
+Description=Grand Loto et EuroMillions : tous les jours à 22 h 30, heure de Paris (archives FDJ mises à jour le soir des tirages)
+
+[Timer]
+OnCalendar=*-*-* 22:30:00 Europe/Paris
+# Un soir manqué se rattrape au réveil : l'alerte du cinquième tirage laisse trois ou quatre jours avant celui-ci.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1796,3 +1796,71 @@ Espérance d'un cinquième tirage, avec `p₂ = 1/6 991 908` et `r ≈ 0,9 €` 
 Probabilité qu'un épisode atteigne le cinquième tirage : `Π e^(−N_i/139,8 M)` sur quatre tirages ; avec 50 à 65 millions de grilles,
 environ 0,15 à 0,25. Avec deux à trois épisodes par an, un tel tirage arriverait **une fois tous les deux à quatre ans** ; il n'a
 jamais eu lieu. Une alerte suffit : déclenchée quand le quatrième tirage au plafond n'a pas de gagnant.
+
+## 44. Phase 16 — Grand Loto et alerte EuroMillions : vérifications, choix et premières mesures (2026-10-23)
+
+**Choix de Paul (2026-10-23)** : relevé automatique de l'archive FDJ (fichiers publics, sans compte), tout en Rust, 20 € par Grand
+Loto (quatre grilles à 5 €), grille jouée si ses euros rendus par euro atteignent **1,05 au nombre de grilles pessimiste** (80e
+centile de la prévision), ligne de commande et Discord sans page Web, éditions saisies dans `edge.toml`. Dépendance `zip` 8.6.0
+validée (même version et mêmes options que celle de `calamine` : aucun paquet ajouté à `Cargo.lock`).
+
+**Règlements lus à la source**
+- Loto, décision ANJ [2026-PR-023](https://www.anj.fr/sites/default/files/2026-02/D%C3%A9cision%20n%C2%B0%202026-PR-023_HOM%20R%C3%A8glement_Loto2dTirage_PDV-Ligne.pdf) :
+  grille de Grand Loto à 5 € (art. 5) ; 54,85 % des mises aux gagnants, « défini globalement et non tirage par tirage » ; au Grand Loto,
+  5,5 % au rang 1 et 2,85 % au Fonds de Super Cagnotte ; rang 9 fixe à 5 € ; clé des rangs 2 à 8 propre au Grand Loto (5,06 % à
+  40,26 %) ; **art. 8.3.4** : sans gagnant, le jackpot va aux rangs 2 à 9 (1,28 %, 0,77 %, 3,48 %, 1,31 %, 5,96 %, 11,23 %,
+  **51,05 % au rang 8**, 24,92 % au rang 9) ; jackpot minimum de 20 M€. Loto ordinaire : report limité à 34 tirages.
+- EuroMillions, décision ANJ [2025-PR-054](https://anj.fr/sites/default/files/2025-03/D%C3%A9cision%202025-PR-054_Homologation_R%C3%A8glement_Euromillion-Ligne_PDV-3.pdf) :
+  1,10 € par grille aux gagnants (art. 4.2.2.1) ; clé des rangs 2 à 13 (2,61 % au rang 2…, 40 % au total) ; plafond de 200 M€ en
+  2020, plus 10 M€ par cycle, au plus 250 M€ ; excédent au rang inférieur ayant un gagnant (4.2.5.5) ; **cinquième tirage
+  consécutif au plafond sans gagnant : le jackpot va au rang inférieur** (4.2.5.6). Le règlement prévoit aussi des « Tirages Super
+  Jackpot Forcément Gagné » annoncés par avis sur fdj.fr : **non détectés** par l'outil (il faudrait lire fdj.fr).
+- Décision ANJ [2026-136](https://anj.fr/sites/default/files/2026-07/D%C3%A9cision%20n%C2%B02026-136_LFDJ_AU_EuroMillions_PDV%26Ligne.pdf) :
+  EuroMillions modifiée pour 2027 (« retour à l'ancienne matrice de jeu » ; date, prix et plafond masqués). L'alerte refuse de
+  conclure si les gagnants des rangs 12 et 13 ne collent plus à la matrice 5/50 et 2/12 (écart de plus de 30 %).
+
+**Archives FDJ** (pages « Historique » de fdj.fr, liens `sto.api.fdj.fr/anonymous/service-draw-info/v3/documentations/<id>`) :
+Loto depuis mars 2017 (`…afn6`, `…afo6`, `…afp6` en cours), Grand Loto (`…aff6`, `…afg6` en cours), EuroMillions depuis
+septembre 2016 (`…afc6`, `…afd6`, `…afe6` en cours). Le Loto d'avant mars 2017 a six rangs et l'EuroMillions d'avant
+septembre 2016 onze étoiles : non lus. Formats : `;`, virgule décimale, espaces de milliers, Latin-1 (anciens) ou UTF-8,
+dates `JJ/MM/AAAA`, `JJ/MM/AA` ou `AAAAMMJJ`, colonnes repérées par leur nom. L'archive en cours de l'EuroMillions est
+datée du soir du tirage (21 h 36) : timer à 22 h 30. Le Grand Loto du 26/06/2026 n'est pas encore dans l'archive.
+
+**Méthode** (`crates/core/src/loto/`)
+- Nombre de grilles : `N̂ = Σ_{k=5..9} n_k / Σ p_k` (EuroMillions : rangs 9 à 13). Prévision d'une édition : `ln N` des cinq
+  dernières éditions antérieures de la même saison (été, Noël), loi de Student à `n − 1` degrés, écart type au moins 0,15.
+- Espérance d'une grille : clés du règlement, partage `E[1/(1+M)] = (1 − e^{−μ})/μ` avec les autres gagnants. Contrôle : une
+  grille au hasard retrouve à 0,5 % près la forme fermée `(J + C)/N + 5 € × 46,5 %`.
+- Préférences du public : modèle produit (un poids par numéro, une part par chance), vraisemblance multinomiale des gagnants
+  par rang (le nombre de grilles du tirage s'y simplifie), L2 d'écart type 0,5, L-BFGS à gradient analytique. **Critère fixé
+  avant la mesure** : gain de log-vraisemblance hors échantillon par tirage dont l'intervalle à 95 % (bootstrap par semaines)
+  exclut 0, **et** pente de calibration du rang 8 dont la borne basse dépasse 0,5. Walk-forward annuel, années de test 2019 à 2026.
+- Grilles : parmi les 15 numéros et les 3 chances les plus délaissés, motifs écartés (trois numéros consécutifs, écart
+  constant ; Baker & McHale 2011), au plus deux numéros communs entre deux grilles. Sans préférences validées : grilles au
+  hasard, reproductibles (graine = date de l'édition).
+
+**Mesures sur l'archive réelle (2026-10-23)** : 1 507 Loto, 11 Grand Loto, 1 051 EuroMillions.
+- Grand Loto passés : identiques au §43 (contrôle des tests).
+- Préférences, walk-forward : gain de **5 071 [4 697 ; 5 475]** de log-vraisemblance par tirage, positif chaque année
+  (4 065 à 6 103) ; pente du rang 8 **0,93 [0,92 ; 0,94]** : **critère rempli**. Contrôles hors critère : pente 0,94 à deux
+  numéros trouvés, 0,93 [0,91 ; 0,96] à trois, **0,88 [0,83 ; 0,93] à quatre** : le modèle prédit bien, mais exagère d'environ 10
+  % les écarts des rangs 3 et 4. Une seule configuration de modèle a été essayée.
+- Les plus joués : 7, 13, 12, 11, 9, 10, 5 (poids 1,26 à 1,39) ; les plus délaissés : 46, 36, 40, 39, 35, 32, 41 (0,73 à 0,77) ;
+  chance 7 jouée par 14,2 % des grilles, chance 1 par 7,7 %. Conforme à la littérature (dates de naissance, 7 et 13).
+- Contrôle sur les 11 Grand Loto (préférences ajustées sur les Loto antérieurs) : gain moyen d'environ +1 000 par tirage, mais
+  négatif 4 fois sur 11 (−1 426 à Noël 2025) : **le public du Grand Loto choisit moins comme celui du Loto**. Non validé à part
+  (trop peu de tirages).
+- À la référence (Noël à 20 M€, 7 millions de grilles) : 5,46 € rendus par une grille au hasard, **7,49 €** par la grille la plus
+  délaissée (`35-36-39-40-46+1`, six fois moins jouée qu'une grille moyenne). Le gain vient surtout des rangs 2 à 6 (quatre et
+  trois numéros), où une telle grille a deux à trois fois moins de cogagnants.
+- Séance à blanc pour Noël 2026 (20 M€) : 7,71 millions de grilles prévues, 9,00 au pessimiste ; grille au hasard 5,18 €
+  (4,77 € au pessimiste : **ne pas jouer**) ; grilles délaissées 6,97 à 7,14 € (6,49 à 6,66 € au pessimiste : **jouer**).
+  **La décision de Noël dépend donc entièrement des préférences**, et précisément des rangs où la pente est la plus basse.
+- EuroMillions : 16 tirages au plafond depuis 2020, tous détectés (excédent de 6,3 à 30,5 M€) ; aucun autre tirage au-dessus de
+  1 M€. Aucune alerte due au 23/10/2026.
+
+**Limites connues** : public du Grand Loto différent ; grilles choisies à l'extrême de l'impopularité, là où le modèle
+extrapole le plus (effet de sélection : le gain réel sera plus petit que prévu, de l'ordre de la pente) ; motifs et « grappes »
+de numéros non modélisés au-delà du filtre ; probabilité qu'aucun autre joueur ne gagne le jackpot prise au hasard ; reports
+d'un rang vide ignorés ; gains des codes non suivis ; « Tirages Super Jackpot Forcément Gagné » non détectés ; règles 2027 de
+l'EuroMillions à revoir. Variance : celle d'une loterie, presque tout vient des rangs 1 à 4.

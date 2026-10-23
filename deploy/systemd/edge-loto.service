@@ -1,0 +1,14 @@
+[Unit]
+Description=Grand Loto et EuroMillions : historique FDJ, alerte du cinquième tirage au plafond, séance d'une édition (edge)
+Documentation=file://%h/Documents/Workspace/BetOptimizer/docs/sources.md
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/sh -c 'for i in $(seq 1 30); do getent hosts www.sto.api.fdj.fr >/dev/null && exit 0; sleep 10; done; exit 1'
+# Archives publiques de la FDJ (trois fichiers par jour, les anciens une seule fois), puis alerte EuroMillions envoyée une
+# seule fois par tirage déclencheur. Aucun crédit.
+ExecStart=%h/.local/bin/edge loto fetch --notify
+# Séance de l'édition du Grand Loto due dans les grand_loto_days_before jours (3 par défaut) ; rien sinon. Une séance
+# n'est jamais refaite : relancer l'unité est sans risque.
+ExecStart=%h/.local/bin/edge loto recommend --notify
+TimeoutStartSec=900
