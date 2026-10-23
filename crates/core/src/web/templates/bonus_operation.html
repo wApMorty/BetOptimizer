@@ -1,0 +1,32 @@
+{% extends "site_base.html" %}
+{% block title %}J'ai joué{% endblock %}
+{% block content %}
+<a class="back" href="/bonus">← Bonus</a>
+<div class="head"><h1>J'ai joué · {{ title }}</h1><div class="sub">Place d'abord le pari bonus, puis tape les cotes réellement affichées chez les opérateurs de couverture, recalcule les mises, place les couvertures aussitôt, et enregistre.</div></div>
+<form class="card form" method="post" action="/bonus/operation">
+  <input type="hidden" name="operateur" value="{{ form.bookmaker }}">
+  <input type="hidden" name="forme" value="{{ form.kind }}">
+  <input type="hidden" name="match" value="{{ form.event_id }}">
+  <input type="hidden" name="titre" value="{{ title }}">
+  <input type="hidden" name="paris" value="{{ form.legs|length }}">
+  {% for leg in form.legs %}
+  <div style="margin-bottom: 6px"><b>{% if leg.bonus %}Bonus{% else %}Couverture{% endif %} · {{ leg.outcome_label }}</b></div>
+  <input type="hidden" name="issue{{ loop.index0 }}" value="{{ leg.outcome }}">
+  {% if leg.bonus %}
+  <input type="hidden" name="bookmaker{{ loop.index0 }}" value="{{ leg.bookmaker }}"><p class="sub" style="margin: 0 0 8px">{{ bonus_name }}</p>
+  {% else %}
+  <label class="field"><span>Opérateur</span><select name="bookmaker{{ loop.index0 }}">{% for c in covers %}<option value="{{ c[0] }}"{% if c[0] == leg.bookmaker %} selected{% endif %}>{{ c[1] }}</option>{% endfor %}</select></label>
+  {% endif %}
+  <div class="row2">
+    <label class="field"><span>Cote</span><input type="text" name="cote{{ loop.index0 }}" value="{{ leg.odds }}" inputmode="decimal"></label>
+    <label class="field"><span>Mise (€)</span><input type="text" name="mise{{ loop.index0 }}" value="{{ leg.stake }}" inputmode="decimal"></label>
+  </div>
+  {% endfor %}
+  <p><b class="{{ color }}">Gain garanti : {% if guaranteed %}{{ guaranteed }}{% else %}saisie incomplète{% endif %}</b></p>
+  {% if error %}<div class="notice t-neg">{{ error }}</div>{% endif %}
+  <div class="actions">
+    <button class="btn secondary" type="submit" name="recalculer" value="1">Recalculer les mises de couverture</button>
+    <button class="btn" type="submit">Enregistrer l'opération</button>
+  </div>
+</form>
+{% endblock %}

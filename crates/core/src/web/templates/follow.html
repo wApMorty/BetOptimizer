@@ -1,0 +1,21 @@
+{% extends "site_base.html" %}
+{% block title %}J'ai parié{% endblock %}
+{% block content %}
+<a class="back" href="/opportunites">← Opportunités</a>
+<div class="head"><h1>J'ai parié</h1><div class="sub">Recommandation n° {{ id }} : saisis ce que tu as réellement obtenu. Un champ vide reprend la valeur de la recommandation.</div></div>
+<div class="card form">
+  <b>{{ fixture }}</b><div class="meta">{{ meta }}</div>
+  <div class="chips"><span class="chip t-acc">{{ line }}</span><span class="chip">cote minimale {{ minimal_odds }}</span></div>
+</div>
+<form class="card form" method="post" action="/paris/suivre/{{ id }}">
+  <p class="sub" style="margin-top: 0">Une cote sous la cote minimale est refusée : le pari ne suit plus la recommandation, enregistre-le comme pari hors modèle.</p>
+  <div class="row2">
+    <label class="field"><span>Cote obtenue</span><input type="text" name="cote" value="{{ form.odds }}" inputmode="decimal" autofocus></label>
+    <label class="field"><span>Mise (€)</span><input type="text" name="mise" value="{{ form.stake }}" inputmode="decimal"></label>
+  </div>
+  <label class="field"><span>Bookmaker</span><input type="text" name="bookmaker" value="{{ form.bookmaker }}" list="bookmakers"></label>
+  <datalist id="bookmakers">{% for b in bookmakers %}<option value="{{ b }}">{% endfor %}</datalist>
+  {% if error %}<div class="notice t-neg">{{ error }}</div>{% endif %}
+  <button class="btn" type="submit">Enregistrer le pari</button>
+</form>
+{% endblock %}

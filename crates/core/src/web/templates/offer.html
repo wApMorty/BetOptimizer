@@ -1,0 +1,29 @@
+{% extends "site_base.html" %}
+{% block title %}Offre{% endblock %}
+{% block content %}
+<a class="back" href="/bonus">← Bonus</a>
+<div class="head"><h1>Offre d'un opérateur</h1><div class="sub">Lis la clause d'éligibilité du règlement (ou demande au service client) avant tout dépôt. L'offre la plus récente fait foi.</div></div>
+<form class="card form" method="post" action="/bonus/offre">
+  <label class="field"><span>Opérateur</span>
+    <select name="operateur">{% for o in operators %}<option value="{{ o[0] }}"{% if o[0] == form.bookmaker %} selected{% endif %}>{{ o[1] }}</option>{% endfor %}</select>
+  </label>
+  <div class="field"><span>Éligibilité</span>
+    <div class="radios">
+      <label><input type="radio" name="eligible" value="oui"{% if form.eligible %} checked{% endif %}>Éligible</label>
+      <label><input type="radio" name="eligible" value="non"{% if not form.eligible %} checked{% endif %}>Inéligible</label>
+    </div>
+  </div>
+  <div class="field"><span>Forme de l'offre</span>
+    <div class="radios">{% for k in kinds %}<label><input type="radio" name="forme" value="{{ k[0] }}"{% if k[0] == form.kind %} checked{% endif %}>{{ k[1] }}</label>{% endfor %}</div>
+  </div>
+  <div class="row2">
+    <label class="field"><span>Montant maximal (€)</span><input type="text" name="montant" value="{{ form.amount }}" inputmode="decimal"></label>
+    <label class="field"><span>Cote minimale (vide : aucune)</span><input type="text" name="cote_min" value="{{ form.min_odds }}" inputmode="decimal" placeholder="1,50"></label>
+  </div>
+  <p class="faint" style="margin-top: -6px">Inéligible : forme, montant et cote sont ignorés ; le compte ne servira qu'à couvrir.</p>
+  <label class="field"><span>Source</span><input type="text" name="source" value="{{ form.source }}" placeholder="règlement du 18/04/2025, clause C"></label>
+  <label class="field"><span>Remarque</span><input type="text" name="remarque" value="{{ form.note }}"></label>
+  {% if error %}<div class="notice t-neg">{{ error }}</div>{% endif %}
+  <button class="btn" type="submit">Enregistrer l'offre</button>
+</form>
+{% endblock %}

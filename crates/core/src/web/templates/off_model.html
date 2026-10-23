@@ -1,0 +1,30 @@
+{% extends "site_base.html" %}
+{% block title %}Pari hors modèle{% endblock %}
+{% block content %}
+<a class="back" href="/paris">← Paris</a>
+<div class="head"><h1>Pari hors modèle</h1><div class="sub">Un pari qui ne suit aucune recommandation. Il est rapporté à part et exclu des métriques du modèle.</div></div>
+<form class="card form" method="post" action="/paris/hors-modele">
+  <label class="field"><span>Match</span>
+    <select name="match">
+      <option value="">Choisir un match…</option>
+      {% for e in events %}<option value="{{ e.id }}"{% if e.id == form.event_id %} selected{% endif %}>{{ e.label }}</option>{% endfor %}
+    </select>
+  </label>
+  {% if not events %}<p class="faint">Aucun match à venir dans l'archive : le prochain relevé en apportera.</p>{% endif %}
+  <div class="field"><span>Issue</span>
+    <div class="radios">
+      <label><input type="radio" name="issue" value="1"{% if form.outcome == "1" %} checked{% endif %}>Domicile</label>
+      <label><input type="radio" name="issue" value="N"{% if form.outcome == "N" %} checked{% endif %}>Nul</label>
+      <label><input type="radio" name="issue" value="2"{% if form.outcome == "2" %} checked{% endif %}>Extérieur</label>
+    </div>
+  </div>
+  <label class="field"><span>Bookmaker</span><input type="text" name="bookmaker" value="{{ form.bookmaker }}" list="bookmakers" placeholder="betclic_fr"></label>
+  <datalist id="bookmakers">{% for b in bookmakers %}<option value="{{ b }}">{% endfor %}</datalist>
+  <div class="row2">
+    <label class="field"><span>Cote obtenue</span><input type="text" name="cote" value="{{ form.odds }}" inputmode="decimal" placeholder="3,40"></label>
+    <label class="field"><span>Mise (€)</span><input type="text" name="mise" value="{{ form.stake }}" inputmode="decimal" placeholder="5"></label>
+  </div>
+  {% if error %}<div class="notice t-neg">{{ error }}</div>{% endif %}
+  <button class="btn" type="submit">Enregistrer le pari</button>
+</form>
+{% endblock %}

@@ -4,9 +4,11 @@
 //! obtenue : tout ce qui s'affiche se teste ici, sans ouvrir de port. Les pages sont rendues côté serveur, sans script.
 //! Tout est derrière la connexion ([`auth`]), sauf la page de connexion elle-même et les polices.
 
+mod actions;
 pub mod auth;
 mod charts;
 pub mod form;
+mod forms;
 mod pages;
 mod view;
 
@@ -157,11 +159,18 @@ pub fn handle(app: &App, request: &Request<'_>, now: DateTime<Utc>) -> Response 
             _ => get(app, path, &Form::parse(query), request.cookies, now),
         },
         // Un formulaire envoyé depuis un autre site est refusé avant même de regarder la session.
-        Method::Post if !auth::same_origin(request.origin, request.host) => Ok(message(
-            403,
-            "Formulaire refusé",
-            "Ce formulaire ne vient pas de l'application elle-même.",
-        )),
+        Method::Post if !auth::same_origin(request.origin, request.host) => {
+            tracing::warn!(
+                "formulaire refusé : Origin {:?}, Host {:?}",
+                request.origin,
+                request.host
+            );
+            Ok(message(
+                403,
+                "Formulaire refusé",
+                "Ce formulaire ne vient pas de l'application elle-même.",
+            ))
+        }
         Method::Post => {
             // Un champ de formulaire n'est que du texte : des octets invalides deviennent `�`, et la validation du
             // champ concerné les refusera.
@@ -204,7 +213,13 @@ fn get(
         "/lotofoot" => pages::lotofoot::page(app, now, flash)?,
         "/latence" => pages::latency::page(app, now, flash)?,
         "/rapports" | "/rapports/" => pages::reports::page(app, now, flash)?,
-        _ => return archived(app, path),
+        "/paris/hors-modele" => return reply(pages::entry::off_model(app, None, now)?),
+        "/bonus/operation" => return reply(pages::entry::bonus_operation(app, query, None, now)?),
+        "/bonus/offre" => return reply(pages::entry::offer(app, query, None, now)?),
+        _ => match id_in(path, "/paris/suivre/", "") {
+            Some(id) => return reply(pages::entry::follow(app, id, None, now)?),
+            None => return archived(app, path),
+        },
     };
     let mut response = Response::html(200, html);
     if clear {
@@ -219,27 +234,120 @@ fn post(
     path: &str,
     form: &Form,
     signed_in: bool,
-    _now: DateTime<Utc>,
+    now: DateTime<Utc>,
 ) -> Result<Response> {
+    use actions::Action;
+    use pages::entry::{self, act};
+
     match path {
         "/connexion" => {
-            if auth::same_secret(form.get("secret"), app.token.expose()) {
+            return if auth::same_secret(form.get("secret"), app.token.expose()) {
                 tracing::info!("connexion réussie");
                 let cookie = auth::session_cookie(app.token.expose());
                 Ok(Response::redirect("/", vec![cookie]))
             } else {
                 tracing::warn!("connexion refusée : secret erroné");
                 login(401, Some("Secret erroné."))
+            };
+        }
+        "/deconnexion" => {
+            return Ok(Response::redirect("/connexion", vec![auth::end_session()]));
+        }
+        _ if !signed_in => {
+            return Ok(message(
+                403,
+                "Connexion requise",
+                "La session a expiré : reconnecte-toi, puis recommence.",
+            ));
+        }
+        _ => {}
+    }
+    let empty = Form::default();
+    let answer = match path {
+        "/paris/regler" => act(app, &Action::SettleAuto, "/paris", now),
+        "/paris/hors-modele" => entry::off_model(app, Some(form), now)?,
+        "/bonus/operation" => entry::bonus_operation(app, &empty, Some(form), now)?,
+        "/bonus/offre" => entry::offer(app, &empty, Some(form), now)?,
+        "/bonus/regler" => act(app, &Action::SettleBonusAuto, "/bonus", now),
+        "/lotofoot/jouee" => act(app, &Action::LotofootPlayedSession, "/lotofoot", now),
+        _ => {
+            if let Some(id) = id_in(path, "/paris/suivre/", "") {
+                entry::follow(app, id, Some(form), now)?
+            } else if let Some(bet_id) = id_in(path, "/paris/", "/regler") {
+                match settlement(form.get("resultat")) {
+                    Some(settlement) => act(
+                        app,
+                        &Action::SettleManual { bet_id, settlement },
+                        "/paris",
+                        now,
+                    ),
+                    None => return Ok(bad_request()),
+                }
+            } else if let Some(operation_id) = id_in(path, "/bonus/operations/", "/regler") {
+                match match_result(form.get("resultat")) {
+                    Some(result) => act(
+                        app,
+                        &Action::SettleBonusManual {
+                            operation_id,
+                            result,
+                        },
+                        "/bonus",
+                        now,
+                    ),
+                    None => return Ok(bad_request()),
+                }
+            } else {
+                entry::Reply::NotFound
             }
         }
-        "/deconnexion" => Ok(Response::redirect("/connexion", vec![auth::end_session()])),
-        _ if !signed_in => Ok(message(
-            403,
-            "Connexion requise",
-            "La session a expiré : reconnecte-toi, puis recommence.",
-        )),
-        _ => Ok(not_found()),
+    };
+    reply(answer)
+}
+
+/// Traduit la réponse d'une page de saisie : redirection avec message, page, ou introuvable.
+fn reply(answer: pages::entry::Reply) -> Result<Response> {
+    use pages::entry::Reply;
+    Ok(match answer {
+        Reply::Done { to, flash } => Response::redirect(to, vec![auth::flash_cookie(&flash)]),
+        Reply::Page { status, html } => Response::html(status, html),
+        Reply::NotFound => not_found(),
+    })
+}
+
+/// Le numéro d'une adresse comme `/paris/12/regler` : ce qui est entre `prefix` et `suffix`, s'il s'agit d'un entier.
+fn id_in(path: &str, prefix: &str, suffix: &str) -> Option<i64> {
+    path.strip_prefix(prefix)?
+        .strip_suffix(suffix)?
+        .parse()
+        .ok()
+}
+
+/// Résultat d'un pari choisi par son bouton.
+fn settlement(code: &str) -> Option<crate::store::journal::Settlement> {
+    use crate::store::journal::Settlement;
+    match code {
+        "gagne" => Some(Settlement::Won),
+        "perdu" => Some(Settlement::Lost),
+        "rembourse" => Some(Settlement::Void),
+        _ => None,
     }
+}
+
+/// Résultat d'un match choisi par son bouton (`1`, `N`, `2`, `annule`).
+fn match_result(code: &str) -> Option<crate::store::bonus::MatchResult> {
+    use crate::store::bonus::MatchResult;
+    if code == "annule" {
+        return Some(MatchResult::Void);
+    }
+    forms::outcome_from(code).map(MatchResult::Played)
+}
+
+fn bad_request() -> Response {
+    message(
+        400,
+        "Formulaire incomplet",
+        "Un champ attendu manque ou n'est pas reconnu.",
+    )
 }
 
 /// Page de connexion.
@@ -495,6 +603,108 @@ mod tests {
         let html = testing::unescape(&String::from_utf8(response.body).unwrap());
         assert!(html.contains("Pari n° 3 enregistré."), "{html}");
         assert!(response.cookies[0].starts_with("edge_flash=;"));
+    }
+
+    /// Le message transporté par le cookie d'une redirection.
+    fn flash_of(response: &Response) -> Flash {
+        let value = response.cookies[0].split(';').next().unwrap();
+        auth::read_flash(Some(value)).unwrap()
+    }
+
+    #[test]
+    fn following_a_recommendation_then_settling_it_goes_through_the_forms() {
+        let sample = sample();
+        let form = sample.html("/paris/suivre/1");
+        assert!(form.contains("value=\"2,30\""), "{form}");
+        assert_eq!(sample.get("/paris/suivre/99").status, 404);
+
+        // Sous la cote minimale : refusé, le formulaire revient avec la saisie et la raison.
+        let refused = sample.post("/paris/suivre/1", "cote=1%2C50&mise=&bookmaker=betclic_fr");
+        assert_eq!(refused.status, 422);
+        let html = testing::unescape(&String::from_utf8(refused.body).unwrap());
+        assert!(
+            html.contains("cote minimale") && html.contains("value=\"1,50\""),
+            "{html}"
+        );
+
+        let done = sample.post("/paris/suivre/1", "cote=&mise=&bookmaker=");
+        assert_eq!(
+            (done.status, done.location.as_deref()),
+            (303, Some("/paris"))
+        );
+        assert!(flash_of(&done).text.contains("Pari n° 1 enregistré"));
+        assert!(sample.html("/paris").contains("recommandation n° 1"));
+        assert!(sample.html("/opportunites").contains("pari enregistré"));
+
+        assert_eq!(sample.post("/paris/1/regler", "resultat=autre").status, 400);
+        let settled = sample.post("/paris/1/regler", "resultat=gagne");
+        assert_eq!(flash_of(&settled).kind, "t-pos");
+        let again = sample.post("/paris/1/regler", "resultat=perdu");
+        assert_eq!(flash_of(&again).kind, "t-neg");
+        assert!(flash_of(&again).text.contains("déjà réglé"));
+    }
+
+    #[test]
+    fn an_off_model_bet_keeps_what_was_typed_when_it_is_refused() {
+        let sample = sample();
+        assert!(
+            sample
+                .html("/paris/hors-modele")
+                .contains("Falkirk – Kilmarnock")
+        );
+
+        let refused = sample.post(
+            "/paris/hors-modele",
+            "match=&issue=N&bookmaker=winamax_fr&cote=3%2C4&mise=5",
+        );
+        assert_eq!(refused.status, 422);
+        let html = testing::unescape(&String::from_utf8(refused.body).unwrap());
+        assert!(html.contains("choisis un match") && html.contains("value=\"winamax_fr\""));
+
+        let done = sample.post(
+            "/paris/hors-modele",
+            "match=match-web&issue=N&bookmaker=winamax_fr&cote=3%2C4&mise=5",
+        );
+        assert_eq!(done.status, 303);
+        assert!(flash_of(&done).text.contains("hors modèle"));
+        assert!(sample.html("/paris").contains("hors modèle"));
+    }
+
+    #[test]
+    fn an_offer_is_recorded_and_the_lotofoot_session_declared_from_the_site() {
+        let sample = sample();
+        assert!(
+            sample
+                .html("/bonus/offre?operateur=pmu_fr")
+                .contains("value=\"pmu_fr\" selected")
+        );
+        let refused = sample.post(
+            "/bonus/offre",
+            "operateur=pmu_fr&eligible=oui&forme=freebet&montant=100&source=",
+        );
+        assert_eq!(refused.status, 422);
+        let done = sample.post(
+            "/bonus/offre",
+            "operateur=pmu_fr&eligible=oui&forme=freebet&montant=100&cote_min=&source=r%C3%A8glement&remarque=",
+        );
+        assert_eq!(done.location.as_deref(), Some("/bonus"));
+        assert!(
+            flash_of(&done).text.contains("PMU"),
+            "{:?}",
+            flash_of(&done)
+        );
+        // L'opération proposée n'existe pas dans ce relevé : introuvable plutôt qu'un formulaire vide.
+        assert_eq!(
+            sample
+                .get("/bonus/operation?operateur=pmu_fr&forme=freebet&match=x")
+                .status,
+            404
+        );
+
+        let declared = sample.post("/lotofoot/jouee", "");
+        assert_eq!(declared.location.as_deref(), Some("/lotofoot"));
+        assert!(flash_of(&declared).text.starts_with("2 ticket(s)"));
+        assert!(sample.html("/lotofoot").contains("séance déclarée jouée"));
     }
 
     #[test]

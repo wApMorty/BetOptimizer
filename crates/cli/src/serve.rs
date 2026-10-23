@@ -19,7 +19,9 @@ const SECURITY_HEADERS: [(&str, &str); 3] = [
          frame-ancestors 'none'; base-uri 'none'",
     ),
     ("X-Content-Type-Options", "nosniff"),
-    ("Referrer-Policy", "no-referrer"),
+    // `same-origin` et non `no-referrer` : avec `no-referrer`, Chromium envoie `Origin: null` avec les formulaires, et le
+    // contrôle d'origine du cœur les refuserait tous. Aucune adresse du site n'est transmise à un site extérieur.
+    ("Referrer-Policy", "same-origin"),
 ];
 
 /// Traite les requêtes jusqu'à l'arrêt du processus (systemd l'arrête par un signal).
@@ -178,6 +180,7 @@ mod tests {
             assert!(home.contains("Content-Security-Policy: default-src 'none'"));
             assert!(home.contains("form-action 'self'"));
             assert!(home.contains("Cache-Control: no-store"));
+            assert!(home.contains("Referrer-Policy: same-origin"));
 
             let font = ask(
                 addr,
