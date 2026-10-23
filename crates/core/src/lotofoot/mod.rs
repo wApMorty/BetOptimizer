@@ -6,6 +6,7 @@
 
 pub mod bulletin;
 pub mod fetch;
+pub mod live;
 pub mod model;
 pub mod odds;
 pub mod optimize;

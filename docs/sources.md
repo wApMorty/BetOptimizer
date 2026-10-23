@@ -1604,6 +1604,20 @@ exacte minimale par programmation dynamique sur les sous-ensembles de tickets (2
 **Exemples** : les 16 tickets LF7 du test de référence de l'optimiseur tiennent en 6 grilles (8 €, trois à 2 €, deux à 1 €) ; les
 16 tickets de la séance réelle LF8 n°146 du 2026-10-22 en 5 grilles (8 €, 4 €, 2 €, deux à 1 €).
 
+**Affichage (2026-10-23, après la phase 15).** Les grilles à remplir figurent dans `edge lotofoot recommend`, dans l'image jointe au
+message Discord (`report/lotofoot_image.rs`), dans le texte du message (une ligne par grille : signes, prix, espérance défavorable
+moyenne de ses tickets) et sur la page `/lotofoot` (une colonne par grille à remplir, puis le détail des tickets : espérance,
+règlement, déclaration). Les vues sont calculées par `lotofoot_page::page` (champ `lines`), partagé par la page et le message.
+
+**Chances et gains affichés (2026-10-23, demande de Paul : l'espérance se lit mal sur des probabilités aussi basses).** Pour chaque
+ticket, la chance de chaque rang (« 1 sur 2 400 ») et le gain moyen quand on l'atteint, `E[gain | rang] = E[gain · 1{rang}] / P(rang)`,
+calculés par le même parcours que l'espérance (`GridModel::rank_odds`). Pour chaque grille à remplir, les mêmes deux rangs selon son
+meilleur ticket (`GridModel::line_odds`, énumération des 3^n issues) : « sans faute » si l'un de ses tickets est parfait, avec le gain
+de toute la grille (ses tickets à une erreur compris), puis « une erreur ». Un premier essai donnait un seul gain moyen « quand elle
+paie », mélange du sans-faute et d'une erreur : Paul l'a jugé trompeur, il est retiré. Probabilités du marché, modèle de base ; les séances passées sont recalculées à partir
+des entrées figées au journal (`GridModel::from_journal`, déplacé de `verify.rs`). Le partage entre nos propres tickets n'est pas
+déduit, comme dans l'espérance.
+
 ## 40. Phase 15 — Application Web à la place d'edge-gui (2026-10-23)
 
 **Demande de Paul** : servir une vraie application Web plutôt qu'une page statique, en reprenant l'interface d'edge-gui ;
@@ -1648,16 +1662,20 @@ noircies, prix de chaque grille ; rendu par `resvg` avec Inter, comme l'autre im
 
 **Retiré** : `crates/gui`, `eframe`, `egui_plot` (204 paquets en moins dans `Cargo.lock`) et `deploy/edge-gui.desktop`.
 
-**Affichage (2026-10-23, après la phase 15).** Les grilles à remplir figurent dans `edge lotofoot recommend`, dans l'image jointe au
-message Discord (`report/lotofoot_image.rs`), dans le texte du message (une ligne par grille : signes, prix, espérance défavorable
-moyenne de ses tickets) et sur la page `/lotofoot` (une colonne par grille à remplir, puis le détail des tickets : espérance,
-règlement, déclaration). Les vues sont calculées par `lotofoot_page::page` (champ `lines`), partagé par la page et le message.
+## 41. Loto Foot : séance à la demande depuis l'application Web (2026-10-23)
 
-**Chances et gains affichés (2026-10-23, demande de Paul : l'espérance se lit mal sur des probabilités aussi basses).** Pour chaque
-ticket, la chance de chaque rang (« 1 sur 2 400 ») et le gain moyen quand on l'atteint, `E[gain | rang] = E[gain · 1{rang}] / P(rang)`,
-calculés par le même parcours que l'espérance (`GridModel::rank_odds`). Pour chaque grille à remplir, les mêmes deux rangs selon son
-meilleur ticket (`GridModel::line_odds`, énumération des 3^n issues) : « sans faute » si l'un de ses tickets est parfait, avec le gain
-de toute la grille (ses tickets à une erreur compris), puis « une erreur ». Un premier essai donnait un seul gain moyen « quand elle
-paie », mélange du sans-faute et d'une erreur : Paul l'a jugé trompeur, il est retiré. Probabilités du marché, modèle de base ; les séances passées sont recalculées à partir
-des entrées figées au journal (`GridModel::from_journal`, déplacé de `verify.rs`). Le partage entre nos propres tickets n'est pas
-déduit, comme dans l'espérance.
+**Demande de Paul** : pouvoir lancer l'optimisation plus tôt que le samedi midi (courses du matin), avec une mise réglable.
+Choix de Paul : séance réelle écrite au journal, une seule séance par grille, mise de 1 à 16 €, Discord en option.
+
+- Bouton « Optimiser maintenant » sur `/lotofoot` (`POST /lotofoot/optimiser`, champs `mise` et `discord`) : même chemin que
+  `edge lotofoot recommend` (`lotofoot::live::recommend` : relevé frais de prono-match, cotes manquantes, séance, Discord). La mise
+  est un plafond en euros entiers, de 1 € au plafond gelé `lotofoot_max_tickets` (16 €, §37) ; elle est enregistrée dans les
+  paramètres de la séance (`max_tickets`). Seuil τ, poids μ et modèle inchangés.
+- **Une grille n'est recommandée qu'une fois** : une grille qui a déjà des tickets au journal est écartée (« déjà recommandée »).
+  Le bouton du matin et le timer de midi ne doublent donc jamais une grille. Les séances n°1 et n°2 du 2026-10-22 (essai, mêmes
+  16 tickets du LF8 n°146) restent en double dans le journal : décision de Paul en attente.
+- **Une séance sans ticket n'est plus écrite** : elle masquait la séance précédente (page `/lotofoot`, « J'ai joué la séance »,
+  qui prennent la dernière séance). Ses raisons restent dans le message Discord (désormais listées quand il n'y a aucun ticket),
+  dans la console et dans le message de la page.
+- Durée : 10 à 20 secondes (5 s de pause entre deux pages de prono-match, puis les cotes) ; le serveur traite les requêtes une à
+  une, les autres pages attendent pendant ce temps. Coût : 1 crédit par compétition manquante, 8 au plus par séance.

@@ -11,6 +11,14 @@
   <div class="tile"><div class="label">À déclarer</div><div class="figure {% if to_declare %}wrn{% endif %}">{{ to_declare }}</div><div class="note">tickets pas encore déclarés joués</div></div>
 </div>
 
+<form class="card form" method="post" action="/lotofoot/optimiser">
+  <div class="actions" style="align-items: flex-end">
+    <label class="field" style="margin: 0"><span>Mise maximale (€, de 1 à {{ max_stake }})</span><input type="text" name="mise" value="{{ max_stake }}" inputmode="numeric"></label>
+    <label style="padding: 8px 0"><input type="checkbox" name="discord"> Envoyer sur Discord</label>
+    <button class="btn" type="submit" title="Relève prono-match et les cotes manquantes (1 crédit par compétition, 8 au plus), choisit les tickets au-dessus du seuil dans la mise, et écrit la séance au journal.">Optimiser maintenant</button>
+  </div>
+  <p class="meta" style="margin: 8px 0 0">Comme la séance du samedi : relevé frais (une vingtaine de secondes), tickets au-dessus du seuil, séance écrite au journal. Une grille déjà recommandée n'est pas recalculée.</p>
+</form>
 <h2>{% if session %}Séance du {{ session }}{% else %}Dernière séance{% endif %}</h2>
 {% if tickets %}
 <p class="meta">Chaque colonne est une grille à remplir : coche toutes les cases indiquées pour chaque rencontre, dans l'ordre de la grille (deux cases : double, trois : triple). Les multiples regroupent sans perte les tickets choisis : mêmes tickets, même mise, mêmes gains (<code>docs/sources.md</code> §39).<br>Chances : probabilités du marché (Pinnacle, sans marge). Gains : moyenne sur les issues qui atteignent ce rang, une fois la masse partagée avec les autres gagnants attendus ; le gain réel varie beaucoup selon le nombre de gagnants. Pour une multiple, « sans faute » veut dire qu'un de ses tickets est parfait, et le gain compte aussi ses tickets à une erreur.</p>

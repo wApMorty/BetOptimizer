@@ -427,7 +427,11 @@ fn verdict_class(v: &Verdict) -> &'static str {
 pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
     let mut text = String::from("**edge · Loto Foot** — séance du samedi\n");
     if report.chosen.is_empty() {
-        text.push_str("Aucun ticket ne passe le seuil cette semaine : rien à jouer.\n");
+        text.push_str("Aucun nouveau ticket : rien de plus à jouer.\n");
+        // Sans ticket, les raisons comptent : grille déjà recommandée, répartition pas encore publiée…
+        for skipped in &report.skipped {
+            text.push_str(&format!("- {} : {}\n", skipped.grid, skipped.reason));
+        }
     }
     let keyed: Vec<_> = report.chosen.iter().map(|c| (c.grid, &c.ticket)).collect();
     let lines = session_lines(&keyed);
@@ -547,7 +551,7 @@ mod tests {
             chosen: vec![],
             ..report
         };
-        assert!(discord_text(&empty, None).contains("rien à jouer"));
+        assert!(discord_text(&empty, None).contains("rien de plus à jouer"));
     }
 
     #[test]

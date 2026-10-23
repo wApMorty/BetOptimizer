@@ -197,3 +197,11 @@ Algorithmique :
 
 Question : pourquoi refuser de « compléter » une multiple à qui il manque un ticket, même si ce ticket a une espérance supérieure à 1 ?
 (Réponse attendue : il n'a pas été choisi par la règle gelée ; l'ajouter changerait la mise et la stratégie, ce que Paul a écarté.)
+
+## Complément (2026-10-23) : la séance à la demande
+
+`crates/core/src/lotofoot/live.rs` branche les vrais clients (prono-match, The Odds API, Discord) sur la séance. `edge lotofoot
+recommend` et le bouton « Optimiser maintenant » de l'application Web appellent cette même fonction : une seule façon de lancer une
+séance, seule la mise plafond change (`docs/sources.md` §41). L'échec du message Discord n'est pas une erreur de la fonction mais une
+valeur (`Notified::Failed`) : la séance est déjà écrite, et chaque appelant décide (la commande échoue pour que systemd le signale,
+la page affiche le message).

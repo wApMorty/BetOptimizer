@@ -4,24 +4,21 @@
 
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
-use edge_core::config::{Config, WEBHOOK_ENV};
+use edge_core::config::Config;
 use edge_core::domain::Euros;
-use edge_core::format::{chance, decimal, kickoff_label, long_date};
+use edge_core::format::{chance, decimal, kickoff_label};
 use edge_core::ingest::aliases::Aliases;
-use edge_core::ingest::client::OddsApiClient;
 use edge_core::lotofoot::bulletin;
 use edge_core::lotofoot::fetch::{self, FetchReport, PronoMatchClient};
+use edge_core::lotofoot::live::{self, Notified};
 use edge_core::lotofoot::played::{self, Declared, Manual};
-use edge_core::lotofoot::session::{self, SessionReport};
+use edge_core::lotofoot::session::SessionReport;
 use edge_core::lotofoot::settle::{self, Ledger};
 use edge_core::lotofoot::verify;
 use edge_core::lotofoot::{Game, Ticket};
-use edge_core::notify::discord;
 use edge_core::paths::Paths;
-use edge_core::report::{lotofoot_image, lotofoot_page};
+use edge_core::report::lotofoot_page;
 use edge_core::store;
-
-use crate::commands::api_key_from;
 
 /// `edge lotofoot fetch` : relève les pages du LF7, du LF8 et des résultats (sans crédit).
 pub fn fetch(paths: &Paths) -> Result<()> {
@@ -62,68 +59,31 @@ fn print_fetch(report: &FetchReport) {
 }
 
 /// `edge lotofoot recommend` : séance (relevé frais, cotes, tickets), écrite au journal ; `--notify` l'envoie sur Discord.
+/// Même chemin que le bouton « Optimiser maintenant » de l'application Web, avec la mise plafond de la configuration.
 pub fn recommend(paths: &Paths, notify: bool, dry_run: bool) -> Result<()> {
     let config = Config::load(&paths.config_file)?;
     let mut conn = store::open_migrated(&paths.db_file)
         .context("base inaccessible : lance d'abord `edge init`")?;
-    // Un relevé juste avant la séance : la répartition utilisée a quelques minutes, pas une heure.
-    let fetched = run_fetch(&mut conn)?;
-    print_fetch(&fetched);
     let aliases = Aliases::bundled()?;
-    let report = if dry_run {
-        session::run(
-            &mut conn,
-            &config,
-            &aliases,
-            &mut Utc::now,
-            &mut |path, _| bail_fetch(path),
-            true,
-        )?
-    } else {
-        let client = OddsApiClient::new(api_key_from(&config)?);
-        session::run(
-            &mut conn,
-            &config,
-            &aliases,
-            &mut Utc::now,
-            &mut |path, params| client.get(path, params),
-            false,
-        )?
-    };
-    print_session(&report, dry_run);
-    if notify && !dry_run {
-        let webhook = config.discord_webhook(std::env::var(WEBHOOK_ENV).ok().as_deref())?;
-        let text = lotofoot_page::discord_text(&report, config.site_url.as_deref());
-        let now = Utc::now();
-        let title = format!("Loto Foot · séance du {}", long_date(now));
-        // L'image des grilles à remplir. Son échec ne doit pas empêcher le message : il est signalé et le message part
-        // sans elle.
-        let image = lotofoot_image::session_png(&report, &title).unwrap_or_else(|error| {
-            eprintln!("Image de la séance non jointe : {error}");
-            None
-        });
-        let name = format!("lotofoot-{}.png", now.format("%Y-%m-%d"));
-        // `as_deref` emprunte les octets de l'image : la pièce jointe ne les copie pas.
-        let attachments: Vec<discord::Attachment<'_>> = image
-            .as_deref()
-            .map(|png| discord::Attachment {
-                filename: &name,
-                content_type: "image/png",
-                bytes: png,
-            })
-            .into_iter()
-            .collect();
-        discord::send(&webhook, &text, &attachments, &mut discord::http_post)?;
-        println!("Séance envoyée sur Discord.");
+    let live = live::recommend(
+        &mut conn,
+        &config,
+        &aliases,
+        config.lotofoot_max_tickets,
+        notify,
+        dry_run,
+    )?;
+    print_fetch(&live.fetched);
+    print_session(&live.report, dry_run);
+    match live.notified {
+        Notified::NotAsked => {}
+        Notified::Sent => println!("Séance envoyée sur Discord."),
+        // La séance est écrite ; l'échec du message fait quand même échouer la commande, pour que le timer le signale.
+        Notified::Failed(error) => {
+            bail!("séance écrite, mais message Discord non envoyé : {error}")
+        }
     }
     Ok(())
-}
-
-/// Appel refusé à blanc : aucune compétition n'est relevée, aucun crédit n'est dépensé.
-fn bail_fetch(path: &str) -> edge_core::error::Result<edge_core::ingest::client::HttpResponse> {
-    Err(edge_core::error::Error::Input(format!(
-        "séance à blanc : appel {path} non effectué"
-    )))
 }
 
 fn print_session(report: &SessionReport, dry_run: bool) {
@@ -165,7 +125,7 @@ fn print_session(report: &SessionReport, dry_run: bool) {
         );
     }
     if report.chosen.is_empty() {
-        println!("\nAucun ticket ne passe le seuil : rien à jouer.");
+        println!("\nAucun nouveau ticket : rien de plus à jouer.");
         return;
     }
     println!("\n{} ticket(s) à 1 € :", report.chosen.len());

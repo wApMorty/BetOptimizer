@@ -270,6 +270,7 @@ fn post(
         "/bonus/offre" => entry::offer(app, &empty, Some(form), now)?,
         "/bonus/regler" => act(app, &Action::SettleBonusAuto, "/bonus", now),
         "/lotofoot/jouee" => act(app, &Action::LotofootPlayedSession, "/lotofoot", now),
+        "/lotofoot/optimiser" => pages::lotofoot::optimize(app, form),
         _ => {
             if let Some(id) = id_in(path, "/paris/suivre/", "") {
                 entry::follow(app, id, Some(form), now)?
@@ -705,6 +706,18 @@ mod tests {
         assert_eq!(declared.location.as_deref(), Some("/lotofoot"));
         assert!(flash_of(&declared).text.starts_with("2 ticket(s)"));
         assert!(sample.html("/lotofoot").contains("séance déclarée jouée"));
+    }
+
+    #[test]
+    fn a_wrong_stake_is_refused_before_any_fetch() {
+        let sample = sample();
+        // Mise hors bornes : refus immédiat, sans relevé ni séance (le test n'a pas de réseau).
+        let refused = sample.post("/lotofoot/optimiser", "mise=40&discord=on");
+        assert_eq!(refused.location.as_deref(), Some("/lotofoot"));
+        let flash = flash_of(&refused);
+        assert!(flash.text.contains("entre 1 et 16"), "{flash:?}");
+        let conn = crate::store::open_migrated(&sample.app.paths.db_file).unwrap();
+        assert_eq!(crate::store::lotofoot::recos(&conn).unwrap().len(), 2);
     }
 
     #[test]
