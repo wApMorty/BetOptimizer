@@ -27,14 +27,15 @@ const FOOTER: u32 = 70;
 /// Au-delà, l'image renvoie au rapport complet plutôt que de s'allonger sans fin.
 pub const MAX_PICKS: usize = 10;
 
-/// Couleurs du thème sombre du site (`site_base.html`).
-const BG: &str = "#161615";
-const CARD_BG: &str = "#201f1e";
-const LINE: &str = "#34332f";
-const FG: &str = "#ececea";
-const MUTED: &str = "#a3a39d";
-const ACCENT: &str = "#7fb2ee";
-const WARN: &str = "#f2c46b";
+/// Couleurs de la palette sombre ([`super::theme::DARK`]), écrites en constantes pour les placer directement dans le SVG ;
+/// un test vérifie qu'elles n'en divergent pas.
+const BG: &str = "#0d1017";
+const CARD_BG: &str = "#141923";
+const LINE: &str = "#2b3548";
+const FG: &str = "#e8ecf4";
+const MUTED: &str = "#9aa4b8";
+const ACCENT: &str = "#7c8dff";
+const WARN: &str = "#f2c660";
 
 /// Ce que l'image affiche.
 #[derive(Debug, Clone, Copy)]
@@ -173,6 +174,22 @@ pub fn picks_png(picks: &Picks<'_>) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_colours_are_those_of_the_dark_palette() {
+        let p = super::super::theme::DARK;
+        for (constant, color) in [
+            (BG, p.bg),
+            (CARD_BG, p.surface),
+            (LINE, p.border),
+            (FG, p.text),
+            (MUTED, p.muted),
+            (ACCENT, p.accent),
+            (WARN, p.warning),
+        ] {
+            assert_eq!(constant, color.hex());
+        }
+    }
 
     fn row(id: i64, fixture: &str) -> Row {
         Row {

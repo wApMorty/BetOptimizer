@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use edge_core::config::{Config, WEBHOOK_ENV};
 use edge_core::domain::Euros;
-use edge_core::format::{decimal, kickoff_label};
+use edge_core::format::{decimal, kickoff_label, long_date};
 use edge_core::ingest::aliases::Aliases;
 use edge_core::ingest::client::OddsApiClient;
 use edge_core::lotofoot::bulletin;
@@ -18,7 +18,7 @@ use edge_core::lotofoot::verify;
 use edge_core::lotofoot::{Game, Ticket};
 use edge_core::notify::discord;
 use edge_core::paths::Paths;
-use edge_core::report::lotofoot_page;
+use edge_core::report::{lotofoot_image, lotofoot_page};
 use edge_core::store;
 
 use crate::commands::api_key_from;
@@ -94,7 +94,26 @@ pub fn recommend(paths: &Paths, notify: bool, dry_run: bool) -> Result<()> {
     if notify && !dry_run {
         let webhook = config.discord_webhook(std::env::var(WEBHOOK_ENV).ok().as_deref())?;
         let text = lotofoot_page::discord_text(&report, config.site_url.as_deref());
-        discord::send(&webhook, &text, &[], &mut discord::http_post)?;
+        let now = Utc::now();
+        let title = format!("Loto Foot · séance du {}", long_date(now));
+        // L'image des grilles à remplir. Son échec ne doit pas empêcher le message : il est signalé et le message part
+        // sans elle.
+        let image = lotofoot_image::session_png(&report, &title).unwrap_or_else(|error| {
+            eprintln!("Image de la séance non jointe : {error}");
+            None
+        });
+        let name = format!("lotofoot-{}.png", now.format("%Y-%m-%d"));
+        // `as_deref` emprunte les octets de l'image : la pièce jointe ne les copie pas.
+        let attachments: Vec<discord::Attachment<'_>> = image
+            .as_deref()
+            .map(|png| discord::Attachment {
+                filename: &name,
+                content_type: "image/png",
+                bytes: png,
+            })
+            .into_iter()
+            .collect();
+        discord::send(&webhook, &text, &attachments, &mut discord::http_post)?;
         println!("Séance envoyée sur Discord.");
     }
     Ok(())
