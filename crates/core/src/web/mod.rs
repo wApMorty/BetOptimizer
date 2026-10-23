@@ -49,6 +49,8 @@ pub struct App {
     pub aliases: Aliases,
     /// Secret de connexion.
     pub token: ServeToken,
+    /// Relever les scores chez ESPN à l'affichage de `/lotofoot` (faux dans les tests : aucun appel réseau).
+    pub live_scores: bool,
 }
 
 /// Méthode HTTP d'une requête.

@@ -5,16 +5,25 @@
 //! rencontre, une colonne par grille à remplir (simple ou multiple, `docs/sources.md` §39), les cases à cocher dans
 //! chaque colonne ; puis le détail des tickets de la grille (espérance, règlement). Le bouton « Optimiser maintenant »
 //! lance la séance comme `edge lotofoot recommend` ([`crate::lotofoot::live`]), avec la mise plafond saisie.
+//!
+//! Pendant les matchs, l'affichage relève les scores chez ESPN ([`crate::lotofoot::scores`]) : score à côté de chaque
+//! rencontre, case juste ou fausse, couleur de chaque grille et de chaque ticket, et la page se recharge toutes les
+//! minutes tant qu'un match se joue.
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
+use crate::domain::Outcome;
 use crate::error::Result;
 use crate::lotofoot::bulletin::session_lines;
+use crate::lotofoot::espn::EspnClient;
 use crate::lotofoot::live::{self, Live, Notified};
+use crate::lotofoot::scores::{self, MatchNow, Standing};
 use crate::lotofoot::session::Request;
+use crate::lotofoot::{Ticket, sign_char};
 use crate::report::lotofoot_page::{self, LineView, LotofootPage, RankView, TicketView};
 use crate::store;
+use crate::store::lotofoot as lotofoot_store;
 use crate::web::App;
 use crate::web::form::Form;
 use crate::web::pages::entry::Reply;
@@ -29,6 +38,12 @@ struct Column {
     /// Numéros des tickets contenus (« n° 12, 13 »).
     tickets: String,
     played: bool,
+    /// Couleur du suivi en direct (`t-wait`, `t-pos`, `t-warn`, `t-neg`), celle du meilleur ticket de la grille.
+    tone: &'static str,
+    /// État en clair du meilleur ticket (« une erreur (en cours) »).
+    state: String,
+    /// Tickets encore en lice pour un rang payé (« 3 / 4 en vie »), vide pour un ticket seul.
+    alive: String,
 }
 
 /// Un rang en pied de bulletin (« Sans faute ») : pour chaque grille à remplir, sa chance et son gain moyen.
@@ -44,6 +59,16 @@ struct RankRow {
 struct Row {
     fixture: String,
     cells: Vec<Vec<String>>,
+    /// Score (« 2 – 1 »), vide avant le coup d'envoi ou sans relevé.
+    score: String,
+    /// État du match (« 57' », « terminé », « résultat officiel »).
+    state: String,
+    /// Signe du moment (`1`, `N`, `2`), vide s'il n'y en a pas : les cases cochées se colorent juste ou faux.
+    result: String,
+    /// Le signe ne bougera plus.
+    settled: bool,
+    /// Le match se joue.
+    live: bool,
 }
 
 /// Un ticket de la grille, pour le détail.
@@ -61,6 +86,10 @@ struct Detail {
     chance: String,
     /// Chance et gain moyen de chaque rang.
     ranks: Vec<RankView>,
+    /// Couleur du suivi en direct.
+    live_tone: &'static str,
+    /// État en clair du suivi en direct.
+    live_state: String,
 }
 
 /// Une grille du Loto Foot présentée en bulletin.
@@ -84,10 +113,59 @@ struct Page {
     to_declare: usize,
     /// Mise plafond du formulaire « Optimiser maintenant » (`lotofoot_max_tickets`, 16 € gelés).
     max_stake: u32,
+    /// Un match des grilles se joue : la page se recharge toutes les minutes.
+    auto_refresh: bool,
+    /// Ce qui empêche de suivre certaines rencontres (noms inconnus, ESPN injoignable).
+    live_issues: Vec<String>,
+}
+
+/// Suivi en direct : état des rencontres de chaque grille de la semaine, et ce qu'il faut signaler.
+struct Follow {
+    /// Grille (« LF8 n°146 ») → état de ses rencontres, dans l'ordre.
+    grids: Vec<(String, Vec<MatchNow>)>,
+    /// Rencontres commencées et pas finies.
+    watching: usize,
+    /// Problèmes à afficher.
+    issues: Vec<String>,
+}
+
+/// Relève les scores (si l'application y est autorisée) puis lit l'état des rencontres des grilles de la semaine.
+fn follow(app: &App, now: DateTime<Utc>) -> Result<Follow> {
+    // Lecture et écriture : les scores relevés sont gardés en base (dernier état seulement, migration 17).
+    let conn = store::open_migrated(&app.paths.db_file)?;
+    let recos = lotofoot_store::week_recos(&conn)?;
+    let (tracked, mut issues) = scores::tracked(&conn, &app.aliases, &recos)?;
+    let mut watching = 0;
+    if app.live_scores {
+        let client = EspnClient::new();
+        let report = scores::refresh(&conn, &app.aliases, &tracked, now, &mut |path, params| {
+            client.get(path, params)
+        })?;
+        watching = report.watching;
+    }
+    issues.extend(scores::stored_issues(&conn, &tracked)?);
+    let mut grids: Vec<(String, Vec<MatchNow>)> = Vec::new();
+    for reco in &recos {
+        let name = format!("{} n°{}", reco.game, reco.number);
+        if !grids.iter().any(|(g, _)| *g == name) {
+            grids.push((name, scores::grid_now(&conn, reco.game, reco.number)?));
+        }
+    }
+    Ok(Follow {
+        grids,
+        watching,
+        issues,
+    })
 }
 
 /// La page.
 pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<String> {
+    // Le suivi en direct ne doit jamais empêcher la page de s'afficher : une erreur devient un message.
+    let follow = follow(app, now).unwrap_or_else(|error| Follow {
+        grids: Vec::new(),
+        watching: 0,
+        issues: vec![format!("scores en direct indisponibles : {error}")],
+    });
     let conn = store::open_read_only(&app.paths.db_file)?;
     let lotofoot = lotofoot_page::page(&conn, now)?;
     let bulletins = lotofoot
@@ -99,28 +177,30 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
                 .iter()
                 .filter(|l| l.grid == grid.grid)
                 .collect();
+            let matches: &[MatchNow] = follow
+                .grids
+                .iter()
+                .find(|(g, _)| *g == grid.grid)
+                .map_or(&[], |(_, m)| m.as_slice());
             Bulletin {
                 grid: grid.grid.clone(),
                 closes: grid.closes.clone(),
-                columns: lines.iter().map(|l| column(l)).collect(),
+                columns: lines
+                    .iter()
+                    .map(|l| column(l, &lotofoot.tickets, matches))
+                    .collect(),
                 rows: grid
                     .matches
                     .iter()
                     .enumerate()
-                    .map(|(index, fixture)| Row {
-                        fixture: fixture.clone(),
-                        cells: lines
-                            .iter()
-                            .map(|l| l.signs.get(index).cloned().unwrap_or_default())
-                            .collect(),
-                    })
+                    .map(|(index, fixture)| row(fixture, index, &lines, matches.get(index)))
                     .collect(),
                 ranks: rank_rows(&lines),
                 details: lotofoot
                     .tickets
                     .iter()
                     .filter(|t| t.grid == grid.grid)
-                    .map(detail)
+                    .map(|t| detail(t, matches))
                     .collect(),
             }
         })
@@ -135,6 +215,8 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
             bulletins,
             to_declare,
             max_stake: app.config.lotofoot_max_tickets,
+            auto_refresh: follow.watching > 0,
+            live_issues: follow.issues,
         },
     )
 }
@@ -231,16 +313,57 @@ fn rank_rows(lines: &[&LineView]) -> Vec<RankRow> {
         .collect()
 }
 
-fn column(line: &LineView) -> Column {
+/// Une rencontre du bulletin : cases cochées de chaque grille à remplir, score et état du moment.
+fn row(fixture: &str, index: usize, lines: &[&LineView], now: Option<&MatchNow>) -> Row {
+    Row {
+        fixture: fixture.to_string(),
+        cells: lines
+            .iter()
+            .map(|l| l.signs.get(index).cloned().unwrap_or_default())
+            .collect(),
+        score: now.map_or(String::new(), |m| m.score.clone()),
+        state: now.map_or(String::new(), |m| m.label.clone()),
+        result: now
+            .and_then(|m| m.outcome)
+            .map_or(String::new(), |o| sign_char(o).to_string()),
+        settled: now.is_some_and(|m| m.settled),
+        live: now.is_some_and(|m| m.live),
+    }
+}
+
+fn column(line: &LineView, tickets: &[TicketView], matches: &[MatchNow]) -> Column {
     let ids: Vec<String> = line.tickets.iter().map(i64::to_string).collect();
+    // Les cases de la grille, rencontre par rencontre : son meilleur ticket fait sa couleur.
+    let covers: Vec<Vec<Outcome>> = line
+        .signs
+        .iter()
+        // Les cases d'une rencontre (`["1", "N"]`) se lisent comme un petit ticket `1N`.
+        .map(|signs| Ticket::parse(&signs.concat()).map_or(Vec::new(), |t| t.signs().to_vec()))
+        .collect();
+    let best = Standing::of(&covers, matches);
+    let standings: Vec<Standing> = tickets
+        .iter()
+        .filter(|t| line.tickets.contains(&t.id))
+        .filter_map(|t| Ticket::parse(&t.ticket))
+        .map(|t| Standing::of(&Standing::covers(&t), matches))
+        .collect();
+    let alive = standings.iter().filter(|s| s.alive()).count();
     Column {
         price: line.price.clone(),
         tickets: format!("n° {}", ids.join(", ")),
         played: line.played,
+        tone: best.tone(),
+        state: best.label(),
+        alive: if standings.len() > 1 && best.known > 0 {
+            format!("{alive} / {} en vie", standings.len())
+        } else {
+            String::new()
+        },
     }
 }
 
-fn detail(ticket: &TicketView) -> Detail {
+fn detail(ticket: &TicketView, matches: &[MatchNow]) -> Detail {
+    let live = Ticket::parse(&ticket.ticket).map(|t| Standing::of(&Standing::covers(&t), matches));
     let tone = if ticket.status.starts_with("rang") {
         "t-pos"
     } else if ticket.status.starts_with("perdu") {
@@ -258,6 +381,8 @@ fn detail(ticket: &TicketView) -> Detail {
         ev_low: ticket.ev_low.clone(),
         chance: ticket.chance.clone(),
         ranks: ticket.ranks.clone(),
+        live_tone: live.map_or("t-wait", |s| s.tone()),
+        live_state: live.map_or(String::new(), |s| s.label()),
     }
 }
 
@@ -284,6 +409,52 @@ mod tests {
         // Le bouton est là même sans séance, avec la mise plafond de la configuration.
         assert!(html.contains("action=\"/lotofoot/optimiser\""), "{html}");
         assert!(html.contains("value=\"16\""), "{html}");
+    }
+
+    #[test]
+    fn a_match_in_progress_colours_the_signs_and_the_grid() {
+        use crate::lotofoot::Game;
+        use crate::lotofoot::espn::Phase;
+        use crate::store::lotofoot_live::{LiveScore, upsert_score};
+
+        let sample = sample();
+        let conn = crate::store::open_migrated(&sample.app.paths.db_file).unwrap();
+        // Première rencontre en cours, 1 – 0 : le double 12 de la grille a un signe juste (1) et un faux (2).
+        upsert_score(
+            &conn,
+            Game::Lf7,
+            133,
+            1,
+            &LiveScore {
+                league: "fra.2".to_string(),
+                event_id: "401".to_string(),
+                home_goals: 1,
+                away_goals: 0,
+                phase: Phase::Playing,
+                label: "57'".to_string(),
+                fetched_at: sample.now,
+            },
+        )
+        .unwrap();
+        let html = sample.html("/lotofoot");
+        assert!(html.contains("1 – 0"), "{html}");
+        assert!(
+            html.contains("class=\"sign s-1 hit provisional\""),
+            "{html}"
+        );
+        assert!(
+            html.contains("class=\"sign s-2 miss provisional\""),
+            "{html}"
+        );
+        // Le meilleur ticket est sans faute ; l'autre a une erreur provisoire mais reste en lice pour le 2e rang.
+        assert!(
+            html.contains("<span class=\"chip t-pos\">sans faute</span>"),
+            "{html}"
+        );
+        assert!(html.contains("2 / 2 en vie"), "{html}");
+        assert!(html.contains("une erreur (en cours)"), "{html}");
+        // Les tests n'appellent pas ESPN : rien ne se joue selon l'application, la page ne se recharge pas seule.
+        assert!(!html.contains("http-equiv=\"refresh\""));
     }
 
     #[test]

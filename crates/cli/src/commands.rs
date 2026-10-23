@@ -1444,6 +1444,7 @@ pub fn serve(paths: &Paths) -> Result<()> {
         config,
         aliases: Aliases::bundled()?,
         token,
+        live_scores: true,
     };
     // L'erreur de `tiny_http` est une `Box<dyn Error + Send + Sync>` : `anyhow!` l'enveloppe avec son message.
     let server = tiny_http::Server::http(bind)

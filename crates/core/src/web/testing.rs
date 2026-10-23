@@ -103,6 +103,7 @@ fn app(paths: Paths, config: Config) -> App {
         config,
         aliases: Aliases::bundled().unwrap(),
         token: ServeToken::new(TOKEN).unwrap(),
+        live_scores: false,
     }
 }
 

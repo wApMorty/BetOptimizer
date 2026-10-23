@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}{% endblock %} — edge</title>
+{% block head %}{% endblock %}
 <style>
   {{ theme_css|safe }}
   /* Inter, servie par le site (`/police/…`) ; un rapport ouvert hors du site se rabat sur la police du système. */
@@ -148,6 +149,16 @@
   .sign-cell { text-align: center; }
   .sign { display: inline-block; min-width: 28px; height: 28px; line-height: 28px; border-radius: 7px; font-weight: 600; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }
   .sign + .sign { margin-left: 3px; }
+  /* Suivi en direct : case juste ou fausse (tirets tant que le match se joue), couleur de chaque grille à remplir. */
+  .sign.hit { background: var(--positive-soft); color: var(--positive); border-color: var(--positive); }
+  .sign.miss { background: var(--negative-soft); color: var(--negative); border-color: var(--negative); text-decoration: line-through; }
+  .sign.provisional { border-style: dashed; }
+  th.live { box-shadow: inset 0 -3px 0 var(--border); }
+  th.live.t-pos { box-shadow: inset 0 -3px 0 var(--positive); }
+  th.live.t-warn { box-shadow: inset 0 -3px 0 var(--warning); }
+  th.live.t-neg { box-shadow: inset 0 -3px 0 var(--negative); }
+  .score { font-weight: 600; margin-left: 6px; }
+  .score.live { color: var(--accent); }
   tr.foot td { border-bottom: 0; vertical-align: top; font-size: .78rem; }
   /* Grand Loto : une boule par numéro, la chance à part. */
   .ball { display: inline-block; min-width: 30px; height: 30px; line-height: 30px; border-radius: 50%; text-align: center; font-weight: 600; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }

@@ -1,5 +1,6 @@
 {% extends "site_base.html" %}
 {% block title %}Loto Foot{% endblock %}
+{% block head %}{% if auto_refresh %}<meta http-equiv="refresh" content="60">{% endif %}{% endblock %}
 {% block content %}
 <div class="head"><h1>Loto Foot</h1><div class="sub">LF7 et LF8, validés au point de vente : tickets à 1 € (regroupés sans perte en grilles multiples), joués si leur espérance dans le scénario défavorable atteint le seuil (<code>docs/sources.md</code> §37 et §38). Aucun pari n'est placé par le programme.</div></div>
 
@@ -31,10 +32,11 @@
   <div class="split"><div><b style="font-size: 1.1rem">{{ b.grid }}</b> <span class="chip">clôture {{ b.closes }}</span></div></div>
   <div class="scroll">
   <table class="bulletin">
-    <thead><tr><th>Rencontre</th>{% for c in b.columns %}<th class="sign-cell">{{ c.price }}</th>{% endfor %}</tr></thead>
+    <thead><tr><th>Rencontre</th>{% for c in b.columns %}<th class="sign-cell live {{ c.tone }}">{{ c.price }}</th>{% endfor %}</tr></thead>
     <tbody>
-    {% for r in b.rows %}<tr><td>{{ r.fixture }}</td>{% for cell in r.cells %}<td class="sign-cell">{% for s in cell %}<span class="sign s-{{ s }}">{{ s }}</span>{% endfor %}</td>{% endfor %}</tr>
+    {% for r in b.rows %}<tr><td>{{ r.fixture }}{% if r.score %} <span class="score{% if r.live %} live{% endif %}">{{ r.score }}</span>{% endif %}{% if r.state %} <span class="meta">{{ r.state }}</span>{% endif %}</td>{% for cell in r.cells %}<td class="sign-cell">{% for s in cell %}<span class="sign s-{{ s }}{% if r.result %}{% if s == r.result %} hit{% else %} miss{% endif %}{% if not r.settled %} provisional{% endif %}{% endif %}">{{ s }}</span>{% endfor %}</td>{% endfor %}</tr>
     {% endfor %}
+    <tr class="foot"><td class="meta">en direct<br>meilleur ticket</td>{% for c in b.columns %}<td class="sign-cell"><span class="chip {{ c.tone }}">{{ c.state }}</span>{% if c.alive %}<br><span class="meta">{{ c.alive }}</span>{% endif %}</td>{% endfor %}</tr>
     {% for r in b.ranks %}<tr class="foot"><td class="meta">{{ r.label }}<br>chance · gain moyen</td>{% for cell in r.cells %}<td class="sign-cell">{% if cell %}<b>{{ cell.chance }}</b><br>{{ cell.gain }}{% else %}—{% endif %}</td>{% endfor %}</tr>
     {% endfor %}
     <tr class="foot"><td class="meta">tickets · état</td>{% for c in b.columns %}<td class="sign-cell meta">{{ c.tickets }}<br><span class="chip {% if c.played %}t-pos{% else %}t-warn{% endif %}">{% if c.played %}joué{% else %}pas déclaré{% endif %}</span></td>{% endfor %}</tr>
@@ -43,9 +45,9 @@
   </div>
   <div class="scroll">
   <table>
-    <thead><tr><th>Ticket</th><th>Signes</th><th>Sans faute</th><th>Une erreur</th><th>Chance de gain</th><th class="num" title="Euros rendus en moyenne pour 1 € misé ; entre parenthèses, le scénario défavorable qui sert au seuil.">Espérance</th><th>État</th></tr></thead>
+    <thead><tr><th>Ticket</th><th>Signes</th><th>Sans faute</th><th>Une erreur</th><th>Chance de gain</th><th class="num" title="Euros rendus en moyenne pour 1 € misé ; entre parenthèses, le scénario défavorable qui sert au seuil.">Espérance</th><th>En direct</th><th>État</th></tr></thead>
     <tbody>
-    {% for d in b.details %}<tr><td>n° {{ d.id }}</td><td><code>{{ d.ticket }}</code></td>{% for r in d.ranks %}<td><b>{{ r.chance }}</b><br><span class="meta">{{ r.gain }}</span></td>{% else %}<td>—</td><td>—</td>{% endfor %}<td><b>{{ d.chance }}</b></td><td class="num">{{ d.ev }}<br><span class="meta">({{ d.ev_low }})</span></td><td><span class="chip {{ d.tone }}">{{ d.status }}</span> <span class="chip {% if d.played %}t-pos{% else %}t-warn{% endif %}">{% if d.played %}joué{% else %}pas déclaré{% endif %}</span></td></tr>
+    {% for d in b.details %}<tr><td>n° {{ d.id }}</td><td><code>{{ d.ticket }}</code></td>{% for r in d.ranks %}<td><b>{{ r.chance }}</b><br><span class="meta">{{ r.gain }}</span></td>{% else %}<td>—</td><td>—</td>{% endfor %}<td><b>{{ d.chance }}</b></td><td class="num">{{ d.ev }}<br><span class="meta">({{ d.ev_low }})</span></td><td><span class="chip {{ d.live_tone }}">{{ d.live_state }}</span></td><td><span class="chip {{ d.tone }}">{{ d.status }}</span> <span class="chip {% if d.played %}t-pos{% else %}t-warn{% endif %}">{% if d.played %}joué{% else %}pas déclaré{% endif %}</span></td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -57,6 +59,7 @@
 {% else %}
 <div class="card empty"><b>Aucune séance pour l'instant</b><span>Le relevé horaire archive les grilles ; la séance a lieu le samedi à midi.</span></div>
 {% endif %}
+{% for i in live_issues %}<div class="notice t-warn">Suivi en direct : {{ i }}</div>{% endfor %}
 {% for s in skipped %}<div class="notice t-warn">Grille écartée : {{ s }}</div>{% endfor %}
 {% if unknown_names %}<div class="notice t-warn">Noms absents de <code>config/aliases.toml</code> : {{ unknown_names|join(", ") }}.</div>{% endif %}
 
