@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=edge
-Comment=Recommandations de paris : journal, bankroll, CLV
-# Modèle : l'installation (deploy/systemd/README.md) remplace cette ligne par le chemin absolu de l'exécutable.
-Exec=edge-gui
-Terminal=false
-Categories=Office;Finance;
-StartupWMClass=edge

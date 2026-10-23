@@ -77,8 +77,8 @@ le maintienne. Je veux comprendre chaque phase : le code doit être lisible et e
 | Logs | `tracing`, `tracing-subscriber` | |
 | Lois statistiques | `statrs` | |
 | Optimisation | `argmin` + `argmin-math` (backend `Vec<f64>`) | maximum de vraisemblance ; implémenter ses traits est un usage légitime |
-| Rapport | `minijinja` + `plotters` (SVG) | HTML autonome, lisible sur téléphone |
-| GUI (phase 6) | `eframe`/`egui`, `egui_plot`, backend `wgpu` | |
+| Rapport | `minijinja` + `plotters` (SVG) | HTML autonome |
+| Application (phase 15) | `tiny_http` + `minijinja`, SVG écrits à la main | Web, rendue côté serveur, sans script ; consultée sur PC. Remplace `eframe`/`egui` (phase 6) |
 | Tests | `#[cfg(test)]`, `approx` | |
 
 À éviter : tokio, reqwest, le SDK Rust `the-odds-api` (asynchrone), Polars (environ 30 000 matchs :
@@ -95,13 +95,13 @@ edge/
 ├── deploy/systemd/               # service + timer utilisateur (laptop CachyOS)
 ├── docs/learning/, docs/sources.md
 └── crates/
-    ├── core/   # domain, ingest, store, market, models, eval, betting, backtest, report, notify
-    ├── cli/    # binaire `edge`
-    └── gui/    # egui (phase 6)
+    ├── core/   # domain, ingest, store, market, models, eval, betting, backtest, report, notify, web
+    └── cli/    # binaire `edge` (dont `edge serve`, le serveur HTTP de l'application Web)
 ```
 
-- `core` ne connaît ni la CLI ni l'interface ; `cli` et `gui` passent uniquement par l'API de `core`.
-- Secrets (clé API, URL de webhook) : variables d'environnement (`EDGE_ODDS_API_KEY`…) ou fichier de
+- `core` ne connaît ni la CLI ni le réseau : l'application Web (`core/web`) y est écrite sans serveur HTTP, et `cli`
+  passe uniquement par l'API de `core`.
+- Secrets (clé API, URL de webhook, secret de connexion à l'application) : variables d'environnement (`EDGE_ODDS_API_KEY`…) ou fichier de
   configuration hors dépôt, en permissions 0600. Jamais dans git.
 - Exécution planifiée : timer systemd **utilisateur** sur mon laptop CachyOS (lingering activé,
   `Persistent=true`). Le cœur doit aussi compiler sous Windows.
@@ -204,6 +204,7 @@ Chaque phase : plan court → mon go → code et tests → résumé, fichier pé
   l'API que si un match recommandé commence dans les 30 minutes), notification téléphone (**demande-moi Discord ou
   Telegram avant d'implémenter**) avec le rapport HTML joint, `edge bet log`, règlement des paris.
 - **Phase 6 — Application egui.** Recommandations, saisie des paris, courbe de bankroll, calibration.
+  Remplacée en phase 15 par l'application Web (`edge serve`), consultée sur PC depuis le réseau local.
 - **Phase 7 — Tennis.** Elo par surface (mélange général/surface).
 - **Phase 8 — NBA.** Elo avec marge de victoire, repos et back-to-back ; écart et total par approximation normale.
 

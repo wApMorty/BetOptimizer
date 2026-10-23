@@ -1,9 +1,10 @@
 [Unit]
-Description=Site de rapports d'edge (lecture seule, réseau local)
+Description=Application Web d'edge (réseau local, connexion par secret)
 Documentation=file://%h/Documents/Workspace/BetOptimizer/deploy/systemd/README.md
 
 [Service]
 # Un service permanent, pas un timer : il répond aux navigateurs tant que le portable est allumé.
+# Secret de connexion : `serve_token` dans ~/.config/edge/edge.toml (0600), ou la variable EDGE_SERVE_TOKEN.
 Type=simple
 # Adresse d'écoute : `serve_bind` dans ~/.config/edge/edge.toml (127.0.0.1 par défaut ; 0.0.0.0 pour le réseau local).
 ExecStart=%h/.local/bin/edge serve

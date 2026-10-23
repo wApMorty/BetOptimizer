@@ -1,7 +1,7 @@
-# Workspace Cargo du projet `edge` : un cœur (`core`) sans interface, un binaire (`cli`) et une application (`gui`) qui l'appellent.
+# Workspace Cargo du projet `edge` : un cœur (`core`, application Web comprise, sans réseau) et un binaire (`cli`) qui l'appelle.
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/cli", "crates/gui"]
+members = ["crates/core", "crates/cli"]
 
 [workspace.package]
 version = "0.1.0"
@@ -24,10 +24,6 @@ chrono-tz = "0.10.4"
 clap = { version = "4.6.7", features = ["derive"] }
 csv = "1.4.0"
 directories = "6.0.0"
-# Application (phase 6). Paire compatible : egui_plot 0.37 attend egui 0.36, que fournit eframe 0.36 ; eframe 0.37 vise egui 0.37.
-# wgpu : backend imposé par CLAUDE.md ; Wayland et X11 : la session de Paul est sous Wayland. Pas de glow ni d'accesskit.
-eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "wayland", "x11", "default_fonts"] }
-egui_plot = "0.37.0"
 minijinja = "2.24.0"
 plotters = { version = "0.3.7", default-features = false, features = ["svg_backend", "line_series", "point_series"] }
 # Image PNG des recommandations du jour, jointe au message Discord : rendu d'un SVG écrit par nous. Rust pur, licence MIT ou

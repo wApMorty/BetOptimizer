@@ -12,7 +12,7 @@ Prérequis : lingering activé (`loginctl enable-linger $USER`) et binaire insta
 | `edge-lotofoot-fetch` | toutes les heures (minute 7) | grilles LF7 et LF8, répartition FDJ, résultats et rapports sur prono-match (`edge lotofoot fetch`, sources §38) | 0 |
 | `edge-lotofoot-recommend` | samedi 12 h (Paris) | séance du Loto Foot : tickets au-dessus du seuil, journal, Discord (`edge lotofoot recommend --notify`) | 1 par compétition absente de l'archive, 8 au plus |
 
-Service permanent (pas un timer) : `edge-serve`, le site de rapports (voir plus bas). Aucun crédit.
+Service permanent (pas un timer) : `edge-serve`, l'application Web (voir plus bas). Aucun crédit.
 
 ```sh
 # Installer ou mettre à jour le binaire
@@ -36,7 +36,7 @@ et rapports : la dérive de la répartition jusqu'à la clôture est ainsi mesur
 - `edge lotofoot recommend --dry-run` : la séance sans rien écrire ni relever (aucun crédit).
 - `edge lotofoot played --last-session` : après validation chez le buraliste, déclare les tickets joués (ou `played 12 13`, ou
   `played --grid lf7:133 --ticket 1N22121` pour un ticket saisi à la main, hors modèle s'il ne correspond à aucune recommandation).
-- `edge lotofoot report`, page `/lotofoot` du site : bilans et vérification du modèle (critère figé, points de contrôle à 26 et 52 semaines).
+- `edge lotofoot report`, page `/lotofoot` de l'application : bilans et vérification du modèle (critère figé, points de contrôle à 26 et 52 semaines).
 - Un nom d'équipe inconnu écarte sa grille : l'ajouter à la section `LOTOFOOT` de `config/aliases.toml`, puis réinstaller `edge`.
 
 ## NBA
@@ -64,29 +64,20 @@ Les cotes de tennis sont archivées par le relevé de 14 h (tournois en cours, 1
 3. `edge tennis import` puis `edge tennis check` ; `edge tennis tune` (une fois : règle l'Elo sur 2022-2023 et le gèle) ;
    `edge tennis report` (le rapport HTML : l'Elo contre le marché sur le test, à partir de 2024).
 
-## Application (`edge-gui`)
+## Application Web (`edge serve`)
 
-```sh
-cargo install --path crates/gui --locked --root ~/.local     # compile en release : environ 3 minutes la première fois
-mkdir -p ~/.local/share/applications
-sed "s|^Exec=.*|Exec=$HOME/.local/bin/edge-gui|" deploy/edge-gui.desktop > ~/.local/share/applications/edge-gui.desktop
-```
+L'application d'edge, consultée depuis le PC de la maison : recommandations du jour, saisie des paris et des règlements,
+bankroll, CLV et calibration, paper trading, bonus, Loto Foot, latence, rapports (quotidiens, archivés dans
+`~/.local/share/edge/reports/daily/` et jamais écrasés, et d'analyse). Les pages sont recalculées à chaque visite. Elle écrit au
+journal par les mêmes fonctions que la ligne de commande, mais n'appelle jamais l'API de cotes : elle ne dépense aucun crédit.
 
-L'application apparaît ensuite dans le lanceur d'applications (« edge »), ou se lance par `edge-gui`. Elle lit et écrit le journal
-(recommandations, paris, règlements) mais n'appelle jamais l'API de cotes : elle ne dépense aucun crédit.
-
-## Site de rapports (`edge serve`)
-
-Une page web en lecture seule, consultable depuis un autre appareil du réseau local : le rapport du jour, les rapports précédents
-(un par exécution de `edge recommend`, archivés dans `~/.local/share/edge/reports/daily/`, jamais écrasés), les opportunités actives et
-le paper trading. Les pages vivantes sont recalculées à chaque visite ; la base est ouverte sans droit d'écriture.
-
-1. Dans `~/.config/edge/edge.toml`, écouter sur le réseau et donner l'adresse que les autres appareils taperont (rappelée par Discord,
-   qui ne joint plus alors le rapport HTML) :
+1. Dans `~/.config/edge/edge.toml` (permissions 0600), écouter sur le réseau, donner l'adresse que les autres appareils taperont
+   (rappelée par Discord) et un secret de connexion, demandé une fois par navigateur :
 
    ```toml
    serve_bind = "0.0.0.0:8737"
    site_url = "http://cachyos-x8664.local:8737/"   # nom mDNS (avahi) ; sinon l'adresse IP du portable
+   serve_token = "..."                              # sortie de `openssl rand -hex 24`
    ```
 
 2. Ouvrir le port dans `ufw` (actif sur ce portable), pour le réseau local seulement. Adapte le sous-réseau au tien (`ip -4 addr`) :
@@ -104,8 +95,14 @@ le paper trading. Les pages vivantes sont recalculées à chaque visite ; la bas
    ```
 
 Après chaque `cargo install`, `systemctl --user restart edge-serve.service` : le service garde l'ancien binaire en mémoire.
-Pas de mot de passe : toute personne sur le réseau voit la bankroll et les recommandations. Le site ne répond que si le portable est
-allumé.
+Le site est en HTTP : le secret et le cookie de session circulent en clair, ce qui suffit sur le réseau de la maison, pas au-delà.
+Il ne répond que si le portable est allumé.
+
+L'ancienne application egui (`edge-gui`, phases 6 et 9) est retirée. Pour effacer ce qu'elle avait installé :
+
+```sh
+rm -f ~/.local/bin/edge-gui ~/.local/share/applications/edge-gui.desktop
+```
 
 ## Webhook Discord
 
