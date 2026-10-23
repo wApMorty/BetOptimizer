@@ -20,7 +20,7 @@ use statrs::distribution::{DiscreteCDF, Poisson};
 
 use super::model::{FROZEN, GridModel, public_split};
 use super::{Game, Ticket};
-use crate::domain::{Euros, Outcome, Probs1x2};
+use crate::domain::{Euros, Outcome};
 use crate::error::Result;
 use crate::store::lotofoot as store;
 
@@ -227,7 +227,7 @@ pub fn verify(conn: &Connection, now: DateTime<Utc>) -> Result<Verification> {
         ) else {
             continue;
         };
-        let Some(model) = model_from_inputs(reco.game, &reco.inputs) else {
+        let Some(model) = GridModel::from_journal(reco.game, &reco.inputs) else {
             continue;
         };
         frequency.settled += 1;
@@ -289,39 +289,6 @@ pub fn verify(conn: &Connection, now: DateTime<Utc>) -> Result<Verification> {
         gain,
         verdict,
     })
-}
-
-/// Reconstruit le modèle d'une grille à partir des entrées figées dans le journal (`p`, `q`, mises, pactole).
-fn model_from_inputs(game: Game, inputs: &str) -> Option<GridModel> {
-    let value: serde_json::Value = serde_json::from_str(inputs).ok()?;
-    let rows = |key: &str| -> Option<Vec<Probs1x2>> {
-        value
-            .get(key)?
-            .as_array()?
-            .iter()
-            .map(|row| {
-                let r = row.as_array()?;
-                let get = |i: usize| r.get(i).and_then(serde_json::Value::as_f64);
-                // Les probabilités relues du JSON somment à 1 aux arrondis près : on renormalise avant de les valider.
-                let (h, d, a) = (get(0)?, get(1)?, get(2)?);
-                let sum = h + d + a;
-                Probs1x2::new(h / sum, d / sum, 1.0 - h / sum - d / sum)
-            })
-            .collect()
-    };
-    let p = rows("p")?;
-    let q = rows("q")?;
-    let stakes = Euros::new(value.get("stakes")?.as_f64()?)?;
-    let jackpot = value
-        .get("jackpot")
-        .and_then(serde_json::Value::as_f64)
-        .and_then(Euros::new);
-    GridModel::new(
-        &p,
-        &q,
-        stakes,
-        &GridModel::masses_for(game, stakes, jackpot),
-    )
 }
 
 /// Loi du gain total des tickets réglés : pour chaque tirage, une issue par grille tirée selon le marché, et le gain

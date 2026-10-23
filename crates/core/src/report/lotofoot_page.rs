@@ -8,8 +8,9 @@ use rusqlite::Connection;
 use serde::Serialize;
 
 use crate::error::Result;
-use crate::format::{decimal, kickoff_label, long_date};
-use crate::lotofoot::bulletin::session_lines;
+use crate::format::{chance, decimal, kickoff_label, long_date, rough_euros};
+use crate::lotofoot::bulletin::{Line, session_lines};
+use crate::lotofoot::model::{FROZEN, GridModel};
 use crate::lotofoot::session::SessionReport;
 use crate::lotofoot::settle::{self, Ledger};
 use crate::lotofoot::verify::{self, Verdict, Verification};
@@ -33,10 +34,25 @@ pub struct TicketView {
     pub ev_low: String,
     /// Probabilité d'un rang payé.
     pub paid: String,
+    /// Chance d'être payé, quel que soit le rang (« 1 sur 230 »).
+    pub chance: String,
+    /// Chance et gain moyen de chaque rang, du sans-faute au dernier rang payé (vide si les entrées du modèle manquent).
+    pub ranks: Vec<RankView>,
     /// Règlement (« en attente », « perdu », « rang 2 : 21,90 € »).
     pub status: String,
     /// Déjà déclaré joué (`edge lotofoot played`).
     pub played: bool,
+}
+
+/// Un rang payé d'un ticket : ce qu'il faut réussir, la chance d'y arriver, le gain moyen quand on y arrive.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RankView {
+    /// « 7 bons sur 7 », « 6 bons sur 7 ».
+    pub label: String,
+    /// « 1 sur 2 400 ».
+    pub chance: String,
+    /// « ≈ 3 150 € ».
+    pub gain: String,
 }
 
 /// Une grille de la séance, avec l'ordre de ses rencontres (celui du bulletin).
@@ -64,6 +80,10 @@ pub struct LineView {
     pub price: String,
     /// Numéros au journal des tickets contenus.
     pub tickets: Vec<i64>,
+    /// Chance que la grille paie au moins un de ses tickets (« 1 sur 40 »).
+    pub chance: String,
+    /// Gain moyen quand elle paie (« ≈ 210 € »).
+    pub gain: String,
     /// Tous ses tickets sont déclarés joués.
     pub played: bool,
 }
@@ -275,6 +295,8 @@ pub fn page(conn: &Connection, now: DateTime<Utc>) -> Result<LotofootPage> {
             ev: decimal(reco.ev_base, 2),
             ev_low: decimal(reco.ev_pessimistic, 2),
             paid: format!("{} %", decimal(reco.paid_probability * 100.0, 1)),
+            chance: chance(reco.paid_probability),
+            ranks: rank_views(reco),
             status,
             played: played.contains(&reco.id),
         });
@@ -282,6 +304,39 @@ pub fn page(conn: &Connection, now: DateTime<Utc>) -> Result<LotofootPage> {
     page.lines = line_views(&recos, &played);
     page.stake = format!("{} €", decimal(recos.len() as f64 * TICKET_PRICE, 0));
     Ok(page)
+}
+
+/// Chance et gain moyen de chaque rang d'un ticket, recalculés par le modèle à partir de ses entrées figées au journal.
+fn rank_views(reco: &RecoRow) -> Vec<RankView> {
+    let Some(model) = GridModel::from_journal(reco.game, &reco.inputs) else {
+        return Vec::new();
+    };
+    let n = reco.game.matches();
+    model
+        .rank_odds(&reco.ticket, &FROZEN)
+        .iter()
+        .enumerate()
+        .map(|(errors, odds)| RankView {
+            label: format!("{} bons sur {n}", n - errors),
+            chance: chance(odds.probability),
+            gain: rough_euros(odds.gain_if_reached * TICKET_PRICE),
+        })
+        .collect()
+}
+
+/// Ce que peut rapporter une grille à remplir : chance d'être payée, et gain moyen quand elle l'est.
+///
+/// `E[gain | payée] = E[gain] / P(payée)`, car la grille ne rapporte rien quand elle n'est pas payée ; `E[gain]` est la
+/// somme des espérances de ses tickets (`expected_gain`, en euros). Le partage entre nos propres tickets n'est pas
+/// déduit, comme dans l'espérance des tickets.
+pub fn line_outlook(model: &GridModel, line: &Line, expected_gain: f64) -> (String, String) {
+    let paid = model.line_paid_probability(line);
+    let gain = if paid > 0.0 {
+        expected_gain / paid
+    } else {
+        0.0
+    };
+    (chance(paid), rough_euros(gain))
 }
 
 /// Grilles à remplir pour les tickets de la séance ; `played` : numéros des tickets déclarés joués.
@@ -295,6 +350,19 @@ fn line_views(recos: &[RecoRow], played: &[i64]) -> Vec<LineView> {
         .map(|l| {
             // `l.tickets` donne des rangs dans `recos` : on les traduit en numéros du journal.
             let ids: Vec<i64> = l.tickets.iter().map(|&i| recos[i].id).collect();
+            let expected: f64 = l
+                .tickets
+                .iter()
+                .map(|&i| recos[i].ev_base * TICKET_PRICE)
+                .sum();
+            // Tous les tickets d'une grille du Loto Foot partagent les mêmes entrées : celles du premier suffisent.
+            let model = l
+                .tickets
+                .first()
+                .and_then(|&i| GridModel::from_journal(recos[i].game, &recos[i].inputs));
+            let (chance, gain) = model.map_or(("—".to_string(), "—".to_string()), |m| {
+                line_outlook(&m, &l.line, expected)
+            });
             LineView {
                 grid: format!("{} n°{}", l.grid.0, l.grid.1),
                 signs: l
@@ -307,6 +375,8 @@ fn line_views(recos: &[RecoRow], played: &[i64]) -> Vec<LineView> {
                 price: format!("{} €", l.line.combinations()),
                 played: ids.iter().all(|id| played.contains(id)),
                 tickets: ids,
+                chance,
+                gain,
             }
         })
         .collect()
@@ -390,18 +460,16 @@ pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
             text.push_str(&format!("{}. {h} – {a}\n", i + 1));
         }
         for l in own {
-            // Espérance moyenne des tickets de la grille, dans le scénario défavorable (celui du seuil).
-            let low: f64 = l
+            let expected: f64 = l
                 .tickets
                 .iter()
-                .map(|&i| report.chosen[i].pessimistic.expected_return)
-                .sum::<f64>()
-                / l.tickets.len() as f64;
+                .map(|&i| report.chosen[i].base.expected_return * TICKET_PRICE)
+                .sum();
+            let (chance, gain) = line_outlook(&grid.model, &l.line, expected);
             text.push_str(&format!(
-                "`{}`  {} € — défavorable {}\n",
+                "`{}`  {} € — gagne {chance}, {gain} quand elle gagne\n",
                 l.line,
-                l.line.combinations(),
-                decimal(low, 2)
+                l.line.combinations()
             ));
         }
     }
@@ -445,6 +513,20 @@ mod tests {
                 matches: (1..=8)
                     .map(|i| (format!("H{i}"), format!("A{i}")))
                     .collect(),
+                // Huit rencontres à un tiers chacune : payé avec 7 ou 8 bons, soit 17 issues sur 6 561.
+                model: {
+                    use crate::domain::{Euros, Probs1x2};
+                    use crate::lotofoot::model::GridModel;
+                    let third = vec![Probs1x2::new(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0).unwrap(); 8];
+                    let stakes = Euros::new(300_000.0).unwrap();
+                    GridModel::new(
+                        &third,
+                        &third,
+                        stakes,
+                        &GridModel::masses_for(Game::Lf8, stakes, None),
+                    )
+                    .unwrap()
+                },
             }],
             skipped: vec![],
             unknown_names: vec!["LOTOFOOT: Inconnu FC".into()],
@@ -462,7 +544,11 @@ mod tests {
         assert!(text.contains("**LF8 n°147**"));
         assert!(text.contains("1. H1 – A1"));
         assert!(text.contains("en 1 grille(s) à remplir"));
-        assert!(text.contains("`2 1 N 1 2 2 2 2`  1 € — défavorable 2,00"));
+        // 6 561 / 17 ≈ 386 issues pour une payée, et 2,50 € d'espérance / (17 / 6 561) ≈ 965 € quand elle paie.
+        assert!(
+            text.contains("`2 1 N 1 2 2 2 2`  1 € — gagne 1 sur 390, ≈ 965 € quand elle gagne"),
+            "{text}"
+        );
         assert!(text.contains("Inconnu FC"));
         assert!(text.contains("<http://portable.local:8737/lotofoot>"));
         let empty = SessionReport {

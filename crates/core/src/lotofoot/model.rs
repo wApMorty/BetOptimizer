@@ -17,6 +17,7 @@
 
 use crate::domain::{Euros, Outcome, Probs1x2};
 
+use super::bulletin::Line;
 use super::{Game, PAYOUT_RATE, TICKET_PRICE, Ticket};
 
 /// Paramètres du nombre attendu de concurrents (κ, β, φ) et, pour le scénario défavorable, un multiplicateur appliqué
@@ -84,6 +85,15 @@ pub struct TicketValue {
     pub paid_probability: f64,
 }
 
+/// Chance d'un rang et gain moyen quand on l'atteint, pour un ticket.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RankOdds {
+    /// Probabilité d'atteindre ce rang, selon le marché.
+    pub probability: f64,
+    /// Gain moyen, en euros pour un ticket d'un euro, sachant le rang atteint (partage avec les concurrents attendus).
+    pub gain_if_reached: f64,
+}
+
 /// Une grille prête à être évaluée : marché, public, mises et masses de gains.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GridModel {
@@ -133,6 +143,39 @@ impl GridModel {
         masses.into_iter().filter_map(Euros::new).collect()
     }
 
+    /// Reconstruit le modèle d'une grille à partir des entrées figées dans le journal (`p`, `q`, mises, pactole).
+    pub fn from_journal(game: Game, inputs: &str) -> Option<GridModel> {
+        let value: serde_json::Value = serde_json::from_str(inputs).ok()?;
+        let rows = |key: &str| -> Option<Vec<Probs1x2>> {
+            value
+                .get(key)?
+                .as_array()?
+                .iter()
+                .map(|row| {
+                    let r = row.as_array()?;
+                    let get = |i: usize| r.get(i).and_then(serde_json::Value::as_f64);
+                    // Les probabilités relues du JSON somment à 1 aux arrondis près : on renormalise avant de les valider.
+                    let (h, d, a) = (get(0)?, get(1)?, get(2)?);
+                    let sum = h + d + a;
+                    Probs1x2::new(h / sum, d / sum, 1.0 - h / sum - d / sum)
+                })
+                .collect()
+        };
+        let p = rows("p")?;
+        let q = rows("q")?;
+        let stakes = Euros::new(value.get("stakes")?.as_f64()?)?;
+        let jackpot = value
+            .get("jackpot")
+            .and_then(serde_json::Value::as_f64)
+            .and_then(Euros::new);
+        GridModel::new(
+            &p,
+            &q,
+            stakes,
+            &GridModel::masses_for(game, stakes, jackpot),
+        )
+    }
+
     /// Nombre de rencontres.
     pub fn len(&self) -> usize {
         self.p.len()
@@ -176,20 +219,67 @@ impl GridModel {
 
     /// Espérance et probabilité de gain d'un ticket simple. Un ticket de mauvaise longueur ne gagne rien.
     pub fn value(&self, ticket: &Ticket, competitors: &Competitors) -> TicketValue {
+        let ranks = self.walk(ticket, competitors);
+        TicketValue {
+            expected_return: ranks.iter().map(|r| r.gain).sum::<f64>() / TICKET_PRICE,
+            paid_probability: ranks.iter().map(|r| r.probability).sum(),
+        }
+    }
+
+    /// Chance et gain moyen de chaque rang pour un ticket, du sans-faute au dernier rang payé.
+    ///
+    /// Gain moyen sachant le rang atteint : `E[gain | rang r] = E[gain · 1{rang r}] / P(rang r)` ; la somme des
+    /// `probability · gain_if_reached` redonne l'espérance de [`GridModel::value`]. 0 € pour un rang impossible.
+    pub fn rank_odds(&self, ticket: &Ticket, competitors: &Competitors) -> Vec<RankOdds> {
+        self.walk(ticket, competitors)
+            .into_iter()
+            .map(|r| RankOdds {
+                probability: r.probability,
+                gain_if_reached: if r.probability > 0.0 {
+                    r.gain / r.probability
+                } else {
+                    0.0
+                },
+            })
+            .collect()
+    }
+
+    /// Probabilité qu'une grille à remplir (simple ou multiple) paie au moins un de ses tickets.
+    ///
+    /// La grille est payée si l'issue tombe hors de ses signes sur au plus `R − 1` rencontres. La rencontre i tombe
+    /// dans ses signes avec la probabilité `a_i = Σ_{s ∈ A_i} p_i(s)`, indépendamment des autres ; le nombre de
+    /// rencontres « dans les signes » suit donc une loi de Poisson-binomiale de paramètres `a_i`. Pour un ticket simple,
+    /// on retrouve sa probabilité de gain.
+    pub fn line_paid_probability(&self, line: &Line) -> f64 {
+        let n = self.len();
+        if line.signs().len() != n {
+            return 0.0;
+        }
+        let a: Vec<f64> = line
+            .signs()
+            .iter()
+            .zip(&self.p)
+            .map(|(choices, p)| choices.iter().map(|s| p[s.index()]).sum())
+            .collect();
+        let good = poisson_binomial(&a);
+        (0..self.ranks())
+            .map(|errors| good.get(n - errors).copied().unwrap_or(0.0))
+            .sum()
+    }
+
+    /// Parcours complet d'un ticket : probabilité et contribution à l'espérance de chaque rang (`gain` vaut ici
+    /// `E[gain · 1{rang r}]`, pas encore divisé par la probabilité du rang).
+    fn walk(&self, ticket: &Ticket, competitors: &Competitors) -> Vec<Accumulated> {
         let mut walk = Walk {
             ticket: ticket.signs(),
             competitors,
             outcome: Vec::with_capacity(self.len()),
-            gain: 0.0,
-            paid: 0.0,
+            ranks: vec![Accumulated::default(); self.ranks()],
         };
         if ticket.len() == self.len() {
             self.visit(&mut walk, 0, 0, 1.0);
         }
-        TicketValue {
-            expected_return: walk.gain / TICKET_PRICE,
-            paid_probability: walk.paid,
-        }
+        walk.ranks
     }
 
     /// Parcourt en profondeur toutes les issues où le ticket fait au plus `R − 1` erreurs : à chaque rencontre `i`, on
@@ -227,21 +317,30 @@ impl GridModel {
         let lambda = self.stakes * public.get(n - errors).copied().unwrap_or(0.0);
         let mu = walk.competitors.expected(lambda, self.stakes, n);
         let mass = self.masses.get(errors).copied().unwrap_or(0.0);
-        walk.gain += prob * mass * expected_share(mu);
-        walk.paid += prob;
+        if let Some(rank) = walk.ranks.get_mut(errors) {
+            rank.gain += prob * mass * expected_share(mu);
+            rank.probability += prob;
+        }
     }
 }
 
 /// État du parcours des issues d'un ticket : ce qui ne change pas (ticket, paramètres), l'issue en construction, et les
 /// sommes accumulées. Le `'a` dit que `Walk` emprunte le ticket et les paramètres sans les copier : il ne peut pas leur
-/// survivre, ce qui est le cas puisqu'il ne vit que le temps d'un appel à [`GridModel::value`].
+/// survivre, ce qui est le cas puisqu'il ne vit que le temps d'un appel à `GridModel::walk`.
 struct Walk<'a> {
     ticket: &'a [Outcome],
     competitors: &'a Competitors,
     /// Signe réel (0, 1, 2) de chaque rencontre déjà fixée.
     outcome: Vec<usize>,
+    /// Sommes de chaque rang, indice = nombre d'erreurs.
+    ranks: Vec<Accumulated>,
+}
+
+/// Sommes d'un rang pendant le parcours : probabilité d'y arriver, et espérance du gain sur ces issues.
+#[derive(Debug, Clone, Copy, Default)]
+struct Accumulated {
+    probability: f64,
     gain: f64,
-    paid: f64,
 }
 
 impl GridModel {
@@ -537,6 +636,72 @@ mod tests {
             grid.value(&ticket, &FROZEN).expected_return,
             epsilon = 1e-9
         );
+    }
+
+    #[test]
+    fn rank_odds_add_up_to_the_ticket_value() {
+        let grid = lf7();
+        let ticket = Ticket::parse("1222122").unwrap();
+        let value = grid.value(&ticket, &FROZEN);
+        let ranks = grid.rank_odds(&ticket, &FROZEN);
+        assert_eq!(ranks.len(), 2);
+        let probability: f64 = ranks.iter().map(|r| r.probability).sum();
+        let expected: f64 = ranks
+            .iter()
+            .map(|r| r.probability * r.gain_if_reached)
+            .sum();
+        assert_relative_eq!(probability, value.paid_probability, epsilon = 1e-12);
+        assert_relative_eq!(
+            expected,
+            value.expected_return * TICKET_PRICE,
+            epsilon = 1e-12
+        );
+        // Sans faute : la probabilité est le produit des signes ; le gain y est plus gros qu'à une erreur.
+        let product: f64 = ticket
+            .signs()
+            .iter()
+            .enumerate()
+            .map(|(i, s)| P7[i][s.index()])
+            .product();
+        assert_relative_eq!(ranks[0].probability, product, epsilon = 1e-12);
+        assert!(ranks[0].gain_if_reached > ranks[1].gain_if_reached);
+    }
+
+    #[test]
+    fn a_line_pays_when_one_of_its_tickets_does() {
+        let grid = lf7();
+        let single = Ticket::parse("1222122").unwrap();
+        assert_relative_eq!(
+            grid.line_paid_probability(&Line::single(&single)),
+            grid.value(&single, &FROZEN).paid_probability,
+            epsilon = 1e-12
+        );
+        // Multiple `1N 2 2 2 1 12 2` : contrôle par énumération des 3^7 issues.
+        let tickets: Vec<Ticket> = ["1222112", "1222122", "N222112", "N222122"]
+            .iter()
+            .map(|c| Ticket::parse(c).unwrap())
+            .collect();
+        let line = crate::lotofoot::bulletin::group(Game::Lf7, &tickets).remove(0);
+        assert_eq!(line.combinations(), 4);
+        let mut paid = 0.0;
+        for code in 0..3usize.pow(7) {
+            let mut rest = code;
+            let outcome: Vec<Outcome> = (0..7)
+                .map(|_| {
+                    let sign = Outcome::ALL[rest % 3];
+                    rest /= 3;
+                    sign
+                })
+                .collect();
+            if tickets.iter().any(|t| t.good(&outcome) >= 6) {
+                paid += outcome
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| P7[i][s.index()])
+                    .product::<f64>();
+            }
+        }
+        assert_relative_eq!(grid.line_paid_probability(&line), paid, epsilon = 1e-12);
     }
 
     #[test]

@@ -57,6 +57,8 @@ pub struct Evaluated {
     pub best_pessimistic: f64,
     /// Rencontres, dans l'ordre du bulletin (noms de prono-match).
     pub matches: Vec<(String, String)>,
+    /// Modèle de la grille (marché, public, masses) : sert à dire ce que peut rapporter une grille à remplir.
+    pub model: GridModel,
 }
 
 /// Bilan d'une séance.
@@ -262,6 +264,8 @@ pub fn run(
             best_pessimistic: best,
             // `clone` : le bilan possède ses données, car il survit aux grilles préparées (`ready`).
             matches: grid.row.matches.clone(),
+            // Même raison pour le modèle : le message de la séance s'en sert après la fin de `ready`.
+            model: grid.model.clone(),
         });
         all.extend(candidates);
     }

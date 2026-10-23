@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use edge_core::config::{Config, WEBHOOK_ENV};
 use edge_core::domain::Euros;
-use edge_core::format::{decimal, kickoff_label, long_date};
+use edge_core::format::{chance, decimal, kickoff_label, long_date};
 use edge_core::ingest::aliases::Aliases;
 use edge_core::ingest::client::OddsApiClient;
 use edge_core::lotofoot::bulletin;
@@ -15,7 +15,7 @@ use edge_core::lotofoot::played::{self, Declared, Manual};
 use edge_core::lotofoot::session::{self, SessionReport};
 use edge_core::lotofoot::settle::{self, Ledger};
 use edge_core::lotofoot::verify;
-use edge_core::lotofoot::{Game, Ticket};
+use edge_core::lotofoot::{Game, TICKET_PRICE, Ticket};
 use edge_core::notify::discord;
 use edge_core::paths::Paths;
 use edge_core::report::{lotofoot_image, lotofoot_page};
@@ -171,14 +171,14 @@ fn print_session(report: &SessionReport, dry_run: bool) {
     println!("\n{} ticket(s) à 1 € :", report.chosen.len());
     for (i, c) in report.chosen.iter().enumerate() {
         println!(
-            "  {:>2}. {} n°{}  {}  espérance {} (défavorable {}), P(payé) {} %",
+            "  {:>2}. {} n°{}  {}  gagne {}, espérance {} (défavorable {})",
             i + 1,
             c.grid.0,
             c.grid.1,
             c.ticket,
+            chance(c.base.paid_probability),
             decimal(c.base.expected_return, 2),
-            decimal(c.pessimistic.expected_return, 2),
-            decimal(c.base.paid_probability * 100.0, 1)
+            decimal(c.pessimistic.expected_return, 2)
         );
     }
     print_lines(report);
@@ -200,8 +200,21 @@ fn print_lines(report: &SessionReport) {
     );
     for l in &lines {
         let ranks: Vec<String> = l.tickets.iter().map(|i| (i + 1).to_string()).collect();
+        let expected: f64 = l
+            .tickets
+            .iter()
+            .map(|&i| report.chosen[i].base.expected_return * TICKET_PRICE)
+            .sum();
+        let outlook = report
+            .evaluated
+            .iter()
+            .find(|e| (e.game, e.number) == l.grid)
+            .map(|e| lotofoot_page::line_outlook(&e.model, &l.line, expected));
+        let outlook = outlook.map_or(String::new(), |(chance, gain)| {
+            format!(", gagne {chance}, {gain} quand elle gagne")
+        });
         println!(
-            "  {} n°{}  {}  {} €  (tickets {})",
+            "  {} n°{}  {}  {} €{outlook}  (tickets {})",
             l.grid.0,
             l.grid.1,
             l.line,

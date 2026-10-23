@@ -20,6 +20,51 @@ pub fn units(value: f64) -> String {
     format!("{} u", decimal(value, 1))
 }
 
+/// Chance écrite « 1 sur N », pour les événements rares : `1 sur 4,3`, `1 sur 180`, `1 sur 2 400`. N est arrondi à deux
+/// chiffres significatifs au-delà de 10 (la précision du modèle ne va pas plus loin). « — » pour une probabilité nulle.
+pub fn chance(probability: f64) -> String {
+    if probability.is_nan() || probability <= 0.0 {
+        return "—".to_string();
+    }
+    let n = 1.0 / probability;
+    if n < 10.0 {
+        format!("1 sur {}", decimal(n, 1))
+    } else {
+        format!("1 sur {}", grouped(significant(n, 2)))
+    }
+}
+
+/// Montant approché : `≈ 4,80 €`, `≈ 45 €`, `≈ 3 150 €` (trois chiffres significatifs au-delà de 100 €).
+pub fn rough_euros(amount: f64) -> String {
+    if amount < 10.0 {
+        format!("≈ {} €", decimal(amount.max(0.0), 2))
+    } else if amount < 100.0 {
+        format!("≈ {} €", decimal(amount, 0))
+    } else {
+        format!("≈ {} €", grouped(significant(amount, 3)))
+    }
+}
+
+/// `x ≥ 1` arrondi à `digits` chiffres significatifs : `significant(2 437, 2) = 2 400`.
+fn significant(x: f64, digits: i32) -> u64 {
+    let scale = 10f64.powi(x.log10().floor() as i32 + 1 - digits).max(1.0);
+    // Valeur positive et finie, arrondie à l'unité : la conversion en entier est exacte.
+    ((x / scale).round() * scale) as u64
+}
+
+/// Entier aux milliers séparés par une espace insécable (le nombre ne se coupe pas en fin de ligne) : `12 400`.
+fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push('\u{a0}');
+        }
+        out.push(digit);
+    }
+    out
+}
+
 /// Coup d'envoi en heure de Paris : `sam. 24/10 15:00`.
 pub fn kickoff_label(at: DateTime<Utc>) -> String {
     let local = at.with_timezone(&Paris);
@@ -106,6 +151,22 @@ pub fn outcome_label(outcome: Outcome) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rare_chances_read_as_one_in_n() {
+        assert_eq!(chance(0.25), "1 sur 4,0");
+        assert_eq!(chance(1.0 / 183.0), "1 sur 180");
+        assert_eq!(chance(1.0 / 2437.0), "1 sur 2\u{a0}400");
+        assert_eq!(chance(0.0), "—");
+    }
+
+    #[test]
+    fn rough_amounts_keep_three_significant_digits() {
+        assert_eq!(rough_euros(4.8), "≈ 4,80 €");
+        assert_eq!(rough_euros(45.4), "≈ 45 €");
+        assert_eq!(rough_euros(3_147.0), "≈ 3\u{a0}150 €");
+        assert_eq!(rough_euros(152_480.0), "≈ 152\u{a0}000 €");
+    }
 
     fn at(text: &str) -> DateTime<Utc> {
         text.parse().unwrap()

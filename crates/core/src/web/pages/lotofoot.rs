@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::error::Result;
-use crate::report::lotofoot_page::{self, LineView, LotofootPage, TicketView};
+use crate::report::lotofoot_page::{self, LineView, LotofootPage, RankView, TicketView};
 use crate::store;
 use crate::web::App;
 use crate::web::view::{Flash, Layout, render};
@@ -22,6 +22,9 @@ struct Column {
     price: String,
     /// Numéros des tickets contenus (« n° 12, 13 »).
     tickets: String,
+    /// Chance que la grille paie (« 1 sur 40 ») et gain moyen quand elle paie.
+    chance: String,
+    gain: String,
     played: bool,
 }
 
@@ -43,7 +46,10 @@ struct Detail {
     tone: &'static str,
     ev: String,
     ev_low: String,
-    paid: String,
+    /// Chance d'être payé, tous rangs confondus.
+    chance: String,
+    /// Chance et gain moyen de chaque rang.
+    ranks: Vec<RankView>,
 }
 
 /// Une grille du Loto Foot présentée en bulletin.
@@ -122,6 +128,8 @@ fn column(line: &LineView) -> Column {
     Column {
         price: line.price.clone(),
         tickets: format!("n° {}", ids.join(", ")),
+        chance: line.chance.clone(),
+        gain: line.gain.clone(),
         played: line.played,
     }
 }
@@ -142,7 +150,8 @@ fn detail(ticket: &TicketView) -> Detail {
         tone,
         ev: ticket.ev.clone(),
         ev_low: ticket.ev_low.clone(),
-        paid: ticket.paid.clone(),
+        chance: ticket.chance.clone(),
+        ranks: ticket.ranks.clone(),
     }
 }
 

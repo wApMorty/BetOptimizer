@@ -1652,3 +1652,11 @@ noircies, prix de chaque grille ; rendu par `resvg` avec Inter, comme l'autre im
 message Discord (`report/lotofoot_image.rs`), dans le texte du message (une ligne par grille : signes, prix, espérance défavorable
 moyenne de ses tickets) et sur la page `/lotofoot` (une colonne par grille à remplir, puis le détail des tickets : espérance,
 règlement, déclaration). Les vues sont calculées par `lotofoot_page::page` (champ `lines`), partagé par la page et le message.
+
+**Chances et gains affichés (2026-10-23, demande de Paul : l'espérance se lit mal sur des probabilités aussi basses).** Pour chaque
+ticket, la chance de chaque rang (« 1 sur 2 400 ») et le gain moyen quand on l'atteint, `E[gain | rang] = E[gain · 1{rang}] / P(rang)`,
+calculés par le même parcours que l'espérance (`GridModel::rank_odds`). Pour chaque grille à remplir, la chance de payer au moins un
+ticket (loi de Poisson-binomiale des rencontres « dans les signes », `GridModel::line_paid_probability`) et le gain moyen quand elle
+paie, `Σ espérances des tickets / P(payée)`. Probabilités du marché, modèle de base ; les séances passées sont recalculées à partir
+des entrées figées au journal (`GridModel::from_journal`, déplacé de `verify.rs`). Le partage entre nos propres tickets n'est pas
+déduit, comme dans l'espérance.
