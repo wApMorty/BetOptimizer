@@ -4,10 +4,11 @@
 
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
-use edge_core::config::Config;
+use edge_core::config::{Config, WEBHOOK_ENV};
 use edge_core::domain::Euros;
 use edge_core::format::{chance, decimal, kickoff_label};
 use edge_core::ingest::aliases::Aliases;
+use edge_core::lotofoot::alert;
 use edge_core::lotofoot::bulletin;
 use edge_core::lotofoot::fetch::{self, FetchReport, PronoMatchClient};
 use edge_core::lotofoot::live::{self, Notified};
@@ -16,16 +17,36 @@ use edge_core::lotofoot::session::{Request, SessionReport};
 use edge_core::lotofoot::settle::{self, Ledger};
 use edge_core::lotofoot::verify;
 use edge_core::lotofoot::{Game, Ticket};
+use edge_core::notify::discord;
 use edge_core::paths::Paths;
 use edge_core::report::lotofoot_page;
 use edge_core::store;
 
-/// `edge lotofoot fetch` : relève les pages du LF7, du LF8 et des résultats (sans crédit).
-pub fn fetch(paths: &Paths) -> Result<()> {
+/// `edge lotofoot fetch` : relève les pages du LF7, du LF8 et des résultats (sans crédit) ; `--notify` signale sur Discord
+/// chaque grille vue pour la première fois, avec son heure de clôture.
+pub fn fetch(paths: &Paths, notify: bool) -> Result<()> {
     let mut conn = store::open_migrated(&paths.db_file)
         .context("base inaccessible : lance d'abord `edge init`")?;
     let report = run_fetch(&mut conn)?;
     print_fetch(&report);
+    if notify {
+        let now = Utc::now();
+        let listed = alert::pending(&conn, now)?;
+        if !listed.is_empty() {
+            let config = Config::load(&paths.config_file)?;
+            let webhook = config.discord_webhook(std::env::var(WEBHOOK_ENV).ok().as_deref())?;
+            let text = lotofoot_page::listing_text(&listed, config.site_url.as_deref());
+            // Un échec fait échouer l'unité (visible dans `systemctl --user status`) ; rien n'est noté, donc l'alerte
+            // repartira au relevé suivant.
+            discord::send(&webhook, &text, &[], &mut discord::http_post)
+                .context("alerte Discord des nouvelles grilles non envoyée")?;
+            alert::record(&conn, &listed, now)?;
+            println!(
+                "{} nouvelle(s) grille(s) signalée(s) sur Discord.",
+                listed.len()
+            );
+        }
+    }
     if !report.failures.is_empty() {
         // Code de sortie non nul : systemd marque l'unité en échec ; le passage suivant relira les pages.
         bail!("{} page(s) non lue(s)", report.failures.len());
@@ -104,6 +125,9 @@ fn print_session(report: &SessionReport, dry_run: bool) {
     }
     for s in &report.skipped {
         println!("  écartée : {} — {}", s.grid, s.reason);
+    }
+    if !report.weeks.is_empty() {
+        println!("  budget : {}", lotofoot_page::weeks_text(&report.weeks));
     }
     if !report.unknown_names.is_empty() {
         println!(

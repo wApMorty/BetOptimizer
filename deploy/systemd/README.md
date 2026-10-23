@@ -9,8 +9,7 @@ Prérequis : lingering activé (`loginctl enable-linger $USER`) et binaire insta
 | `edge-nba` | 22 h UTC | cotes de la NBA (vainqueur, handicaps, totaux) et, un jour sur deux, résultats (`edge nba snapshot`) | 3 par jour + 2 tous les deux jours |
 | `edge-closing` | toutes les 10 minutes | clôture de Pinnacle des matchs suivis qui commencent dans 30 minutes (`edge closing`) | 1 par match suivi, 0 sinon |
 | `edge-latency` | lundi 9 h | historique OddsPapi des matchs terminés et verdict du test de latence (`edge latency fetch`, `edge latency report`, sources §34) | 0 (6 requêtes OddsPapi sur 250 par mois) |
-| `edge-lotofoot-fetch` | toutes les heures (minute 7) | grilles LF7 et LF8, répartition FDJ, résultats et rapports sur prono-match (`edge lotofoot fetch`, sources §38) | 0 |
-| `edge-lotofoot-recommend` | samedi 12 h (Paris) | séance du Loto Foot : tickets au-dessus du seuil, journal, Discord (`edge lotofoot recommend --notify`) | 1 par compétition absente de l'archive, 8 au plus |
+| `edge-lotofoot-fetch` | toutes les heures (minute 7) | grilles LF7 et LF8, répartition FDJ, résultats et rapports sur prono-match ; alerte Discord à la sortie de chaque grille, avec son heure de clôture (`edge lotofoot fetch --notify`, sources §38 et §47) | 0 |
 | `edge-loto` | 22 h 30 (Paris) | historique FDJ, alerte EuroMillions au plafond, séance du Grand Loto dû dans les 3 jours (`edge loto fetch --notify`, `edge loto recommend --notify`, sources §44) | 0 |
 
 Service permanent (pas un timer) : `edge-serve`, l'application Web (voir plus bas). Aucun crédit.
@@ -24,7 +23,7 @@ mkdir -p ~/.config/systemd/user
 cp deploy/systemd/edge-*.service deploy/systemd/edge-*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now edge-snapshot.timer edge-recommend.timer edge-closing.timer edge-nba.timer edge-latency.timer \
-    edge-lotofoot-fetch.timer edge-lotofoot-recommend.timer edge-loto.timer
+    edge-lotofoot-fetch.timer edge-loto.timer
 ```
 
 ## Grand Loto et EuroMillions
@@ -40,9 +39,18 @@ consécutif au plafond sans gagnant : le cinquième verse le jackpot au rang 2),
 ## Loto Foot
 
 `edge-lotofoot-fetch` relève chaque heure la grille en cours du LF7 et du LF8 sur prono-match (répartition FDJ), et les derniers résultats
-et rapports : la dérive de la répartition jusqu'à la clôture est ainsi mesurée, et chaque grille est réglée dès ses résultats publiés.
-`edge-lotofoot-recommend` lance la séance le samedi à midi : tickets simples d'un euro dont l'espérance, dans le scénario défavorable, atteint
-1,2, seize au plus ; le message Discord donne l'ordre des rencontres de chaque grille et les signes à cocher.
+et rapports : la dérive de la répartition jusqu'à la clôture est ainsi mesurée, et chaque grille est réglée dès ses résultats publiés. Une
+grille vue pour la première fois est signalée sur Discord avec son heure de clôture, sans ticket (il est trop tôt).
+La séance se lance au guichet, juste avant de valider : bouton « Optimiser maintenant » de la page `/lotofoot` (ou `edge lotofoot recommend`).
+Tickets d'un euro dont l'espérance, dans le scénario défavorable, atteint 1,7, dans la mise demandée et le budget de la semaine (16 €,
+lundi-dimanche) ; grilles regroupées en multiples sans perte. Le timer du samedi midi (`edge-lotofoot-recommend`) est retiré depuis le
+2026-10-24 : il calculait trop tôt et consommait le budget de la semaine. Pour le désinstaller :
+
+```sh
+systemctl --user disable --now edge-lotofoot-recommend.timer
+rm -f ~/.config/systemd/user/edge-lotofoot-recommend.timer ~/.config/systemd/user/edge-lotofoot-recommend.service
+systemctl --user daemon-reload
+```
 
 - `edge lotofoot recommend --dry-run` : la séance sans rien écrire ni relever (aucun crédit).
 - `edge lotofoot played --last-session` : après validation chez le buraliste, déclare les tickets joués (ou `played 12 13`, ou

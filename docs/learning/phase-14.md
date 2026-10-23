@@ -205,3 +205,14 @@ recommend` et le bouton « Optimiser maintenant » de l'application Web appellen
 séance, seule la mise plafond change (`docs/sources.md` §41). L'échec du message Discord n'est pas une erreur de la fonction mais une
 valeur (`Notified::Failed`) : la séance est déjà écrite, et chaque appelant décide (la commande échoue pour que systemd le signale,
 la page affiche le message).
+
+## Complément (2026-10-24) : budget de la semaine
+
+- `session::week_of` ramène un instant au lundi de sa semaine, **à l'heure de Paris** : `with_timezone(&Paris)` puis `date_naive`. Un test
+  vérifie la nuit du changement d'heure (25 octobre : 16 h 10 UTC = 17 h 10 à Paris).
+- `weekly_budget_since` construit une date fixe avec `Paris.with_ymd_and_hms(…).single()` : `single` renvoie `None` pour une heure ambiguë
+  ou inexistante (changement d'heure) ; ici l'invariant est démontré, d'où un `expect` qui en donne la raison.
+- `within_budget` parcourt les tickets du meilleur au moins bon et décrémente le compteur de la semaine de chacun (`iter_mut().find`) :
+  un emprunt mutable de la liste des semaines, le temps d'une itération.
+- Statistique : sous un budget, un seuil plus haut vaut mieux qu'un plafond au premier arrivé (§47, τ = 1,7 contre 1,2 : +33 % de gain
+  espéré pour moins de mise).

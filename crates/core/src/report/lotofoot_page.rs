@@ -9,9 +9,10 @@ use serde::Serialize;
 
 use crate::error::Result;
 use crate::format::{chance, decimal, kickoff_label, long_date, rough_euros};
+use crate::lotofoot::alert::Listed;
 use crate::lotofoot::bulletin::{Line, session_lines};
 use crate::lotofoot::model::{FROZEN, GridModel, RankOdds};
-use crate::lotofoot::session::SessionReport;
+use crate::lotofoot::session::{SessionReport, WeekBudget};
 use crate::lotofoot::settle::{self, Ledger};
 use crate::lotofoot::verify::{self, Verdict, Verification};
 use crate::lotofoot::{Game, TICKET_PRICE, sign_char};
@@ -422,6 +423,58 @@ fn verdict_class(v: &Verdict) -> &'static str {
     }
 }
 
+/// Message Discord d'une ou plusieurs grilles qui viennent de sortir : leur heure de clôture, sans aucun ticket (il est
+/// trop tôt : la répartition des autres joueurs n'est pas encore représentative). Le calcul se fait au guichet.
+pub fn listing_text(listed: &[Listed], site_url: Option<&str>) -> String {
+    let mut text = String::from("**edge · Loto Foot** — nouvelle grille\n");
+    for grid in listed {
+        let jackpot = grid.jackpot.map_or(String::new(), |j| {
+            format!(", pactole {} €", crate::format::grouped(u64::from(j)))
+        });
+        let state = if grid.split_published {
+            "répartition FDJ publiée"
+        } else {
+            "répartition FDJ pas encore publiée"
+        };
+        text.push_str(&format!(
+            "**{} n°{}** : clôture **{}**{jackpot} ({state}).\n",
+            grid.game,
+            grid.number,
+            kickoff_label(grid.closes_at)
+        ));
+    }
+    match site_url {
+        Some(url) => text.push_str(&format!(
+            "Au guichet, juste avant de valider : « Optimiser maintenant » sur <{url}lotofoot>."
+        )),
+        None => text.push_str(
+            "Au guichet, juste avant de valider : « Optimiser maintenant » sur la page Loto Foot.",
+        ),
+    }
+    text
+}
+
+/// Budget restant de chaque semaine après la séance : « semaine du lun. 26/10 : 11 € restant(s) sur 16 € ».
+pub fn weeks_text(weeks: &[WeekBudget]) -> String {
+    weeks
+        .iter()
+        .map(|w| {
+            format!(
+                "semaine du {} : {} € restant(s) sur {} €",
+                monday_label(w.monday),
+                w.left(),
+                w.budget
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ; ")
+}
+
+/// « lun. 26/10 ».
+fn monday_label(day: chrono::NaiveDate) -> String {
+    format!("lun. {}", day.format("%d/%m"))
+}
+
 /// Texte du message Discord d'une séance : pour chaque grille, l'ordre des rencontres puis les tickets à remplir.
 pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
     let mut text = String::from("**edge · Loto Foot** — séance du samedi\n");
@@ -466,6 +519,9 @@ pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
                 ranks_text(&line_ranks(&grid.model, &l.line))
             ));
         }
+    }
+    if !report.weeks.is_empty() {
+        text.push_str(&format!("\nBudget : {}.\n", weeks_text(&report.weeks)));
     }
     if !report.unknown_names.is_empty() {
         text.push_str(&format!(
@@ -532,6 +588,12 @@ mod tests {
                 pessimistic: value(2.0),
             }],
             session_id: Some(1),
+            weeks: vec![WeekBudget {
+                monday: chrono::NaiveDate::from_ymd_opt(2026, 10, 26).unwrap(),
+                budget: 16,
+                spent_before: 4,
+                chosen: 1,
+            }],
         };
         let text = discord_text(&report, Some("http://portable.local:8737/"));
         assert!(text.contains("1 ticket(s) à 1 €"));
@@ -545,12 +607,46 @@ mod tests {
         );
         assert!(text.contains("une erreur 1 sur 410 (≈ "), "{text}");
         assert!(text.contains("Inconnu FC"));
+        assert!(
+            text.contains("semaine du lun. 26/10 : 11 € restant(s) sur 16 €"),
+            "{text}"
+        );
         assert!(text.contains("<http://portable.local:8737/lotofoot>"));
         let empty = SessionReport {
             chosen: vec![],
             ..report
         };
         assert!(discord_text(&empty, None).contains("rien de plus à jouer"));
+    }
+
+    #[test]
+    fn a_new_grid_is_announced_with_its_closing_time_and_no_ticket() {
+        // 16 h 10 UTC le 25 octobre, jour du passage à l'heure d'hiver : 17 h 10 à Paris.
+        let closes = DateTime::parse_from_rfc3339("2026-10-25T16:10:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let text = listing_text(
+            &[Listed {
+                game: Game::Lf7,
+                number: 133,
+                closes_at: closes,
+                jackpot: Some(100_000),
+                split_published: false,
+            }],
+            Some("http://portable.local:8737/"),
+        );
+        assert!(
+            text.contains("**LF7 n°133** : clôture **dim. 25/10 17:10**, pactole 100\u{a0}000 €"),
+            "{text}"
+        );
+        assert!(
+            text.contains("répartition FDJ pas encore publiée"),
+            "{text}"
+        );
+        assert!(
+            text.contains("<http://portable.local:8737/lotofoot>"),
+            "{text}"
+        );
     }
 
     #[test]

@@ -283,6 +283,12 @@ fn summary(live: &Live) -> String {
             .collect();
         parts.push(format!("Écartée(s) : {}.", skipped.join(" ; ")));
     }
+    if !report.weeks.is_empty() {
+        parts.push(format!(
+            "Budget : {}.",
+            lotofoot_page::weeks_text(&report.weeks)
+        ));
+    }
     if !live.fetched.failures.is_empty() {
         parts.push(format!(
             "Relevé de prono-match incomplet : {} page(s) non lue(s).",

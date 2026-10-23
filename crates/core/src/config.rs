@@ -196,12 +196,18 @@ pub struct Config {
     /// Loto Foot : nombre maximal de tickets d'un euro par séance (budget plafond, pas une obligation ; choix de Paul du
     /// 2026-10-22 : 16 €).
     pub lotofoot_max_tickets: u32,
-    /// Loto Foot : espérance minimale d'un ticket dans le scénario défavorable pour qu'il soit joué (τ = 1,2).
+    /// Loto Foot : espérance minimale d'un ticket dans le scénario défavorable pour qu'il soit joué. τ = 1,7 depuis le
+    /// 2026-10-24 : meilleur gain espéré sous un budget de 16 € par semaine sur toutes les grilles (`docs/sources.md` §47 ;
+    /// 1,2 auparavant, pour une seule séance le samedi).
     pub lotofoot_threshold: f64,
+    /// Loto Foot : budget de la semaine, du lundi au dimanche selon la clôture des grilles, en tickets d'un euro (16 €,
+    /// choix de Paul du 2026-10-24). Compte les tickets recommandés en vigueur depuis le 2026-10-24.
+    pub lotofoot_weekly_budget: u32,
     /// Loto Foot : poids μ de la probabilité de gain dans la recherche des tickets (10).
     pub lotofoot_frequency_weight: f64,
-    /// Loto Foot : heures minimales entre la séance et la clôture d'une grille (temps d'aller valider chez le buraliste).
-    pub lotofoot_min_hours_before_close: u32,
+    /// Loto Foot : minutes minimales entre la séance et la clôture d'une grille. 10 depuis le 2026-10-24 : la séance se
+    /// lance au guichet, juste avant de valider (3 heures auparavant, pour la séance du samedi midi).
+    pub lotofoot_min_minutes_before_close: u32,
     /// Loto Foot : âge maximal, en heures, d'une cote Pinnacle de l'archive pour qu'elle serve sans nouveau relevé.
     pub lotofoot_max_odds_age_hours: u32,
     /// Loto Foot : crédits The Odds API au plus par séance pour relever les ligues absentes de l'archive (1 crédit chacune).
@@ -299,9 +305,10 @@ impl Default for Config {
             site_url: None,
             bonus_freebet_value: crate::bonus::DEFAULT_FREEBET_VALUE,
             lotofoot_max_tickets: 16,
-            lotofoot_threshold: 1.2,
+            lotofoot_threshold: 1.7,
+            lotofoot_weekly_budget: 16,
             lotofoot_frequency_weight: 10.0,
-            lotofoot_min_hours_before_close: 3,
+            lotofoot_min_minutes_before_close: 10,
             lotofoot_max_odds_age_hours: 30,
             lotofoot_session_credits: 8,
             // Ligues vues dans les grilles LF7/LF8 de 2025-2026 (`docs/sources.md` §38) ; clés vérifiées sur `/sports`
@@ -411,6 +418,11 @@ impl Config {
         if !(self.min_stake.is_finite() && self.min_stake >= 0.0) {
             return Err(Error::InvalidConfig(
                 "min_stake doit être un montant positif ou nul".to_string(),
+            ));
+        }
+        if self.lotofoot_weekly_budget == 0 {
+            return Err(Error::InvalidConfig(
+                "lotofoot_weekly_budget doit être supérieur à 0".to_string(),
             ));
         }
         if self.lotofoot_max_tickets == 0 {

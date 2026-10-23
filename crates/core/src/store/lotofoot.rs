@@ -159,6 +159,32 @@ pub struct GridRow {
     pub matches: Vec<(String, String)>,
 }
 
+/// `true` si l'alerte « nouvelle grille » de cette grille a déjà été envoyée.
+pub fn alerted(conn: &Connection, game: Game, number: u32) -> Result<bool> {
+    let found: Option<i64> = conn
+        .query_row(
+            "SELECT 1 FROM lotofoot_alert WHERE game = ?1 AND number = ?2",
+            rusqlite::params![game.code(), number],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(found.is_some())
+}
+
+/// Note l'alerte d'une grille comme envoyée (une seule fois : une seconde écriture est ignorée).
+pub fn record_alert(
+    conn: &Connection,
+    game: Game,
+    number: u32,
+    sent_at: DateTime<Utc>,
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO lotofoot_alert (game, number, sent_at) VALUES (?1, ?2, ?3)",
+        rusqlite::params![game.code(), number, timestamp(sent_at)],
+    )?;
+    Ok(())
+}
+
 /// Grilles qui ferment après `after`, dans l'ordre de clôture.
 pub fn grids_closing_after(conn: &Connection, after: DateTime<Utc>) -> Result<Vec<GridRow>> {
     let mut stmt = conn.prepare(

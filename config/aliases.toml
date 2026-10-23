@@ -288,6 +288,14 @@
 "Udinese" = []
 "VfB Stuttgart" = ["Stuttgart"]
 "Villarreal" = []
+# Ajoutés le 2026-10-24 pour le LF8 n°147 (noms de prono-match → noms bruts de The Odds API vus dans l'archive).
+"Borussia Dortmund" = ["Dortmund"]
+"Chelsea" = []
+"Eintracht Frankfurt" = ["Ein.Francfort"]
+"Nantes" = []
+"Saint Etienne" = ["St Etienne"]
+"Tottenham Hotspur" = ["Tottenham"]
+"Valencia" = ["CF Valence"]
 
 # Noms d'ESPN (scores en direct des grilles Loto Foot, docs/sources.md §46) → noms de The Odds API. Section commune à
 # toutes les compétitions : une ligne par équipe vue dans une grille recommandée, ajoutée quand la page `/lotofoot` la

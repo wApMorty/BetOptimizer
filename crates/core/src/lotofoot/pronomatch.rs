@@ -398,7 +398,8 @@ fn parse_french_datetime(text: &str, reference: DateTime<Utc>) -> Option<DateTim
         .iter()
         .position(|m| Some(m) == words.get(start + 1))?
         + 1;
-    let time = words.get(start + 3)?;
+    // « 17h55. » : en fin de phrase (sans pactole derrière), l'heure porte le point final.
+    let time = words.get(start + 3)?.trim_end_matches('.');
     let (hour, minute) = time.split_once('h')?;
     let (hour, minute): (u32, u32) = (
         hour.parse().ok()?,
@@ -616,6 +617,11 @@ mod tests {
         assert_eq!(
             parse_french_datetime("jeudi 1er octobre à 20h55", at("2026-10-01T10:00:00Z")),
             Some(at("2026-10-01T18:55:00Z"))
+        );
+        // En-tête du LF8 n°147 du 23 octobre, sans pactole : la clôture finit la phrase.
+        assert_eq!(
+            parse_french_datetime("samedi 24 octobre à 17h55.", at("2026-10-23T21:00:00Z")),
+            Some(at("2026-10-24T15:55:00Z"))
         );
     }
 }

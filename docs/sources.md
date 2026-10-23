@@ -1925,3 +1925,53 @@ n'est sortie) : gris avant le premier signe connu, vert sans faute, orange à un
 
 **Essai réel du 2026-10-23** (copie de la base, LF8 n°146 joué, 16 tickets) : les 8 rencontres appariées (Ligue 2, Ligue 1, Serie A,
 Premier League), quatre pages ESPN, page servie en 0,3 s.
+
+## 47. Loto Foot : budget de 16 € par semaine sur toutes les grilles, seuil τ = 1,7, alerte à la sortie (2026-10-24)
+
+**Demande de Paul.** Il peut jouer tous les jours ; il sort environ 3,2 LF7 et 3,4 LF8 par semaine (numérotation FDJ de 2025-2026 ;
+5,1 et 2,3 en 2022). Avec la séance unique du samedi (§37, τ = 1,2), rien ne limitait la semaine : un clic le vendredi puis le timer du
+samedi pouvaient engager 32 €. Un simple plafond hebdomadaire au premier arrivé épuiserait le budget sur les premières grilles venues ; le
+bon outil est un seuil relevé, le plafond n'étant qu'un garde-fou.
+
+**Étude** (`scripts/lotofoot/weekly_budget.py`, protocole figé en tête du script, calculs ex ante, aucun résultat de match) : les 409
+grilles LF7/LF8 appariées de l'étude FDJ (vraie répartition), 16 tickets de la recherche de production par grille, évalués en base et en
+S3 ; 40 000 semaines simulées (Poisson λ7 = 3,2, λ8 = 3,4, grilles tirées avec remise, ordre d'arrivée aléatoire) ; sur chaque grille, les
+tickets d'espérance S3 ≥ τ dans ce qui reste des 16 € de la semaine. Critère : gain net espéré S3 par semaine, maximal sur l'entraînement
+(grilles closes avant 2024, 319) ; test (2024-2025, 90 grilles) regardé après le choix. Configurations : 31 valeurs de τ (1,0 à 4,0), puis
+5 valeurs autour du choix sur le test et au rythme de 2022.
+
+| τ | Dépense / semaine | Gain espéré S3 / an | Gain base / an | EV S3 par € | Semaines au plafond | Sans jeu |
+|---|---|---|---|---|---|---|
+| 1,2 (règle du samedi) | 15,9 € | +526 € | +704 € | 1,63 | 99 % | 0 % |
+| 1,5 | 15,6 € | +654 € | +865 € | 1,81 | 95 % | 1 % |
+| **1,7** | **13,9 €** | **+700 €** | **+921 €** | **1,97** | 76 % | 4 % |
+| 1,9 | 9,8 € | +589 € | +772 € | 2,16 | 41 % | 16 % |
+| 2,2 | 4,1 € | +309 € | +403 € | 2,44 | 10 % | 52 % |
+
+Test, τ = 1,7 : 12,8 € par semaine, +644 € par an (S3) ; rythme de 2022 : +642 €. Le maximum est plat de 1,5 à 1,8. Sans plafond, τ = 1,2
+engagerait 88 € par semaine. Limites : grilles de championnat seulement (coupes et sélections absentes), partage entre nos propres tickets
+non déduit, semaines réelles non indépendantes ; espérances du modèle, aucun gain démontré (le test figé du §37 a échoué).
+
+**Règles en production depuis le 2026-10-24** (choix de Paul) :
+- `lotofoot_threshold = 1,7` (gelé) ; `lotofoot_weekly_budget = 16` : une séance ne recommande que ce qui reste du budget de la semaine
+  de chaque grille (lundi-dimanche, heure de Paris, selon la clôture), en comptant les tickets recommandés **en vigueur** écrits depuis le
+  24 octobre à minuit (`session::weekly_budget_since`). Exception voulue par Paul : les 16 tickets du LF8 n°146 joués le 23 restent dans
+  le suivi et la vérification, mais ne comptent pas dans le budget de la semaine du 19 octobre (pour jouer le LF7 n°133).
+- **Alerte à la sortie** : le relevé horaire (`edge lotofoot fetch --notify`) signale sur Discord chaque grille vue pour la première fois,
+  avec son heure de clôture et son pactole, sans ticket : la répartition des autres joueurs n'est pas encore représentative. Les alertes
+  envoyées sont notées au journal (migration 18, table `lotofoot_alert`, `lotofoot::alert`) : une grille encore ouverte et pas encore
+  signalée l'est au prochain relevé, quel que soit le relevé qui l'a vue en premier (une séance à blanc du 24 octobre avait « volé »
+  la première apparition du LF8 n°147 à une détection fondée sur la nouveauté) ; une alerte qui échoue est retentée l'heure suivante.
+- **Garde-fou « répartition pas encore représentative »** : une grille dont un signe est affiché à 0 % est écartée. Le LF8 n°147,
+  relevé quelques minutes après son ouverture (nuit du 23 au 24 octobre), affichait des parts de 95 / 5 / 0 % et 0 / 64 / 36 % ; le
+  modèle, qui compte une part nulle comme 0,5 %, annonçait une grille à 8 € gagnant sans faute une fois sur 54 pour ≈ 49 500 €. Aucune
+  des 1 109 répartitions finales LF7/LF8 de l'historique FDJ n'a de part sous 0,5 % (une seule sous 1 %). Ce garde-fou n'écarte que
+  les grilles à peine ouvertes ; la dérive des heures suivantes reste à mesurer (tâche du lundi 26 octobre).
+- Relevé : l'en-tête d'une grille sans pactole finit par la clôture (« clôture samedi 24 octobre à 17h55. ») ; le point final faisait
+  échouer la lecture de l'heure, et le relevé horaire du LF8 n°147 a échoué de 22 h à minuit le 23 octobre. Corrigé (`pronomatch.rs`).
+- Table d'alias : 7 clubs du LF8 n°147 ajoutés à la section `LOTOFOOT` (noms bruts de The Odds API relevés dans l'archive).
+- **Calcul au dernier moment** : Paul lance la séance au guichet (« Optimiser maintenant »), juste avant de valider. Marge minimale avant
+  la clôture : 10 minutes (`lotofoot_min_minutes_before_close`, au lieu de 3 heures pour la séance du samedi). Le message de la séance
+  donne le budget restant de la semaine.
+- **Timer du samedi midi retiré** : il calculait trop tôt (répartition encore loin de la finale : sur le LF8 n°146, les favoris ont gagné
+  4 à 5 points dans les dix dernières heures) et consommait le budget de la semaine. `edge lotofoot recommend` reste disponible à la main.

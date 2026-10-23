@@ -4,6 +4,7 @@
 //! l'espérance exacte d'un ticket ([`model`]), choisit les tickets de la semaine ([`optimize`]), lit les pages de
 //! prono-match ([`pronomatch`]) et règle les tickets joués ([`settle`]). Étude et choix : `docs/sources.md` §37 et §38.
 
+pub mod alert;
 pub mod bulletin;
 pub mod espn;
 pub mod fetch;

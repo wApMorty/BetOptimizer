@@ -187,7 +187,11 @@ enum LotoCommand {
 #[derive(Subcommand)]
 enum LotofootCommand {
     /// Relève les pages du LF7, du LF8 et des résultats sur prono-match (sans crédit ; timer horaire).
-    Fetch,
+    Fetch {
+        /// Signale sur Discord chaque grille vue pour la première fois, avec son heure de clôture.
+        #[arg(long)]
+        notify: bool,
+    },
     /// Séance : relevé frais, cotes Pinnacle, tickets au-dessus du seuil, écrits au journal.
     Recommend {
         /// Envoie la séance sur Discord.
@@ -602,7 +606,7 @@ fn main() -> Result<()> {
             LatencyCommand::Report => latency::report(&paths),
         },
         Command::Lotofoot { command } => match command {
-            LotofootCommand::Fetch => lotofoot::fetch(&paths),
+            LotofootCommand::Fetch { notify } => lotofoot::fetch(&paths, notify),
             LotofootCommand::Recommend { notify, dry_run } => {
                 lotofoot::recommend(&paths, notify, dry_run)
             }

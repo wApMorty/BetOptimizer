@@ -53,7 +53,7 @@ fn significant(x: f64, digits: i32) -> u64 {
 }
 
 /// Entier aux milliers séparés par une espace insécable (le nombre ne se coupe pas en fin de ligne) : `12 400`.
-fn grouped(n: u64) -> String {
+pub fn grouped(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (index, digit) in digits.chars().enumerate() {

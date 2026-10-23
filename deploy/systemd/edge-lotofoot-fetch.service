@@ -7,5 +7,5 @@ Type=oneshot
 # Après un réveil du portable, le réseau peut ne pas être prêt : on attend le DNS (5 minutes au plus).
 ExecStartPre=/usr/bin/sh -c 'for i in $(seq 1 30); do getent hosts prono-match.fr >/dev/null && exit 0; sleep 10; done; exit 1'
 # Trois pages par passage, une toutes les 5 s ; aucun crédit. Seuls les faits extraits sont archivés, jamais les pages.
-ExecStart=%h/.local/bin/edge lotofoot fetch
+ExecStart=%h/.local/bin/edge lotofoot fetch --notify
 TimeoutStartSec=300

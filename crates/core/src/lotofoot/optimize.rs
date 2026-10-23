@@ -1,11 +1,12 @@
-//! Choix des tickets : recherche gloutonne par grille, puis sélection de la semaine sous un seuil et un budget.
+//! Choix des tickets : recherche gloutonne par grille, puis sélection de la séance sous un seuil et un budget.
 //!
-//! Règle retenue le 2026-10-22 (`docs/sources.md` §37) :
+//! Règle (`docs/sources.md` §37, revue au §47) :
 //! 1. sur chaque grille, 16 tickets distincts choisis un à un, chacun maximisant `EV(t) + μ · P(t payé)` avec `μ = 10`
 //!    (le terme en `μ` achète un peu de fréquence de gain au prix d'un peu d'espérance) ;
 //! 2. chaque ticket est réévalué dans le scénario défavorable (« S3 ») ;
-//! 3. sur toutes les grilles de la séance, on garde les tickets dont l'espérance défavorable atteint `τ = 1,2`, les
-//!    meilleurs d'abord, dans la limite du budget (16 €).
+//! 3. sur toutes les grilles de la séance, on garde les tickets dont l'espérance défavorable atteint le seuil τ
+//!    (`lotofoot_threshold`, 1,7), les meilleurs d'abord, dans la limite de la mise de la séance et du budget restant de
+//!    la semaine (`lotofoot::session`).
 
 use crate::domain::Outcome;
 
@@ -14,9 +15,6 @@ use super::{Game, Ticket};
 
 /// Poids de la probabilité de gain dans l'objectif de la recherche gloutonne.
 pub const FREQUENCY_WEIGHT: f64 = 10.0;
-
-/// Seuil d'espérance défavorable (S3) en dessous duquel un ticket n'est pas joué.
-pub const THRESHOLD: f64 = 1.2;
 
 /// Nombre maximal de tickets d'une séance (budget de 16 € à 1 € le ticket).
 pub const MAX_TICKETS: usize = 16;
