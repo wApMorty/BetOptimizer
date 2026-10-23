@@ -559,9 +559,6 @@ fn lotofoot_page(now: DateTime<Utc>) -> LotofootPage {
             paid: paid.to_string(),
         };
     LotofootPage {
-        nav: false,
-        active: "lotofoot",
-        generated_at: long_date(now),
         session: long_date(saturday),
         grids: vec![
             grid("LF7 n°133", lf7_closes, &LOTOFOOT_CLUBS[..7]),

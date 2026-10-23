@@ -1,22 +1,19 @@
 //! Rendu HTML des rapports et des pages du site avec `minijinja` (gabarits embarqués dans le binaire).
 //!
-//! Le fichier produit est autonome : styles et graphiques SVG sont dans le HTML, aucune ressource externe,
-//! et la mise en page s'adapte à un écran de téléphone.
+//! Le fichier produit est autonome : styles et graphiques SVG sont dans le HTML, aucune ressource externe (la police
+//! Inter vient du site quand le rapport y est servi, sinon celle du système).
 
 use minijinja::{Environment, Value};
 
 use serde::Serialize;
 
 use super::backtest_report::BacktestReport;
-use super::bonus_page::BonusPage;
-use super::latency_page::LatencyPage;
-use super::lotofoot_page::LotofootPage;
 use super::market_report::MarketReport;
 use super::models_report::ModelsReport;
 use super::nba_report::NbaReport;
 use super::recommend_report::RecommendReport;
-use super::site::{MessagePage, OpportunitiesPage, PaperPage, ReportsPage};
 use super::tennis_report::TennisReport;
+use super::theme;
 use super::thresholds_report::ThresholdsReport;
 use crate::error::{Error, Result};
 
@@ -27,15 +24,8 @@ const RECOMMEND_TEMPLATE: &str = include_str!("templates/recommend.html");
 const TENNIS_TEMPLATE: &str = include_str!("templates/tennis.html");
 const NBA_TEMPLATE: &str = include_str!("templates/nba.html");
 const THRESHOLDS_TEMPLATE: &str = include_str!("templates/thresholds.html");
-/// Base commune (styles, barre de navigation) dont héritent le rapport quotidien et les pages du site.
+/// Base commune (styles, barre latérale) dont héritent le rapport quotidien et les pages de l'application Web.
 const SITE_BASE_TEMPLATE: &str = include_str!("templates/site_base.html");
-const SITE_REPORTS_TEMPLATE: &str = include_str!("templates/site_reports.html");
-const SITE_OPPORTUNITIES_TEMPLATE: &str = include_str!("templates/site_opportunities.html");
-const SITE_PAPER_TEMPLATE: &str = include_str!("templates/site_paper.html");
-const SITE_MESSAGE_TEMPLATE: &str = include_str!("templates/site_message.html");
-const SITE_LATENCY_TEMPLATE: &str = include_str!("templates/site_latency.html");
-const SITE_BONUS_TEMPLATE: &str = include_str!("templates/site_bonus.html");
-const SITE_LOTOFOOT_TEMPLATE: &str = include_str!("templates/site_lotofoot.html");
 
 /// Nombre au format français (virgule décimale), `digits` décimales.
 fn number(value: f64, digits: Option<usize>) -> String {
@@ -101,39 +91,13 @@ pub fn render_thresholds_report(report: &ThresholdsReport) -> Result<String> {
     render_template("thresholds.html", THRESHOLDS_TEMPLATE, report)
 }
 
-/// Génère la page « rapports précédents » du site.
-pub fn render_site_reports(page: &ReportsPage) -> Result<String> {
-    render_template("site_reports.html", SITE_REPORTS_TEMPLATE, page)
-}
-
-/// Génère la page « opportunités actives » du site.
-pub fn render_site_opportunities(page: &OpportunitiesPage) -> Result<String> {
-    render_template("site_opportunities.html", SITE_OPPORTUNITIES_TEMPLATE, page)
-}
-
-/// Génère la page « paper trading » du site.
-pub fn render_site_paper(page: &PaperPage) -> Result<String> {
-    render_template("site_paper.html", SITE_PAPER_TEMPLATE, page)
-}
-
-/// Génère la page « bonus » du site.
-pub fn render_site_bonus(page: &BonusPage) -> Result<String> {
-    render_template("site_bonus.html", SITE_BONUS_TEMPLATE, page)
-}
-
-/// Génère la page `/latence` du site.
-pub fn render_site_latency(page: &LatencyPage) -> Result<String> {
-    render_template("site_latency.html", SITE_LATENCY_TEMPLATE, page)
-}
-
-/// Génère la page `/lotofoot` du site.
-pub fn render_site_lotofoot(page: &LotofootPage) -> Result<String> {
-    render_template("site_lotofoot.html", SITE_LOTOFOOT_TEMPLATE, page)
-}
-
-/// Génère une page de message du site (aucun rapport, page introuvable, erreur).
-pub fn render_site_message(page: &MessagePage) -> Result<String> {
-    render_template("site_message.html", SITE_MESSAGE_TEMPLATE, page)
+/// Rend une page de l'application Web (`crate::web`) : même environnement que les rapports, base `site_base.html` comprise.
+pub(crate) fn render_page<T: Serialize>(
+    name: &'static str,
+    source: &'static str,
+    data: &T,
+) -> Result<String> {
+    render_template(name, source, data)
 }
 
 /// Rend un gabarit avec les filtres `num` et `pct`.
@@ -154,6 +118,8 @@ fn render_template<T: Serialize>(
     env.add_filter("num", number);
     env.add_filter("pct", percent);
     env.add_filter("spct", signed_percent);
+    // Les couleurs viennent de `theme` : une seule palette pour le site, le rapport quotidien et les images Discord.
+    env.add_global("theme_css", Value::from_safe_string(theme::css_variables()));
     let template = env
         .get_template(name)
         .map_err(|e| Error::Data(format!("gabarit du rapport : {e}")))?;

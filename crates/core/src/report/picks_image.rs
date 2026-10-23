@@ -12,8 +12,10 @@ use super::recommend_report::Row;
 use crate::error::{Error, Result};
 
 /// Inter (SIL OFL 1.1, `assets/fonts/` à la racine du dépôt), lue à la compilation et rangée dans le binaire.
-const INTER_REGULAR: &[u8] = include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
-const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../../assets/fonts/Inter-SemiBold.ttf");
+pub(crate) const INTER_REGULAR: &[u8] =
+    include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
+pub(crate) const INTER_SEMIBOLD: &[u8] =
+    include_bytes!("../../../../assets/fonts/Inter-SemiBold.ttf");
 
 /// Largeur de l'image, en points ; le PNG est rendu au double pour rester net sur un écran dense.
 const WIDTH: u32 = 720;

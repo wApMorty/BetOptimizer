@@ -1,0 +1,44 @@
+{% extends "site_base.html" %}
+{% block title %}Paris{% endblock %}
+{% block content %}
+<div class="head"><h1>Paris</h1><div class="sub">{{ subtitle }}</div></div>
+
+<div class="actions">
+  <a class="btn" href="/paris/hors-modele">Pari hors modèle</a>
+  <form method="post" action="/paris/regler" class="inline"><button class="btn secondary" type="submit" title="Lit les résultats de football-data déjà importés (edge fd fetch puis edge fd import).">Régler depuis l'historique</button></form>
+</div>
+
+{% for b in bets %}
+<div class="card stripe {{ b.tone }}">
+  <div class="split">
+    <div>
+      <b style="font-size: 1.05rem">{{ b.fixture }}</b>
+      <div class="meta">{{ b.meta }} · <span class="id">pari n° {{ b.id }}</span></div>
+      <div class="chips">
+        <span class="chip">{{ b.bookmaker }}</span>
+        <span class="chip t-acc">{{ b.side }}</span>
+        <span class="chip">{{ b.stake }}</span>
+        <span class="chip {% if b.off_model %}t-warn{% else %}t-pos{% endif %}">{{ b.origin }}</span>
+      </div>
+    </div>
+    <div class="right">
+    {% if b.open %}
+      <span class="meta">Régler à la main</span>
+      <form method="post" action="/paris/{{ b.id }}/regler" class="actions" style="margin: 0">
+        <button class="btn secondary small" name="resultat" value="gagne">Gagné</button>
+        <button class="btn secondary small" name="resultat" value="perdu">Perdu</button>
+        <button class="btn secondary small" name="resultat" value="rembourse">Remboursé</button>
+      </form>
+    {% elif b.profit %}
+      <span class="big {% if b.tone == "t-pos" %}pos{% elif b.tone == "t-neg" %}neg{% endif %}" style="font-size: 1.25rem">{{ b.profit }}</span>
+      <span class="meta">{{ b.state }}</span>
+    {% else %}
+      <span class="chip">{{ b.state }}</span>
+    {% endif %}
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="card empty"><b>Aucun pari enregistré</b><span>« J'ai parié » sur une opportunité, ou « Pari hors modèle », en crée un.</span></div>
+{% endfor %}
+{% endblock %}

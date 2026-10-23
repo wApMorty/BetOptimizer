@@ -38,7 +38,6 @@ use edge_core::report::render::{
     render_backtest_report, render_market_report, render_models_report, render_nba_report,
     render_recommend_report, render_tennis_report, render_thresholds_report,
 };
-use edge_core::report::site::Site;
 use edge_core::report::tennis_report;
 use edge_core::report::thresholds_report;
 use edge_core::store::archive::last_known_usage;
@@ -46,6 +45,7 @@ use edge_core::store::journal::{self, Settlement, SettlementSource};
 use edge_core::store::nba as nba_store;
 use edge_core::store::tennis as tennis_store;
 use edge_core::store::{self, Connection};
+use edge_core::web::App;
 
 /// `edge init` : crée la configuration par défaut et la base.
 pub fn init(paths: &Paths) -> Result<()> {
@@ -1243,7 +1243,7 @@ pub fn notify_test(paths: &Paths) -> Result<()> {
     let mut text =
         "**edge** · test de notification : le webhook fonctionne. L'image jointe est un exemple fictif.".to_string();
     if let Some(url) = &config.site_url {
-        text.push_str(&format!("\nSite de rapports : <{url}>"));
+        text.push_str(&format!("\nApplication : <{url}>"));
     }
     discord::send(
         &webhook,
@@ -1430,32 +1430,28 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
     Ok(())
 }
 
-/// `edge serve` : publie le site de rapports (lecture seule) à l'adresse `serve_bind` de la configuration.
+/// `edge serve` : publie l'application Web à l'adresse `serve_bind` de la configuration.
 pub fn serve(paths: &Paths) -> Result<()> {
     let config = Config::load(&paths.config_file)?;
     // Échouer tout de suite si la base manque, plutôt qu'à chaque page.
     store::open_read_only(&paths.db_file)
         .context("base inaccessible : lance d'abord `edge init`")?;
-    let site = Site {
-        db_file: paths.db_file.clone(),
-        daily_dir: paths.daily_reports_dir.clone(),
+    let bind = config.serve_bind;
+    let app = App {
+        paths: paths.clone(),
+        config,
         aliases: Aliases::bundled()?,
-        method: config.margin_method,
-        freebet_value: config.bonus_freebet_value,
     };
     // L'erreur de `tiny_http` est une `Box<dyn Error + Send + Sync>` : `anyhow!` l'enveloppe avec son message.
-    let server = tiny_http::Server::http(config.serve_bind)
-        .map_err(|e| anyhow::anyhow!("écoute impossible sur {} : {e}", config.serve_bind))?;
-    println!(
-        "Site de rapports : http://{}/ (lecture seule ; Ctrl+C pour arrêter).",
-        config.serve_bind
-    );
-    if config.serve_bind.ip().is_unspecified() {
+    let server = tiny_http::Server::http(bind)
+        .map_err(|e| anyhow::anyhow!("écoute impossible sur {bind} : {e}"))?;
+    println!("Application edge : http://{bind}/ (Ctrl+C pour arrêter).");
+    if bind.ip().is_unspecified() {
         println!(
             "Écoute sur toutes les interfaces : depuis un autre appareil, utilise l'adresse de ce poste sur le réseau local."
         );
     }
-    crate::serve::run(&server, &site);
+    crate::serve::run(&server, &app);
     Ok(())
 }
 

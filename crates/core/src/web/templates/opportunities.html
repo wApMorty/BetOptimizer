@@ -1,0 +1,60 @@
+{% extends "site_base.html" %}
+{% block title %}Opportunités{% endblock %}
+{% block content %}
+<div class="head"><h1>Opportunités</h1><div class="sub">Les prix qui dépassent la cote juste de Pinnacle (sa probabilité sans marge). Le prix est celui du dernier relevé : vérifie-le sur le site de l'opérateur.</div></div>
+
+<div class="seg">
+  <a href="/opportunites"{% if not all %} class="on"{% endif %}>Notifiées · ≥ {{ threshold }} %</a>
+  <a href="/opportunites?toutes"{% if all %} class="on"{% endif %}>Toutes · ≥ 0 % ({{ total }})</a>
+</div>
+
+<div class="cards">
+{% for c in cards %}
+<div class="card opp">
+  <div class="split">
+    <div><b class="big" style="font-size: 1.1rem">{{ c.fixture }}</b><div class="meta">{{ c.meta }}</div></div>
+    <div class="right"><span class="big mono">{{ c.odds }}</span><span class="meta">cote juste {{ c.fair_odds }}</span></div>
+  </div>
+  <div class="split" style="margin-top: 10px">
+    <div><b class="{% if c.notified %}pos{% else %}wrn{% endif %}">{{ c.edge }}</b> <span class="meta">d'avantage</span></div>
+    <div class="right faint">cote minimale {{ c.minimal_odds }}</div>
+  </div>
+  <div class="gauge meter {% if c.notified %}t-pos{% else %}t-warn{% endif %}"><span style="width: {{ c.meter }}%"></span><i style="left: {{ c.threshold_at }}%"></i></div>
+  <div class="split" style="margin-top: 10px; align-items: center">
+    <div class="chips" style="margin: 0">
+      <span class="chip">{{ c.bookmaker }}</span>
+      <span class="chip t-acc">{{ c.outcome }}</span>
+      <span class="chip {{ c.journal_tone }}">{{ c.journal }}</span>
+    </div>
+    <div class="right">
+      {% if c.stake_strong %}<b>{{ c.stake }}</b>{% else %}<span class="meta">{{ c.stake }}</span>{% endif %}
+      {% if c.follow %}<a class="btn small" href="/paris/suivre/{{ c.follow }}">J'ai parié</a>{% elif c.followed %}<span class="chip t-pos">pari enregistré</span>{% endif %}
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="card empty"><b>Aucun prix n'atteint le seuil</b><span>C'est le cas la plupart des jours : les opérateurs français prennent 7 à 14 % de marge.</span></div>
+{% endfor %}
+</div>
+
+<h2>Journal récent<small>chaque ligne est écrite une seule fois, jamais modifiée</small></h2>
+{% if journal %}
+<div class="card scroll">
+<table>
+<tbody>
+{% for r in journal %}<tr>
+  <td class="id">n° {{ r.id }}</td>
+  <td>{% if r.notified %}<span class="chip t-acc">notifiée</span>{% else %}<span class="chip">fantôme</span>{% endif %}</td>
+  <td><b>{{ r.fixture }}</b></td>
+  <td class="meta">{{ r.line }}</td>
+  <td class="num {% if r.notified %}pos{% else %}wrn{% endif %}">{{ r.edge }}</td>
+  <td>{% if r.followed %}<span class="chip t-pos">parié</span>{% endif %}</td>
+  <td class="faint">{{ r.kickoff }}</td>
+</tr>{% endfor %}
+</tbody>
+</table>
+</div>
+{% else %}
+<p class="sub">Le journal est vide : le programme y écrit à 14 h 10.</p>
+{% endif %}
+{% endblock %}

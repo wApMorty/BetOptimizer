@@ -1,0 +1,49 @@
+{% extends "site_base.html" %}
+{% block title %}Performance{% endblock %}
+{% block content %}
+<div class="head"><h1>Performance</h1><div class="sub">Ce que valent vraiment les recommandations : l'argent, puis la mesure principale (le CLV), puis la fiabilité des probabilités.</div></div>
+
+<div class="seg">
+  <a href="/performance"{% if view == "bankroll" %} class="on"{% endif %}>Bankroll</a>
+  <a href="/performance?vue=clv"{% if view == "clv" %} class="on"{% endif %}>CLV</a>
+  <a href="/performance?vue=calibration"{% if view == "calibration" %} class="on"{% endif %}>Calibration</a>
+</div>
+
+{% if view == "bankroll" %}
+<div class="tiles">
+  <div class="tile"><div class="label">Disponible</div><div class="figure">{{ bankroll.available }}</div><div class="note">départ {{ bankroll.initial }}</div></div>
+  <div class="tile"><div class="label">Gains nets réglés</div><div class="figure {{ bankroll.profit_color }}">{{ bankroll.profit }}</div><div class="note">mises ouvertes {{ bankroll.open_stakes }}</div></div>
+  <div class="tile"><div class="label">Plus forte baisse</div><div class="figure">{{ bankroll.drawdown }}</div><div class="note">depuis un sommet de la bankroll réalisée</div></div>
+</div>
+<div class="card">
+  <h2 style="margin: 0 0 12px">Bankroll réalisée<small>un point à chaque pari réglé</small></h2>
+  {% if bankroll.chart %}<div class="chart">{{ bankroll.chart|safe }}</div>
+  {% else %}<div class="empty"><b>Aucun pari réglé</b><span>La courbe apparaît au premier règlement.</span></div>{% endif %}
+</div>
+
+{% elif view == "clv" %}
+<p class="sub">CLV = cote obtenue × probabilité de clôture de Pinnacle sans marge − 1. Positif : on a eu un meilleur prix que le marché final. Intervalle à 95 %.</p>
+{% for g in groups %}
+<div class="card">
+  <div class="split">
+    <div><b>{{ g.label }}</b><div class="meta">{{ g.detail }}</div></div>
+    <div class="right"><span class="big {{ g.color }}" style="font-size: 1.25rem">{{ g.figure }}</span><span class="meta">{{ g.interval }}</span>{% if g.tentative %}<span class="chip t-warn">indicatif</span>{% endif %}</div>
+  </div>
+</div>
+{% endfor %}
+<div class="card">
+  <h2 style="margin: 0 0 12px">CLV par tranche d'avantage annoncé<small>si l'avantage est réel, le CLV monte avec lui</small></h2>
+  {% if buckets %}<div class="chart">{{ buckets|safe }}</div>
+  {% else %}<div class="empty"><b>Aucune clôture pour l'instant</b><span>Le CLV apparaît après les premiers matchs suivis.</span></div>{% endif %}
+</div>
+
+{% else %}
+<p class="sub">Recommandations réglées : la probabilité de Pinnacle annoncée contre la fréquence à laquelle l'issue s'est produite. Sur la diagonale, elle est fiable.</p>
+<div class="card">
+  {% if calibration %}
+  <div class="chart" style="max-width: 460px">{{ calibration|safe }}</div>
+  {% for b in bins %}<div style="margin-top: 8px"><span class="chip">{{ b.range }}</span> <span class="sub">{{ b.text }}</span></div>{% endfor %}
+  {% else %}<div class="empty"><b>Aucune recommandation réglée</b><span>Le diagramme se construit au fil des règlements.</span></div>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

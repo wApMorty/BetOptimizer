@@ -110,12 +110,18 @@ fn price_row(found: &Opportunity, min_edge: f64, kelly: f64) -> PriceRow {
     }
 }
 
-/// Nom affiché d'une compétition ; la clé de The Odds API elle-même si elle n'est pas connue.
+/// Nom affiché d'une compétition : la ligue de football, « Tennis » ou « NBA », sinon la clé de The Odds API elle-même.
 pub fn league_name(sport_key: &str) -> String {
-    LEAGUES
-        .iter()
-        .find(|league| league.sport_key == sport_key)
-        .map_or_else(|| sport_key.to_string(), |league| league.name.to_string())
+    if let Some(league) = LEAGUES.iter().find(|l| l.sport_key == sport_key) {
+        return league.name.to_string();
+    }
+    if sport_key.starts_with("tennis_") {
+        return "Tennis".to_string();
+    }
+    if sport_key.starts_with("basketball_") {
+        return "NBA".to_string();
+    }
+    sport_key.to_string()
 }
 
 /// Une recommandation du journal, mise en forme.

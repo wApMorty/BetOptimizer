@@ -1,47 +1,87 @@
-//! `edge serve` : publie le site de rapports en HTTP, en lecture seule.
+//! `edge serve` : publie l'application Web sur le réseau local.
 //!
 //! `tiny_http` accepte les connexions sur ses propres threads et nous les remet une à une ; cette boucle les traite dans
-//! l'ordre. Le contenu des pages vient de `edge_core::report::site` : ici, on ne fait que traduire HTTP ↔ `Page`.
+//! l'ordre. Tout le contenu vient de `edge_core::web` : ici, on ne fait que traduire HTTP ↔ `web::Request`/`Response`.
+
+use std::io::Read;
 
 use chrono::Utc;
-use edge_core::report::site::{self, HTML, Page, Site};
-use tiny_http::{Header, Method, Request, Response, Server};
+use edge_core::web::{self, App, MAX_BODY, Method};
+use tiny_http::{Header, Request, Response, Server};
 
-/// En-têtes ajoutés à toute réponse. La politique de sécurité n'autorise que les styles intégrés et les images `data:` :
-/// une page ne peut charger aucune ressource externe ni exécuter de script.
-const SECURITY_HEADERS: [(&str, &str); 4] = [
+/// En-têtes ajoutés à toute réponse. La politique de sécurité n'autorise que les styles intégrés, les images `data:` et
+/// les polices du site : une page ne peut charger aucune ressource externe ni exécuter de script, ses formulaires ne
+/// peuvent viser que le site lui-même, et aucun autre site ne peut l'afficher dans un cadre.
+const SECURITY_HEADERS: [(&str, &str); 3] = [
     (
         "Content-Security-Policy",
-        "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+        "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'self'; form-action 'self'; \
+         frame-ancestors 'none'; base-uri 'none'",
     ),
     ("X-Content-Type-Options", "nosniff"),
     ("Referrer-Policy", "no-referrer"),
-    // Les pages vivantes changent à chaque relevé : jamais de copie périmée dans un cache.
-    ("Cache-Control", "no-store"),
 ];
 
 /// Traite les requêtes jusqu'à l'arrêt du processus (systemd l'arrête par un signal).
-pub fn run(server: &Server, site: &Site) {
+pub fn run(server: &Server, app: &App) {
     for request in server.incoming_requests() {
-        handle(request, site);
+        handle(request, app);
     }
 }
 
-/// Répond à une requête : `GET` et `HEAD` seulement (`tiny_http` n'envoie pas le corps d'une réponse à `HEAD`).
-fn handle(request: Request, site: &Site) {
-    let page = match request.method() {
-        Method::Get | Method::Head => site::respond(site, request.url(), Utc::now()),
-        _ => Page {
-            status: 405,
-            body: "Site en lecture seule : seules les requêtes GET et HEAD sont acceptées."
-                .as_bytes()
-                .to_vec(),
-        },
+/// Le nom de méthode de `tiny_http` traduit pour le cœur.
+fn method(request: &Request) -> Method {
+    match request.method() {
+        tiny_http::Method::Get => Method::Get,
+        tiny_http::Method::Head => Method::Head,
+        tiny_http::Method::Post => Method::Post,
+        _ => Method::Other,
+    }
+}
+
+/// Valeur d'un en-tête de la requête.
+fn header_value<'a>(request: &'a Request, name: &'static str) -> Option<&'a str> {
+    request
+        .headers()
+        .iter()
+        .find(|h| h.field.equiv(name))
+        .map(|h| h.value.as_str())
+}
+
+/// Répond à une requête (`tiny_http` n'envoie pas le corps d'une réponse à `HEAD`).
+fn handle(mut request: Request, app: &App) {
+    // Le corps d'abord : le lire demande un emprunt exclusif (`&mut`) de la requête, qu'aucun en-tête emprunté ne doit
+    // gêner. Seul un `POST` en a un : sans `Content-Length`, `tiny_http` lirait jusqu'à la fermeture de la connexion,
+    // que le client n'envoie qu'après la réponse. `take` borne la lecture : au-delà de `MAX_BODY`, le formulaire est
+    // refusé sans être lu en entier.
+    let mut body = Vec::new();
+    let read = if method(&request) == Method::Post {
+        request
+            .as_reader()
+            .take(MAX_BODY as u64 + 1)
+            .read_to_end(&mut body)
+            .map(|_| ())
+    } else {
+        Ok(())
+    };
+    let page = if read.is_err() || body.len() > MAX_BODY {
+        web::Response::text(413, "Formulaire trop long ou illisible.")
+    } else {
+        let incoming = web::Request {
+            method: method(&request),
+            target: request.url(),
+            cookies: header_value(&request, "Cookie"),
+            origin: header_value(&request, "Origin"),
+            host: header_value(&request, "Host"),
+            body: &body,
+        };
+        web::handle(app, &incoming, Utc::now())
     };
     tracing::info!(
         "{} {} → {} ({})",
         request.method(),
-        request.url(),
+        // La partie `?…` peut porter les champs du calculateur : rien de secret, mais inutile dans le journal.
+        request.url().split('?').next().unwrap_or_default(),
         page.status,
         request
             .remote_addr()
@@ -49,12 +89,25 @@ fn handle(request: Request, site: &Site) {
     );
     let mut response = Response::from_data(page.body)
         .with_status_code(page.status)
-        .with_header(header("Content-Type", HTML));
+        .with_header(header("Content-Type", page.content_type));
     for (name, value) in SECURITY_HEADERS {
         response = response.with_header(header(name, value));
     }
+    // Une police ne change jamais (elle est dans le binaire) ; une page change à chaque relevé : jamais de copie périmée.
+    let cache = if page.cacheable {
+        "max-age=31536000, immutable"
+    } else {
+        "no-store"
+    };
+    response = response.with_header(header("Cache-Control", cache));
+    if let Some(location) = &page.location {
+        response = response.with_header(header("Location", location));
+    }
+    for cookie in &page.cookies {
+        response = response.with_header(header("Set-Cookie", cookie));
+    }
     if page.status == 405 {
-        response = response.with_header(header("Allow", "GET, HEAD"));
+        response = response.with_header(header("Allow", "GET, HEAD, POST"));
     }
     // `respond` consomme la requête : elle ne peut recevoir qu'une réponse, le compilateur l'interdit ensuite.
     if let Err(error) = request.respond(response) {
@@ -63,54 +116,54 @@ fn handle(request: Request, site: &Site) {
     }
 }
 
-/// Construit un en-tête. Les noms et valeurs passés ici sont des constantes ASCII sans retour à la ligne : la
-/// construction ne peut pas échouer.
+/// Construit un en-tête. Les noms et valeurs passés ici sont des constantes ou des valeurs produites par le cœur (adresse
+/// de redirection, cookie), en ASCII sans retour à la ligne : la construction ne peut pas échouer.
 fn header(name: &str, value: &str) -> Header {
     Header::from_bytes(name.as_bytes(), value.as_bytes())
-        .expect("en-tête constant : nom et valeur ASCII sans retour à la ligne")
+        .expect("en-tête : nom et valeur ASCII sans retour à la ligne")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Read, Write};
+    use std::io::Write;
     use std::net::TcpStream;
 
+    use edge_core::config::Config;
     use edge_core::ingest::aliases::Aliases;
-    use edge_core::market::margin::MarginMethod;
+    use edge_core::paths::Paths;
     use edge_core::store;
 
     /// Envoie une requête brute et renvoie la réponse complète (le serveur ferme après `Connection: close`).
     fn ask(addr: std::net::SocketAddr, request: &str) -> String {
         let mut stream = TcpStream::connect(addr).unwrap();
         stream.write_all(request.as_bytes()).unwrap();
-        let mut answer = String::new();
-        stream.read_to_string(&mut answer).unwrap();
-        answer
+        // En octets : une police n'est pas du texte UTF-8 (`read_to_string` échouerait).
+        let mut answer = Vec::new();
+        stream.read_to_end(&mut answer).unwrap();
+        String::from_utf8_lossy(&answer).into_owned()
     }
 
     #[test]
-    fn the_server_answers_get_with_security_headers_and_refuses_writes() {
+    fn the_server_answers_with_security_headers_and_refuses_an_oversized_form() {
         let dir = tempfile::tempdir().unwrap();
-        let db_file = dir.path().join("edge.db");
-        store::open_migrated(&db_file).unwrap();
-        let site = Site {
-            db_file,
-            daily_dir: dir.path().join("daily"),
+        let paths = Paths::under(dir.path());
+        store::open_migrated(&paths.db_file).unwrap();
+        let app = App {
+            paths,
+            config: Config::default(),
             aliases: Aliases::bundled().unwrap(),
-            method: MarginMethod::Power,
-            freebet_value: edge_core::bonus::DEFAULT_FREEBET_VALUE,
         };
         // Port 0 : le système choisit un port libre, que l'on relit ensuite.
         let server = Server::http("127.0.0.1:0").unwrap();
         let addr = server.server_addr().to_ip().unwrap();
 
-        // `thread::scope` : le thread du serveur peut emprunter `server` et `site`, car le scope garantit qu'il se termine
+        // `thread::scope` : le thread du serveur peut emprunter `server` et `app`, car le scope garantit qu'il se termine
         // avant que ces variables ne soient détruites (sans `scope`, il faudrait les partager par `Arc`).
         std::thread::scope(|scope| {
             scope.spawn(|| {
                 for _ in 0..3 {
-                    handle(server.recv().unwrap(), &site);
+                    handle(server.recv().unwrap(), &app);
                 }
             });
 
@@ -120,20 +173,21 @@ mod tests {
             );
             assert!(home.starts_with("HTTP/1.1 200"), "{home}");
             assert!(home.contains("Content-Security-Policy: default-src 'none'"));
-            assert!(home.contains("Aucun rapport archivé"));
+            assert!(home.contains("form-action 'self'"));
+            assert!(home.contains("Cache-Control: no-store"));
+
+            let font = ask(
+                addr,
+                "GET /police/inter-semibold.ttf HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+            );
+            assert!(font.contains("Content-Type: font/ttf"), "{}", &font[..200]);
+            assert!(font.contains("Cache-Control: max-age=31536000, immutable"));
 
             let missing = ask(
                 addr,
                 "GET /rapports/../edge.db HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
             );
             assert!(missing.starts_with("HTTP/1.1 404"), "{missing}");
-
-            let post = ask(
-                addr,
-                "POST /paper HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            );
-            assert!(post.starts_with("HTTP/1.1 405"), "{post}");
-            assert!(post.contains("Allow: GET, HEAD"));
         });
     }
 }

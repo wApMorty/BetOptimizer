@@ -1,8 +1,7 @@
 {% extends "site_base.html" %}
 {% block title %}Latence{% endblock %}
 {% block content %}
-<h1>Latence des opérateurs français</h1>
-<p class="meta">{{ generated_at }} (heure de Paris) · test prospectif depuis le {{ start }}, verdict unique à {{ min_bets }} paris, échéance le {{ deadline }} (<code>docs/sources.md</code> §34). Lecture seule : aucun pari n'est placé.</p>
+<div class="head"><h1>Latence des opérateurs français</h1><div class="sub">Test prospectif depuis le {{ start }}, verdict unique à {{ min_bets }} paris, échéance le {{ deadline }} (<code>docs/sources.md</code> §34). Lecture seule : aucun pari n'est placé.</div></div>
 <div class="{{ verdict_class }} card">{{ verdict }}</div>
 
 <p class="meta"><strong>Règle figée.</strong> 1X2, Winamax et Unibet ; à 60, 45, 30 puis 15 minutes du coup d'envoi, l'issue dont la cote dépasse de 1 % au moins la probabilité de Pinnacle sans marge (méthode puissance) ; un pari au plus par match et par opérateur. L'opérateur doit avoir au moins {{ primary.min_changes }} changements de cote relevés dans les 24 h : sinon OddsPapi ne le suivait pas. <strong>CLV</strong> = cote × probabilité de clôture de Pinnacle sans marge − 1.</p>
@@ -17,7 +16,7 @@
 
 <h2>Paris de la règle</h2>
 {% if bets %}
-<div class="scroll">
+<div class="card scroll">
 <table>
 <thead><tr><th>Coup d'envoi</th><th>Match</th><th>Opérateur</th><th>Horizon</th><th>Issue</th><th class="num">Cote</th><th class="num">Avantage</th><th class="num">CLV</th></tr></thead>
 <tbody>

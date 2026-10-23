@@ -1,7 +1,7 @@
-//! Loto Foot (phase 14) : page `/lotofoot` du site et message Discord de la séance du samedi. Lecture seule.
+//! Loto Foot (phase 14) : page `/lotofoot` de l'application Web et message Discord de la séance du samedi.
 //!
 //! Les calculs viennent de [`crate::lotofoot`] (règlement, vérification), comme `edge lotofoot report` : ce module les
-//! met en forme pour le gabarit `site_lotofoot.html` et pour le texte du message.
+//! met en forme pour le gabarit `lotofoot.html` de l'application et pour le texte du message.
 
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
@@ -84,12 +84,6 @@ pub struct BandView {
 /// La page `/lotofoot`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LotofootPage {
-    /// Barre de navigation.
-    pub nav: bool,
-    /// Lien actif.
-    pub active: &'static str,
-    /// Instant de calcul.
-    pub generated_at: String,
     /// Dernière séance (date), vide s'il n'y en a pas.
     pub session: String,
     /// Grilles de la dernière séance.
@@ -117,14 +111,11 @@ pub struct LotofootPage {
 }
 
 /// Construit la page à partir du journal.
-pub fn page(conn: &Connection, now: DateTime<Utc>, generated_at: String) -> Result<LotofootPage> {
+pub fn page(conn: &Connection, now: DateTime<Utc>) -> Result<LotofootPage> {
     let verification = verify::verify(conn, now)?;
     let recommended = settle::recommended(conn)?;
     let (played_model, played_off) = settle::played_ledgers(conn)?;
     let mut page = LotofootPage {
-        nav: true,
-        active: "lotofoot",
-        generated_at,
         session: String::new(),
         grids: Vec::new(),
         tickets: Vec::new(),
@@ -421,13 +412,11 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_journal_renders_a_page() {
+    fn an_empty_journal_gives_an_empty_page() {
         let mut conn = Connection::open_in_memory().unwrap();
         migrate(&mut conn).unwrap();
-        let page = page(&conn, Utc::now(), "maintenant".into()).unwrap();
+        let page = page(&conn, Utc::now()).unwrap();
         assert!(page.tickets.is_empty());
         assert_eq!(page.verdict, "Aucune séance enregistrée.");
-        let html = crate::report::render::render_site_lotofoot(&page).unwrap();
-        assert!(html.contains("Loto Foot"));
     }
 }

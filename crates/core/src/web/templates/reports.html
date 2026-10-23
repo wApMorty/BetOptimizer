@@ -1,0 +1,37 @@
+{% extends "site_base.html" %}
+{% block title %}Rapports{% endblock %}
+{% block content %}
+<div class="head"><h1>Rapports</h1><div class="sub">Les rapports quotidiens de <code>edge recommend</code>, conservés tels qu'ils ont été écrits, et les rapports d'analyse de la ligne de commande.</div></div>
+
+<h2>Rapports quotidiens<small>heure de Paris</small></h2>
+<div class="card">
+{% if daily %}
+<ul class="reports">
+{% for r in daily %}<li><a href="{{ r.href }}">{{ r.label }}</a></li>
+{% endfor %}
+</ul>
+{% else %}
+<div class="empty"><b>Aucun rapport archivé</b><span>Le premier sera écrit par la prochaine exécution de <code>edge recommend</code>.</span></div>
+{% endif %}
+</div>
+
+<h2>Rapports d'analyse</h2>
+<div class="card">
+{% if analysis %}
+<ul class="reports">
+{% for r in analysis %}<li><a href="{{ r.href }}">{{ r.label }}</a><span class="meta">{{ r.note }}</span></li>
+{% endfor %}
+</ul>
+{% else %}
+<div class="empty"><b>Aucun rapport d'analyse</b><span>Lance par exemple <code>edge backtest report</code>, <code>edge market report</code> ou <code>edge model report</code> dans un terminal.</span></div>
+{% endif %}
+</div>
+
+<h2>Données archivées<small>ce que les relevés ont déjà ramassé</small></h2>
+<div class="card">
+<ul class="reports">
+{% for f in feeds %}<li><span><b>{{ f.label }}</b> <span class="chip">{{ f.archived }}</span></span><span class="meta">dernier relevé : {{ f.age }}</span></li>
+{% endfor %}
+</ul>
+</div>
+{% endblock %}

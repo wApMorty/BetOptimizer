@@ -1,7 +1,7 @@
-//! Page `/latence` du site : état du test prospectif de la latence française (phase 13). Lecture seule.
+//! Page `/latence` de l'application Web : état du test prospectif de la latence française (phase 13). Lecture seule.
 //!
 //! Le calcul vient de [`crate::eval::latency::evaluate`], comme `edge latency report` : ce module ne fait que le mettre
-//! en forme pour le gabarit `site_latency.html`.
+//! en forme pour le gabarit `latency.html` de l'application Web.
 
 use serde::Serialize;
 
@@ -57,12 +57,6 @@ pub struct SummaryView {
 /// La page `/latence`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LatencyPage {
-    /// Barre de navigation.
-    pub nav: bool,
-    /// Lien actif.
-    pub active: &'static str,
-    /// Instant de calcul, heure de Paris.
-    pub generated_at: String,
     /// Début du test et échéance.
     pub start: String,
     /// Échéance.
@@ -150,7 +144,7 @@ pub fn verdict_text(a: &Assessment) -> (String, &'static str) {
 }
 
 /// Met en forme le rapport pour le gabarit.
-pub fn view(report: &LatencyReport, generated_at: String) -> LatencyPage {
+pub fn view(report: &LatencyReport) -> LatencyPage {
     let (verdict, verdict_class) = verdict_text(&report.primary);
     let bets = report
         .primary
@@ -172,9 +166,6 @@ pub fn view(report: &LatencyReport, generated_at: String) -> LatencyPage {
         .collect();
     let q = &report.quality;
     LatencyPage {
-        nav: true,
-        active: "latency",
-        generated_at,
         start: test_start().format("%d/%m/%Y").to_string(),
         deadline: deadline().format("%d/%m/%Y").to_string(),
         min_bets: MIN_BETS,

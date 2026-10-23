@@ -1,0 +1,64 @@
+{% extends "site_base.html" %}
+{% block title %}Aujourd'hui{% endblock %}
+{% block content %}
+<div class="head"><h1>{{ title }}</h1><div class="sub">{{ subtitle }}</div></div>
+
+<div class="card stripe {% if any %}t-acc{% endif %}">
+  <div class="split">
+    <div>
+    {% if best %}
+      <div class="pos"><b>Meilleur avantage {{ best.edge }}</b></div>
+      <div class="sub">{{ best.line }}</div>
+      <div class="faint">{{ best.when }}</div>
+    {% else %}
+      <div class="sub">Le programme compare chaque jour les prix des opérateurs à ceux de Pinnacle.</div>
+      <div class="faint">Un prix n'est signalé que s'il dépasse la cote juste d'au moins {{ threshold }} %.</div>
+    {% endif %}
+    </div>
+    <div class="right"><a class="btn" href="/opportunites">{% if any %}Voir les opportunités{% else %}Voir les prix{% endif %}</a></div>
+  </div>
+</div>
+
+<div class="tiles">
+  <div class="tile">
+    <div class="label">{{ bankroll.label }}</div>
+    <div class="figure">{{ bankroll.figure }}</div>
+    {% if spark %}<div class="chart">{{ spark|safe }}</div>{% endif %}
+    <div class="note">{{ bankroll.note }}</div>
+  </div>
+  {% for t in [clv, credits] %}
+  <div class="tile">
+    <div class="label">{{ t.label }}</div>
+    <div class="figure {{ t.color }}">{{ t.figure }}</div>
+    {% if t.gauge %}<div class="gauge {{ t.gauge_tone }}"><span style="width: {{ t.gauge }}%"></span></div>{% endif %}
+    <div class="note">{{ t.note }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<h2>Ça tourne ?<small>dernier relevé réussi de chaque sport</small></h2>
+<div class="chips">
+{% for f in feeds %}<span class="chip {{ f.tone }}{% if f.tone == "t-pos" %} live{% endif %}">{{ f.label }} · {{ f.age }}</span>{% endfor %}
+</div>
+
+<h2>Paris ouverts</h2>
+{% for b in open_bets %}
+<div class="card">
+  <div class="split">
+    <div><b>{{ b.fixture }}</b><div class="meta">{{ b.meta }}</div></div>
+    <div class="right"><b>{{ b.stake }}</b><span class="chip">{{ b.side }}</span></div>
+  </div>
+</div>
+{% else %}
+<p class="sub">Aucun pari ouvert.</p>
+{% endfor %}
+
+{% if latest %}<p class="meta">Dernier rapport quotidien : <a href="/rapports/{{ latest.name }}">{{ latest.label }}</a>.</p>{% endif %}
+
+<div class="notice t-warn">
+  <details>
+    <summary>Aucune règle n'est validée hors échantillon : les recommandations sont expérimentales. Pourquoi ?</summary>
+    <p>Les mesures disponibles (rapports Backtest, Modèles et Tennis) ne montrent pas d'avantage : les modèles font moins bien que le marché, et les prix « mous » contre Pinnacle n'ont presque aucun pari de test. Le seul vrai test est le CLV réel, qui s'accumule dans le journal (onglet Performance). Vérifie toujours la cote sur le site de l'opérateur.</p>
+  </details>
+</div>
+{% endblock %}

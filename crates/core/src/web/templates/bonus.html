@@ -1,0 +1,95 @@
+{% extends "site_base.html" %}
+{% block title %}Bonus{% endblock %}
+{% block content %}
+<div class="head"><h1>Bonus</h1><div class="sub">Bonus de bienvenue couverts : le gain est le même quel que soit le résultat du match.</div></div>
+
+<div class="tiles">
+  <div class="tile"><div class="label">Réalisé</div><div class="figure {{ realized_color }}">{{ realized }}</div><div class="note">opérations réglées, en argent</div></div>
+  <div class="tile"><div class="label">Garanti en cours</div><div class="figure">{{ open_guaranteed }}</div><div class="note">opérations pas encore réglées</div></div>
+  <div class="tile"><div class="label">À jouer</div><div class="figure acc">{{ to_play }}</div><div class="note">{{ covers }}</div></div>
+</div>
+
+<h2>À jouer<small>dernier relevé · recalcule avant de parier</small></h2>
+{% for plan in plans %}
+<div class="card">
+  <div><b style="font-size: 1.05rem">{{ plan.name }}</b> <span class="chip t-acc">{{ plan.kind }}</span> <span class="chip">{{ plan.amount }}</span>{% if plan.min_odds %} <span class="chip">{{ plan.min_odds }}</span>{% endif %}</div>
+  {% if not plan.in_archive %}
+  <p class="sub">Cotes absentes de l'archive : compare les cotes affichées et utilise le calculateur.</p>
+  {% else %}
+  {% for c in plan.candidates %}
+  <hr class="sep">
+  <div class="split">
+    <div>
+      <b>{{ c.fixture }}</b><div class="meta">{{ c.meta }}</div>
+      <div class="chips">{% for leg in c.legs %}<span class="chip{% if leg.bonus %} t-acc{% endif %}">{{ leg.text }}</span>{% endfor %}</div>
+    </div>
+    <div class="right"><span class="big {{ c.color }}" style="font-size: 1.2rem">{{ c.guaranteed }}</span><span class="meta">sorti {{ c.cash_out }}</span><a class="btn small" href="{{ c.play }}">J'ai joué</a></div>
+  </div>
+  {% else %}
+  <p class="sub">Aucune opération rentable dans le dernier relevé avec les comptes de couverture actuels.</p>
+  {% endfor %}
+  {% endif %}
+</div>
+{% else %}
+<div class="card empty"><b>Aucune offre à jouer</b><span>Lis le règlement d'un opérateur, puis « Enregistrer l'offre » dans la liste ci-dessous.</span></div>
+{% endfor %}
+
+<h2 id="calculateur">Calculateur<small>rien n'est enregistré</small></h2>
+<form class="card" method="get" action="/bonus#calculateur">
+  <div class="radios" style="margin-bottom: 14px">{% for k in calc.kinds %}<label><input type="radio" name="forme" value="{{ k[0] }}"{% if k[0] == calc.kind %} checked{% endif %}>{{ k[1] }}</label>{% endfor %}</div>
+  <div class="row2">
+    <label class="field"><span>Montant du bonus (€)</span><input type="text" name="montant" value="{{ calc.amount }}" placeholder="100" inputmode="decimal"></label>
+    <label class="field"><span>Cote du pari bonus</span><input type="text" name="cote" value="{{ calc.odds }}" placeholder="3,10" inputmode="decimal"></label>
+    <label class="field"><span>Cote couverture 1</span><input type="text" name="c1" value="{{ calc.cover1 }}" placeholder="2,10" inputmode="decimal"></label>
+    <label class="field"><span>Cote couverture 2 (vide : deux issues)</span><input type="text" name="c2" value="{{ calc.cover2 }}" placeholder="3,40" inputmode="decimal"></label>
+  </div>
+  <div class="actions" style="margin: 0 0 6px"><button class="btn secondary" type="submit">Calculer</button></div>
+  {% if calc.result %}<div><b>{{ calc.result }}</b></div><div class="{{ calc.color }}">{{ calc.detail }}</div>
+  {% elif calc.error %}<div class="neg">{{ calc.error }}</div>
+  {% else %}<div class="sub">Tape la cote du pari bonus et celles des autres issues.</div>{% endif %}
+</form>
+
+<h2>Offres<small>une offre prise sert ensuite à couvrir</small></h2>
+<div class="card">
+{% for o in operators %}
+  <div class="split" style="align-items: center; padding: 6px 0">
+    <div>
+      <b>{{ o.name }}</b> <span class="chip {{ o.tone }}">{{ o.state }}</span>
+      {% if o.offer %}<span class="chip">{{ o.offer }}</span>{% endif %}
+      {% if o.checked %}<span class="faint" title="{{ o.source }}">{{ o.checked }}</span>{% endif %}
+      {% if o.freebet %}<span class="chip t-pos">{{ o.freebet }}</span>{% endif %}
+      {% if o.realized %}<span class="chip {{ o.realized_tone }}">{{ o.realized }}</span>{% endif %}
+    </div>
+    <div class="right"><a class="btn ghost small" href="/bonus/offre?operateur={{ o.key }}">{% if o.has_offer %}Corriger l'offre{% else %}Enregistrer l'offre{% endif %}</a></div>
+  </div>
+{% endfor %}
+</div>
+
+{% if operations %}
+<h2>Opérations</h2>
+<form method="post" action="/bonus/regler" class="actions"><button class="btn secondary" type="submit" title="Lit les résultats de football-data déjà importés (edge fd fetch puis edge fd import).">Régler depuis l'historique</button></form>
+{% for op in operations %}
+<div class="card">
+  <div class="split">
+    <div>
+      <b>{{ op.fixture }}</b><div class="meta">{{ op.meta }}</div>
+      <div class="chips">{% for leg in op.legs %}<span class="chip{% if leg.bonus %} t-acc{% endif %}">{{ leg.text }}</span>{% endfor %}</div>
+    </div>
+    <div class="right">
+    {% if op.gain %}
+      <span class="big {{ op.color }}" style="font-size: 1.2rem">{{ op.gain }}</span><span class="meta">{{ op.result }}</span>
+    {% else %}
+      <b>{{ op.guaranteed }}</b><span class="meta">Résultat du match</span>
+      <form method="post" action="/bonus/operations/{{ op.id }}/regler" class="actions" style="margin: 0">
+        <button class="btn secondary small" name="resultat" value="1">Dom.</button>
+        <button class="btn secondary small" name="resultat" value="N">Nul</button>
+        <button class="btn secondary small" name="resultat" value="2">Ext.</button>
+        <button class="btn secondary small" name="resultat" value="annule">Annulé</button>
+      </form>
+    {% endif %}
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

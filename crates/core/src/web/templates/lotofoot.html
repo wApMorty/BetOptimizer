@@ -1,0 +1,74 @@
+{% extends "site_base.html" %}
+{% block title %}Loto Foot{% endblock %}
+{% block content %}
+<div class="head"><h1>Loto Foot</h1><div class="sub">LF7 et LF8, validés au point de vente : tickets simples à 1 €, joués si leur espérance dans le scénario défavorable atteint le seuil (<code>docs/sources.md</code> §37 et §38). Aucun pari n'est placé par le programme.</div></div>
+
+<div class="card"><span class="chip {% if verdict_class == "bad" %}t-neg{% elif verdict_class %}t-warn{% else %}t-pos{% endif %}">Verdict</span> {{ verdict }}</div>
+
+<div class="tiles">
+  <div class="tile"><div class="label">Grilles</div><div class="figure">{{ grids|length }}</div><div class="note">{% if session %}séance du {{ session }}{% else %}aucune séance{% endif %}</div></div>
+  <div class="tile"><div class="label">Tickets</div><div class="figure acc">{{ tickets|length }}</div><div class="note">mise de la séance : {% if tickets %}{{ stake }}{% else %}0 €{% endif %}</div></div>
+  <div class="tile"><div class="label">À déclarer</div><div class="figure {% if to_declare %}wrn{% endif %}">{{ to_declare }}</div><div class="note">tickets pas encore déclarés joués</div></div>
+</div>
+
+<h2>{% if session %}Séance du {{ session }}{% else %}Dernière séance{% endif %}</h2>
+{% if tickets %}
+<p class="meta">Chaque colonne est un ticket : coche le signe indiqué pour chaque rencontre, dans l'ordre de la grille.</p>
+<div class="actions">
+{% if to_declare %}<form method="post" action="/lotofoot/jouee" class="inline"><button class="btn" type="submit" title="Déclare joués tous les tickets de la séance (comme edge lotofoot played --last-session). Un ticket déjà déclaré est ignoré, jamais doublé.">J'ai joué la séance</button></form>
+{% else %}<span class="chip t-pos">séance déclarée jouée</span>{% endif %}
+</div>
+{% for b in bulletins %}
+<div class="card">
+  <div class="split"><div><b style="font-size: 1.1rem">{{ b.grid }}</b> <span class="chip">clôture {{ b.closes }}</span></div></div>
+  <div class="scroll">
+  <table class="bulletin">
+    <thead><tr><th>Rencontre</th>{% for c in b.columns %}<th class="sign-cell">n° {{ c.id }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for l in b.lines %}<tr><td>{{ l.fixture }}</td>{% for s in l.signs %}<td class="sign-cell"><span class="sign s-{{ s }}">{{ s }}</span></td>{% endfor %}</tr>
+    {% endfor %}
+    <tr class="foot"><td class="meta">espérance · défavorable · P(payé)</td>{% for c in b.columns %}<td class="sign-cell meta">{{ c.ev }}<br>{{ c.ev_low }}<br>{{ c.paid }}</td>{% endfor %}</tr>
+    <tr class="foot"><td class="meta">état</td>{% for c in b.columns %}<td class="sign-cell"><span class="chip {{ c.tone }}">{{ c.status }}</span><br><span class="chip {% if c.played %}t-pos{% else %}t-warn{% endif %}">{% if c.played %}joué{% else %}pas déclaré{% endif %}</span></td>{% endfor %}</tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endfor %}
+{% elif session %}
+<div class="card empty"><b>Rien à jouer cette semaine</b><span>Aucun ticket ne passait le seuil.</span></div>
+{% else %}
+<div class="card empty"><b>Aucune séance pour l'instant</b><span>Le relevé horaire archive les grilles ; la séance a lieu le samedi à midi.</span></div>
+{% endif %}
+{% for s in skipped %}<div class="notice t-warn">Grille écartée : {{ s }}</div>{% endfor %}
+{% if unknown_names %}<div class="notice t-warn">Noms absents de <code>config/aliases.toml</code> : {{ unknown_names|join(", ") }}.</div>{% endif %}
+
+<h2>Bilan<small>le rendement ne dit rien avant des années</small></h2>
+<div class="card scroll">
+<table>
+<thead><tr><th></th><th class="num">Tickets</th><th class="num">Réglés</th><th class="num">Mises</th><th class="num">Gains</th><th class="num">Rendement</th><th class="num">Payés</th></tr></thead>
+<tbody>
+{% for l in ledgers %}<tr><td>{{ l.label }}</td><td class="num">{{ l.tickets }}</td><td class="num">{{ l.settled }}</td><td class="num">{{ l.staked }}</td><td class="num">{{ l.returned }}</td><td class="num">{{ l.roi }}</td><td class="num">{{ l.paid }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+<h2>Vérification du modèle<small>critère figé à 26 et 52 semaines</small></h2>
+<div class="card">
+  <b>Gain</b><p class="sub" style="margin: 2px 0 10px">{{ gain }}</p>
+  <b>Fréquence</b><p class="sub" style="margin: 2px 0 10px">{{ frequency }}</p>
+  <b>Calibration des concurrents</b>
+  {% if bands %}
+  <div class="scroll"><table>
+  <thead><tr><th>λ prédit (gagnants du public)</th><th class="num">Observations</th><th class="num">Publiés / prédits</th></tr></thead>
+  <tbody>
+  {% for b in bands %}<tr{% if b.failing %} class="bad"{% endif %}><td>{{ b.range }}</td><td class="num">{{ b.observations }}</td><td class="num">{{ b.ratio }}</td></tr>
+  {% endfor %}
+  </tbody>
+  </table></div>
+  <p class="faint">Bornes jugées : [0,8 ; 1,25] pour λ ≥ 10, à partir de 10 observations.</p>
+  {% else %}
+  <p class="sub">Aucune grille réglée avec sa répartition finale pour l'instant.</p>
+  {% endif %}
+</div>
+{% endblock %}

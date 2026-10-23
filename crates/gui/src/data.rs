@@ -175,7 +175,7 @@ pub fn load(paths: &Paths, now: DateTime<Utc>) -> Result<Data> {
         reliability: overview::reliability(&conn, &aliases, RELIABILITY_BINS)?,
         reports: report_files(paths),
         bonus: tracking::board(&conn, config.bonus_freebet_value, now)?,
-        lotofoot: lotofoot_page::page(&conn, now, edge_core::format::long_date(now))?,
+        lotofoot: lotofoot_page::page(&conn, now)?,
         curve,
         config,
     })
