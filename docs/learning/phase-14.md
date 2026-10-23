@@ -173,3 +173,26 @@ rang 1 (le « pactole » : 100 000 € pour le LF7, 150 000 € pour le LF8).
   déjà déclarés (colonne « Joué » sur le site).
 - Tests : idempotence dans le cœur (`played.rs`), dans l'application (`actions.rs`) et par le vrai binaire
   (`crates/cli/tests/lotofoot.rs`).
+
+## Complément (2026-10-23) : les tickets regroupés en grilles multiples
+
+`crates/core/src/lotofoot/bulletin.rs` regroupe les tickets choisis en grilles multiples **sans en changer un seul** (`docs/sources.md`
+§39). `edge lotofoot recommend` affiche ces grilles à remplir après la liste des tickets.
+
+Rust :
+- `Line` garde, pour chaque rencontre, une liste triée de signes (`Vec<Vec<Outcome>>`) ; `Line::tickets` déroule le produit
+  cartésien avec `flat_map` et une fermeture `move` (`bulletin.rs`, fonction `tickets`) : `move` copie le signe dans la fermeture
+  intérieure, qui survit à l'itération de la boucle extérieure.
+- `session_lines` reçoit `&[((Game, u32), &Ticket)]` : une tranche de couples dont le second élément est un emprunt. La fonction ne
+  fait que lire les tickets de la séance ; les cloner pour l'appel serait inutile.
+- Masques `u32` : le bit j dit si la grille contient le ticket j. `m & m.wrapping_neg()` isole le bit le plus bas, `mask & !m == 0`
+  teste l'inclusion.
+
+Algorithmique :
+- **Fermeture par réunion** (même idée que la méthode de Quine-McCluskey en logique) : A et B égales sauf en i, aux signes disjoints
+  en i, donnent A ∪ B. Toute grille multiple contenue dans les tickets est atteinte.
+- **Couverture exacte minimale** : `best[m] = 1 + min best[m \ g]` sur les grilles g qui contiennent le plus petit ticket de m et
+  restent dans m. Imposer le plus petit ticket évite de compter deux fois la même partition dans un autre ordre.
+
+Question : pourquoi refuser de « compléter » une multiple à qui il manque un ticket, même si ce ticket a une espérance supérieure à 1 ?
+(Réponse attendue : il n'a pas été choisi par la règle gelée ; l'ajouter changerait la mise et la stratégie, ce que Paul a écarté.)

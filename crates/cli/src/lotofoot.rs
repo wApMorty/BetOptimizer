@@ -9,6 +9,7 @@ use edge_core::domain::Euros;
 use edge_core::format::{decimal, kickoff_label};
 use edge_core::ingest::aliases::Aliases;
 use edge_core::ingest::client::OddsApiClient;
+use edge_core::lotofoot::bulletin;
 use edge_core::lotofoot::fetch::{self, FetchReport, PronoMatchClient};
 use edge_core::lotofoot::played::{self, Declared, Manual};
 use edge_core::lotofoot::session::{self, SessionReport};
@@ -161,9 +162,32 @@ fn print_session(report: &SessionReport, dry_run: bool) {
             decimal(c.base.paid_probability * 100.0, 1)
         );
     }
+    print_lines(report);
     if let Some(id) = report.session_id {
         println!(
             "Séance n°{id} écrite au journal. Après validation : `edge lotofoot played --last-session`."
+        );
+    }
+}
+
+/// Les mêmes tickets regroupés en grilles multiples sans perte : moins de grilles à remplir, même mise, mêmes gains.
+fn print_lines(report: &SessionReport) {
+    let tickets: Vec<_> = report.chosen.iter().map(|c| (c.grid, &c.ticket)).collect();
+    let lines = bulletin::session_lines(&tickets);
+    println!(
+        "\nÀ remplir : {} grille(s) pour ces {} tickets (mêmes tickets, même mise ; 2 grilles par formule sur un bulletin) :",
+        lines.len(),
+        report.chosen.len()
+    );
+    for l in &lines {
+        let ranks: Vec<String> = l.tickets.iter().map(|i| (i + 1).to_string()).collect();
+        println!(
+            "  {} n°{}  {}  {} €  (tickets {})",
+            l.grid.0,
+            l.grid.1,
+            l.line,
+            l.line.combinations(),
+            ranks.join(", ")
         );
     }
 }

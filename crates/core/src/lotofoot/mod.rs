@@ -4,6 +4,7 @@
 //! l'espérance exacte d'un ticket ([`model`]), choisit les tickets de la semaine ([`optimize`]), lit les pages de
 //! prono-match ([`pronomatch`]) et règle les tickets joués ([`settle`]). Étude et choix : `docs/sources.md` §37 et §38.
 
+pub mod bulletin;
 pub mod fetch;
 pub mod model;
 pub mod odds;
@@ -129,15 +130,19 @@ impl Ticket {
 
 impl fmt::Display for Ticket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for sign in &self.0 {
-            let c = match sign {
-                Outcome::Home => '1',
-                Outcome::Draw => 'N',
-                Outcome::Away => '2',
-            };
-            write!(f, "{c}")?;
+        for &sign in &self.0 {
+            write!(f, "{}", sign_char(sign))?;
         }
         Ok(())
+    }
+}
+
+/// Signe écrit sur le bulletin : `1`, `N` ou `2`.
+pub(crate) fn sign_char(sign: Outcome) -> char {
+    match sign {
+        Outcome::Home => '1',
+        Outcome::Draw => 'N',
+        Outcome::Away => '2',
     }
 }
 

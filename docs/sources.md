@@ -1575,3 +1575,31 @@ publiés / prédits hors de [0,8 ; 1,25], ou si le gain réalisé des tickets re
 
 **Collecte d'archive.org.** Le débit est plafonné à environ 15 pages par minute par adresse IP, qu'on envoie 3 ou 5 requêtes en
 parallèle (mesuré le 2026-10-22). Un client écrit dans un autre langage n'irait pas plus vite.
+
+## 39. Loto Foot : regroupement des tickets en grilles multiples sans perte (2026-10-23)
+
+**Demande de Paul** : ne plus remplir 16 grilles simples par samedi quand une grille multiple ne coûte rien.
+
+**Règlement Loto Sports v6** (PDF lu le 2026-10-22, relu ce jour) :
+- une multiple porte des doubles et des triples ; sa mise est le nombre de jeux simples qu'elle contient (art. 5.2.5, 5.2.10,
+  5.2.11) ;
+- elle paie comme ces jeux simples : le tableau de calcul des gains (art. 10.5) donne, pour chaque mise, le nombre de gains à
+  chaque rang, soit exactement celui des tickets du produit. Rencontre annulée (art. 10.6) : les gains des « pronostics de
+  renvoi » sont multipliés par 2 ou 3 par double ou triple annulé, ce qui revient au même que les tickets simples (une rencontre
+  annulée est gagnante pour tous les signes) ;
+- formes acceptées (art. 5.2.6 et 5.2.7), en nombre maximal de doubles pour 0, 1, 2 et 3 triples : LF7 4, 3, 1, 0 ; LF8 5, 3, 2, 0.
+  Au plafond de 16 €, toutes les multiples de 16 tickets au plus sont acceptées ; la règle est quand même codée ;
+- bulletin papier : 2 grilles par formule (art. 3.1.3). Nombre de grilles par code de l'application ParionsSport : non précisé.
+
+**Règle.** Les tickets ne changent pas : l'optimiseur les choisit comme avant (§37, §38), puis `lotofoot::bulletin::group`
+cherche, grille par grille, la partition des tickets choisis en le **moins possible de grilles acceptées**, chaque grille étant un
+produit cartésien formé uniquement de tickets choisis. Aucun ticket n'est ajouté ni retiré : mise, espérance, journal, règlement et
+vérification sont inchangés (aucune migration, version du modèle `lotofoot-1` conservée). Une étude de multiples « avec perte »
+(choisir d'autres tickets pour remplir moins de grilles) a été proposée puis écartée par Paul.
+
+**Méthode.** (1) Fermeture par réunion : deux grilles égales sauf sur une rencontre, aux signes disjoints, se réunissent ; toute
+grille multiple contenue dans les tickets s'obtient ainsi (on la coupe le long d'une rencontre à plusieurs signes). (2) Couverture
+exacte minimale par programmation dynamique sur les sous-ensembles de tickets (2^16 masques au plus).
+
+**Exemples** : les 16 tickets LF7 du test de référence de l'optimiseur tiennent en 6 grilles (8 €, trois à 2 €, deux à 1 €) ; les
+16 tickets de la séance réelle LF8 n°146 du 2026-10-22 en 5 grilles (8 €, 4 €, 2 €, deux à 1 €).
