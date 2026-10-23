@@ -21,7 +21,7 @@ const REFERENCE_GRIDS: f64 = 7.0e6;
 const REFERENCE_JACKPOT: f64 = 20.0e6;
 
 /// Une édition passée.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct EditionRow {
     /// Date (JJ/MM/AAAA).
     pub date: String,
@@ -162,27 +162,7 @@ fn date(d: NaiveDate) -> String {
 pub fn build(conn: &Connection, today: NaiveDate) -> Result<LotoReport> {
     let price = rules::GRAND_LOTO_PRICE;
     let grand = store::draws(conn, Game::GrandLoto)?;
-    let editions = grand
-        .iter()
-        .filter_map(estimate::edition_outcome)
-        .map(|o| {
-            let (low, high) = o.return_range();
-            EditionRow {
-                date: date(o.date),
-                season: Season::of(o.date).label(),
-                jackpot: o.jackpot / 1e6,
-                won: o.jackpot_won,
-                grids: o.grids.n / 1e6,
-                grids_low: o.grids.low / 1e6,
-                grids_high: o.grids.high / 1e6,
-                lower: o.lower_ranks_per_grid(),
-                break_even: o.break_even_grids(price) / 1e6,
-                expectation: o.return_per_grid() / price - 1.0,
-                expectation_low: low / price - 1.0,
-                expectation_high: high / price - 1.0,
-            }
-        })
-        .collect();
+    let editions = edition_rows(&grand);
 
     let loto = store::draws(conn, Game::Loto)?;
     let preferences = if loto.is_empty() {
@@ -253,6 +233,33 @@ pub fn build(conn: &Connection, today: NaiveDate) -> Result<LotoReport> {
         totals: ledger.totals(false),
         off_model_totals: ledger.totals(true),
     })
+}
+
+/// Une ligne par Grand Loto passé de l'archive : grilles, reversement, point mort, espérance réalisée. Partagé avec la
+/// page `/loto` de l'application.
+pub fn edition_rows(grand: &[crate::loto::Draw]) -> Vec<EditionRow> {
+    let price = rules::GRAND_LOTO_PRICE;
+    grand
+        .iter()
+        .filter_map(estimate::edition_outcome)
+        .map(|o| {
+            let (low, high) = o.return_range();
+            EditionRow {
+                date: date(o.date),
+                season: Season::of(o.date).label(),
+                jackpot: o.jackpot / 1e6,
+                won: o.jackpot_won,
+                grids: o.grids.n / 1e6,
+                grids_low: o.grids.low / 1e6,
+                grids_high: o.grids.high / 1e6,
+                lower: o.lower_ranks_per_grid(),
+                break_even: o.break_even_grids(price) / 1e6,
+                expectation: o.return_per_grid() / price - 1.0,
+                expectation_low: low / price - 1.0,
+                expectation_high: high / price - 1.0,
+            }
+        })
+        .collect()
 }
 
 fn preferences_view(

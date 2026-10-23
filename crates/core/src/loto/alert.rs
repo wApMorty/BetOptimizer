@@ -161,18 +161,19 @@ pub fn forced_value(grids: f64) -> f64 {
     rules::EURO_CAP / grids + lower_ranks_per_grid()
 }
 
-/// Alerte due d'après les tirages de l'EuroMillions (en base, dans n'importe quel ordre), ou `None`.
+/// Série en cours : tirages au plafond sans gagnant qui terminent l'archive, du plus récent au plus ancien (vide si le
+/// dernier tirage n'est pas au plafond), et date du dernier tirage relevé.
 ///
 /// Erreur si le dernier tirage ne colle plus à la matrice : mieux vaut un échec visible (timer en échec) qu'une alerte
 /// fausse ou manquée.
-pub fn pending(draws: &[Draw]) -> Result<Option<Alert>> {
+pub fn current_streak(draws: &[Draw]) -> Result<(Vec<CapCheck>, Option<NaiveDate>)> {
     let mut recent: Vec<&Draw> = draws
         .iter()
         .filter(|d| d.game == Game::EuroMillions && d.date >= rules_since())
         .collect();
     recent.sort_by_key(|d| d.date);
     let Some(last) = recent.last() else {
-        return Ok(None);
+        return Ok((Vec::new(), None));
     };
     if !matches_matrix(last) {
         return Err(Error::Data(format!(
@@ -190,6 +191,13 @@ pub fn pending(draws: &[Draw]) -> Result<Option<Alert>> {
             break;
         }
     }
+    Ok((streak, Some(last.date)))
+}
+
+/// Alerte due d'après les tirages de l'EuroMillions (en base, dans n'importe quel ordre), ou `None`. Erreur si la
+/// matrice a changé ([`current_streak`]).
+pub fn pending(draws: &[Draw]) -> Result<Option<Alert>> {
+    let (streak, _) = current_streak(draws)?;
     let level = match streak.len() {
         0..=2 => return Ok(None),
         3 => Level::Watch,

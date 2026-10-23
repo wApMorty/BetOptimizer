@@ -1,11 +1,11 @@
-//! Assistants de test : un dossier de données avec un relevé, une recommandation, un match à venir et une séance
-//! Loto Foot, et l'application qui le sert.
+//! Assistants de test : un dossier de données avec un relevé, une recommandation, un match à venir, une séance Loto Foot
+//! et une séance du Grand Loto, et l'application qui le sert.
 
 use chrono::{DateTime, Duration, Utc};
 
 use super::{App, Method, Request, Response, handle};
 use crate::betting::recommend::{self, RECOMMEND_MIN_EDGE};
-use crate::config::{Config, ServeToken};
+use crate::config::{Config, GrandLotoEdition, ServeToken};
 use crate::domain::{Euros, Event, Odds, Quota, Quote};
 use crate::ingest::aliases::Aliases;
 use crate::lotofoot::pronomatch::{GridPage, OpenGrid};
@@ -91,16 +91,16 @@ pub fn empty() -> Sample {
     let paths = Paths::under(dir.path());
     open_migrated(&paths.db_file).unwrap();
     Sample {
-        app: app(paths),
+        app: app(paths, Config::default()),
         _dir: dir,
         now: Utc::now(),
     }
 }
 
-fn app(paths: Paths) -> App {
+fn app(paths: Paths, config: Config) -> App {
     App {
         paths,
-        config: Config::default(),
+        config,
         aliases: Aliases::bundled().unwrap(),
         token: ServeToken::new(TOKEN).unwrap(),
     }
@@ -162,8 +162,14 @@ pub fn sample() -> Sample {
     };
     recommend::run(&mut conn, &settings, now).unwrap();
     lotofoot_session(&mut conn, now);
+    let edition = grand_loto_edition(now);
+    loto_session(&mut conn, now, &edition);
+    let config = Config {
+        grand_loto_editions: vec![edition],
+        ..Config::default()
+    };
     Sample {
-        app: app(paths),
+        app: app(paths, config),
         _dir: dir,
         now,
     }
@@ -216,4 +222,57 @@ fn lotofoot_session(conn: &mut Connection, now: DateTime<Utc>) {
         notes: "{}",
     };
     record_session(conn, &session, &recos).unwrap();
+}
+
+/// L'édition du Grand Loto de l'exemple : dans 63 jours, 20 M€.
+pub fn grand_loto_edition(now: DateTime<Utc>) -> GrandLotoEdition {
+    GrandLotoEdition {
+        date: (now + Duration::days(63)).date_naive(),
+        jackpot: 20_000_000.0,
+        price: 5.0,
+        codes: 100,
+        code_gain: 20_000.0,
+    }
+}
+
+/// Une séance du Grand Loto écrite il y a une heure : deux grilles retenues, une écartée, aucune déclarée jouée.
+fn loto_session(conn: &mut Connection, now: DateTime<Utc>, edition: &GrandLotoEdition) {
+    use crate::loto::Grid;
+    use crate::store::loto::{NewReco, NewSession, record_session};
+
+    let kept = ["35-36-39-40-46+1", "32-34-36-41-46+1"];
+    let recos: Vec<NewReco> = kept
+        .iter()
+        .map(|text| NewReco {
+            grid: Grid::parse(text).unwrap(),
+            stake: 5.0,
+            ev: 7.1,
+            ev_pessimistic: 6.6,
+        })
+        .collect();
+    let candidates: Vec<serde_json::Value> = kept
+        .iter()
+        .map(|g| serde_json::json!({"grid": g, "ev": 7.1, "ev_pessimistic": 6.6, "popularity": 0.17, "kept": true}))
+        .chain([serde_json::json!({"grid": "1-2-4-8-16+7", "ev": 4.0, "ev_pessimistic": 3.6, "popularity": 2.1, "kept": false})])
+        .collect();
+    let params = serde_json::json!({"threshold": 1.05, "preferences": "Validated"});
+    let notes = serde_json::json!({
+        "forecast": {"season": "Christmas", "editions": ["2024-12-24", "2025-12-25"], "central": 7.71e6,
+                     "pessimistic": 9.0e6, "quantile": 0.8},
+        "walk_forward": {"gain": {"mean": 5070.7, "low": 4696.9, "high": 5475.0}},
+        "uniform_value": {"central": 5.18, "pessimistic": 4.77},
+        "candidates": candidates,
+    });
+    record_session(
+        conn,
+        &NewSession {
+            created_at: now - Duration::hours(1),
+            draw_date: edition.date,
+            model_version: "test",
+            params: &params,
+            notes: &notes,
+            recos: &recos,
+        },
+    )
+    .unwrap();
 }

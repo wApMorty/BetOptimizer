@@ -211,6 +211,7 @@ fn get(
         "/paper" => pages::paper::page(app, now, flash)?,
         "/bonus" => pages::bonus::page(app, query, now, flash)?,
         "/lotofoot" => pages::lotofoot::page(app, now, flash)?,
+        "/loto" => pages::loto::page(app, now, flash)?,
         "/latence" => pages::latency::page(app, now, flash)?,
         "/rapports" | "/rapports/" => pages::reports::page(app, now, flash)?,
         "/paris/hors-modele" => return reply(pages::entry::off_model(app, None, now)?),
@@ -271,6 +272,14 @@ fn post(
         "/bonus/regler" => act(app, &Action::SettleBonusAuto, "/bonus", now),
         "/lotofoot/jouee" => act(app, &Action::LotofootPlayedSession, "/lotofoot", now),
         "/lotofoot/optimiser" => pages::lotofoot::optimize(app, form),
+        "/loto/jouee" => act(app, &Action::LotoPlayedSession, "/loto", now),
+        "/loto/grille" => match crate::web::forms::LotoGridForm::from_form(form).to_action() {
+            Ok(action) => act(app, &action, "/loto", now),
+            Err(message) => entry::Reply::Done {
+                to: "/loto",
+                flash: crate::web::view::Flash::error(message),
+            },
+        },
         _ => {
             if let Some(id) = id_in(path, "/paris/suivre/", "") {
                 entry::follow(app, id, Some(form), now)?
@@ -510,6 +519,7 @@ mod tests {
             "/paper",
             "/bonus",
             "/lotofoot",
+            "/loto",
             "/latence",
             "/rapports",
         ] {
@@ -706,6 +716,49 @@ mod tests {
         assert_eq!(declared.location.as_deref(), Some("/lotofoot"));
         assert!(flash_of(&declared).text.starts_with("2 ticket(s)"));
         assert!(sample.html("/lotofoot").contains("séance déclarée jouée"));
+    }
+
+    #[test]
+    fn grand_loto_grids_are_declared_from_the_site() {
+        let sample = sample();
+        assert!(
+            sample.html("/").contains("href=\"/loto\""),
+            "onglet dans la barre latérale"
+        );
+
+        let declared = sample.post("/loto/jouee", "");
+        assert_eq!(declared.location.as_deref(), Some("/loto"));
+        assert!(
+            flash_of(&declared).text.starts_with("2 grille(s)"),
+            "{:?}",
+            flash_of(&declared)
+        );
+        let again = sample.post("/loto/jouee", "");
+        assert_eq!(flash_of(&again).kind, "t-neg", "rien de plus à déclarer");
+        assert!(sample.html("/loto").contains("séance déclarée jouée"));
+
+        let date = testing::grand_loto_edition(sample.now)
+            .date
+            .format("%Y-%m-%d")
+            .to_string();
+        let manual = sample.post(
+            "/loto/grille",
+            &format!("grille=1+2+3+4+5+6&edition={date}&mise=5"),
+        );
+        assert!(
+            flash_of(&manual).text.contains("hors modèle"),
+            "{:?}",
+            flash_of(&manual)
+        );
+        let wrong = sample.post(
+            "/loto/grille",
+            &format!("grille=1-2-3+4&edition={date}&mise=5"),
+        );
+        assert_eq!(flash_of(&wrong).kind, "t-neg");
+
+        let conn = crate::store::open_migrated(&sample.app.paths.db_file).unwrap();
+        assert_eq!(crate::store::loto::plays(&conn).unwrap().len(), 3);
+        assert!(sample.html("/loto").contains("hors modèle"));
     }
 
     #[test]

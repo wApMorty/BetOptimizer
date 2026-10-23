@@ -1,0 +1,93 @@
+{% extends "site_base.html" %}
+{% block title %}Grand Loto{% endblock %}
+{% block content %}
+<div class="head"><h1>Grand Loto</h1><div class="sub">Jackpot forcé : toujours versé, au rang 1 ou aux rangs inférieurs. Séance automatique trois jours avant chaque édition, 20 € au plus, grilles jouées si leurs euros rendus atteignent le seuil au nombre de grilles pessimiste (<code>docs/sources.md</code> §43 et §44). Aucune grille n'est jouée par le programme.</div></div>
+
+{% if next %}
+<div class="tiles">
+  <div class="tile"><div class="label">Prochaine édition</div><div class="figure acc">{{ next.date }}</div><div class="note">{{ next.until }}</div></div>
+  <div class="tile"><div class="label">Jackpot</div><div class="figure">{{ next.jackpot }}</div><div class="note">grille à {{ next.price }}</div></div>
+  <div class="tile"><div class="label">Séance</div><div class="figure {% if next.done %}pos{% else %}wrn{% endif %}">{% if next.done %}faite{% else %}à venir{% endif %}</div><div class="note">{% if next.done %}lue dans le journal{% else %}{{ next.session_on }}{% endif %}</div></div>
+</div>
+{% else %}
+<div class="card empty"><b>Aucune édition à venir</b><span>Ajoute la prochaine dans <code>grand_loto_editions</code> (edge.toml), puis redémarre <code>edge-serve</code>.</span></div>
+{% endif %}
+
+<h2>{% if session %}Séance du Grand Loto du {{ session.date }}{% else %}Séance{% endif %}</h2>
+{% if session %}
+<div class="card">
+  <p class="meta" style="margin-top: 0">Séance écrite le {{ session.created }}. Grilles prévues : <b>{{ session.central }}</b> ({{ session.pessimistic }} au {{ session.quantile }}, d'après {{ session.editions }} édition(s) de la saison « {{ session.season }} »). Une grille au hasard rend {{ session.uniform }} ({{ session.uniform_pessimistic }} au pessimiste). Seuil : {{ session.threshold }} € rendus par euro misé, au pessimiste.</p>
+  <p class="meta">Préférences du public : {% if session.preferences_validated %}<span class="chip t-pos">validées hors échantillon</span> grilles de numéros délaissés{% else %}<span class="chip t-warn">non validées</span> grilles au hasard{% endif %} · gain de vraisemblance par tirage {{ session.gain }}.</p>
+  {% if session.play %}
+  <div class="actions">
+  {% if to_declare %}<form method="post" action="/loto/jouee" class="inline"><button class="btn" type="submit" title="Déclare jouées les grilles retenues de la dernière séance (comme edge loto played --last-session). Une grille déjà déclarée est ignorée.">J'ai joué la séance</button></form>
+  {% else %}<span class="chip t-pos">séance déclarée jouée</span>{% endif %}
+  </div>
+  {% else %}
+  <div class="notice t-warn">Ne pas jouer : aucune grille n'atteint le seuil au nombre de grilles pessimiste.</div>
+  {% endif %}
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Grille</th><th class="num" title="Euros rendus en moyenne par grille ; entre parenthèses, au nombre de grilles pessimiste, qui sert au seuil.">Espérance</th><th class="num" title="Fréquence de la grille chez les joueurs, rapportée à une grille moyenne (1).">Popularité</th><th>État</th></tr></thead>
+    <tbody>
+    {% for g in session.grids %}<tr>
+      <td>{% for b in g.balls %}<span class="ball">{{ b }}</span>{% endfor %}<span class="ball chance">{{ g.chance }}</span>{% if g.id %} <span class="meta">n° {{ g.id }}</span>{% endif %}</td>
+      <td class="num">{{ g.ev }}<br><span class="meta">({{ g.ev_pessimistic }})</span></td>
+      <td class="num">{{ g.popularity }}</td>
+      <td><span class="chip {{ g.tone }}">{{ g.status }}</span></td>
+    </tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% else %}
+<div class="card empty"><b>Aucune séance pour l'instant</b><span>Le timer du soir la lance trois jours avant l'édition et l'envoie sur Discord.</span></div>
+{% endif %}
+
+<h2>Grilles jouées</h2>
+<form class="card form" method="post" action="/loto/grille">
+  <div class="row2">
+    <label class="field"><span>Grille (cinq numéros puis la chance)</span><input type="text" name="grille" placeholder="2-3-30-35-44+10"></label>
+    <label class="field"><span>Édition</span>
+      <select name="edition">{% for c in edition_choices %}<option value="{{ c[0] }}">{{ c[1] }}</option>{% endfor %}</select>
+    </label>
+  </div>
+  <div class="actions" style="align-items: flex-end">
+    <label class="field" style="margin: 0"><span>Mise (€)</span><input type="text" name="mise" value="{{ default_price }}" inputmode="decimal"></label>
+    <button class="btn secondary" type="submit" title="Une grille identique à une grille recommandée de cette édition lui est rattachée ; sinon elle est hors modèle, comptée à part.">Déclarer cette grille</button>
+  </div>
+</form>
+{% if plays %}
+<div class="card scroll">
+  <table>
+    <thead><tr><th>Édition</th><th>Grille</th><th class="num">Mise</th><th>Règlement</th></tr></thead>
+    <tbody>
+    {% for p in plays %}<tr><td>{{ p.date }}</td><td><code>{{ p.grid }}</code>{% if p.off_model %} <span class="chip t-warn">hors modèle</span>{% endif %}</td><td class="num">{{ p.stake }}</td><td><span class="chip {{ p.tone }}">{{ p.status }}</span></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="meta">Recommandées : {{ totals }}.{% if off_model_totals %} Hors modèle : {{ off_model_totals }}.{% endif %} Les gains des codes gagnants ne sont pas suivis.</p>
+</div>
+{% else %}
+<p class="faint">Aucune grille déclarée jouée.</p>
+{% endif %}
+
+<h2>EuroMillions au plafond</h2>
+<div class="card"><span class="chip {{ euro.tone }}">{% if euro.streak %}{{ euro.streak }} au plafond{% else %}rien à signaler{% endif %}</span> {{ euro.text }}{% if euro.last %} <span class="meta">Dernier tirage relevé : {{ euro.last }}.</span>{% endif %}
+<p class="meta" style="margin-bottom: 0">Au cinquième tirage consécutif au plafond sans gagnant, le jackpot va au rang 2 (règlement, art. 4.2.5.6). L'alerte part sur Discord au quatrième (veille au troisième).{% if euro.alerts %} Alertes envoyées : {{ euro.alerts|join(", ") }}.{% endif %}</p></div>
+
+<h2>Grand Loto passés</h2>
+{% if editions %}
+<div class="card scroll">
+  <table>
+    <thead><tr><th>Tirage</th><th>Saison</th><th class="num">Jackpot</th><th class="num">Grilles</th><th class="num">Point mort</th><th class="num" title="Euros rendus par euro misé, moins 1 : le total versé divisé par le nombre de grilles estimé.">Espérance réalisée</th></tr></thead>
+    <tbody>
+    {% for e in editions|reverse %}<tr><td>{{ e.date }}</td><td>{{ e.season }}</td><td class="num">{{ e.jackpot|num(0) }} M€{% if e.won %} · gagné{% endif %}</td><td class="num">{{ e.grids|num(2) }} M</td><td class="num">{{ e.break_even|num(2) }} M</td><td class="num {% if e.expectation > 0 %}pos{% else %}neg{% endif %}">{{ e.expectation|spct(0) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="faint">Aucun Grand Loto en base : le timer du soir relève l'historique de la FDJ.</p>
+{% endif %}
+{% endblock %}

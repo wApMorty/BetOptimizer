@@ -16,6 +16,7 @@ use crate::bonus::pick::{Candidate, Target};
 use crate::bonus::tracking::{OperationRequest, guaranteed_gain};
 use crate::domain::{Euros, Odds, Outcome};
 use crate::format;
+use crate::loto::Grid;
 use crate::store::bonus::{Eligibility, Leg, NewOffer, Role};
 use crate::store::journal::StoredRecommendation;
 
@@ -386,6 +387,52 @@ impl OfferForm {
     }
 }
 
+/// Une grille de Grand Loto jouée hors des recommandations, telle que saisie sur la page `/loto`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+pub struct LotoGridForm {
+    /// Les cinq numéros puis la chance, dans n'importe quelle écriture (`2-3-30-35-44+10`, `2 3 30 35 44 10`…).
+    pub grid: String,
+    /// Édition (AAAA-MM-JJ).
+    pub date: String,
+    /// Mise, en euros.
+    pub stake: String,
+}
+
+impl LotoGridForm {
+    /// Lit les champs envoyés.
+    pub fn from_form(form: &Form) -> LotoGridForm {
+        LotoGridForm {
+            grid: form.get("grille").to_string(),
+            date: form.get("edition").to_string(),
+            stake: form.get("mise").to_string(),
+        }
+    }
+
+    /// Valide la saisie : six nombres (cinq numéros de 1 à 49, distincts, puis la chance de 1 à 10), une édition, une mise.
+    pub fn to_action(&self) -> Result<Action, String> {
+        // Tout ce qui n'est pas un chiffre sépare deux nombres : « 2-3-30-35-44+10 » comme « 2 3 30 35 44 10 ».
+        let numbers: Vec<u8> = self
+            .grid
+            .split(|c: char| !c.is_ascii_digit())
+            .filter(|part| !part.is_empty())
+            .map(|part| part.parse().unwrap_or(0))
+            .collect();
+        let grid = match numbers.as_slice() {
+            [a, b, c, d, e, chance] => Grid::new([*a, *b, *c, *d, *e], *chance),
+            _ => None,
+        }
+        .ok_or("grille attendue : cinq numéros distincts de 1 à 49 puis la chance de 1 à 10 (2-3-30-35-44+10)")?;
+        let date = NaiveDate::parse_from_str(self.date.trim(), "%Y-%m-%d")
+            .map_err(|_| "choisis l'édition dans la liste".to_string())?;
+        let stake =
+            parse_number(&self.stake, "mise")?.unwrap_or(crate::loto::rules::GRAND_LOTO_PRICE);
+        if stake <= 0.0 {
+            return Err("la mise doit être strictement positive".to_string());
+        }
+        Ok(Action::LotoGrid { date, grid, stake })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -496,5 +543,38 @@ mod tests {
         ));
         form.bookmaker = "Betclic".into();
         assert!(form.to_action(today).unwrap_err().contains("clé"));
+    }
+
+    #[test]
+    fn a_loto_grid_is_read_in_any_writing() {
+        let action = |grid: &str, date: &str, stake: &str| {
+            LotoGridForm {
+                grid: grid.to_string(),
+                date: date.to_string(),
+                stake: stake.to_string(),
+            }
+            .to_action()
+        };
+        let expected = Action::LotoGrid {
+            date: NaiveDate::from_ymd_opt(2026, 12, 25).unwrap(),
+            grid: Grid::parse("2-3-30-35-44+10").unwrap(),
+            stake: 5.0,
+        };
+        assert_eq!(
+            action("44 35 30 3 2 + 10", "2026-12-25", ""),
+            Ok(expected.clone())
+        );
+        assert_eq!(action("2-3-30-35-44+10", "2026-12-25", "5"), Ok(expected));
+        for (grid, date, stake) in [
+            ("2-3-30-35+10", "2026-12-25", "5"),
+            ("2-2-30-35-44+10", "2026-12-25", "5"),
+            ("2-3-30-35-50+10", "2026-12-25", "5"),
+            ("2-3-30-35-44+11", "2026-12-25", "5"),
+            ("2-3-30-35-44+10", "", "5"),
+            ("2-3-30-35-44+10", "2026-12-25", "0"),
+            ("2-3-30-35-44+10", "2026-12-25", "cinq"),
+        ] {
+            assert!(action(grid, date, stake).is_err(), "{grid} {date} {stake}");
+        }
     }
 }

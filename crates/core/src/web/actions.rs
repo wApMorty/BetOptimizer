@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 
 use crate::betting::ledger::{self, FollowedInput};
 use crate::betting::settle;
@@ -13,6 +13,7 @@ use crate::domain::{Euros, Outcome};
 use crate::error::{Error, Result};
 use crate::format;
 use crate::ingest::aliases::Aliases;
+use crate::loto::{self, Grid};
 use crate::lotofoot::{TICKET_PRICE, played};
 use crate::store::bonus::{self, MatchResult, NewOffer};
 use crate::store::journal::{self, Settlement, SettlementSource};
@@ -65,6 +66,17 @@ pub enum Action {
     },
     /// Déclarer jouée toute la dernière séance Loto Foot (comme `edge lotofoot played --last-session`).
     LotofootPlayedSession,
+    /// Déclarer jouées les grilles de la dernière séance du Grand Loto (comme `edge loto played --last-session`).
+    LotoPlayedSession,
+    /// Déclarer une grille de Grand Loto saisie à la main (comme `edge loto played --grid … --date …`).
+    LotoGrid {
+        /// Édition.
+        date: NaiveDate,
+        /// La grille.
+        grid: Grid,
+        /// Mise, en euros.
+        stake: f64,
+    },
 }
 
 /// Exécute une écriture et renvoie le message à afficher.
@@ -172,6 +184,25 @@ pub fn apply(
                 ));
             }
             Ok(message)
+        }
+        Action::LotoPlayedSession => {
+            let written = loto::played::declare_last_session(&conn, now)?;
+            Ok(format!(
+                "{} grille(s) du Grand Loto déclarée(s) jouée(s).",
+                written.len()
+            ))
+        }
+        Action::LotoGrid { date, grid, stake } => {
+            let (id, off_model) = loto::played::declare_manual(&conn, *date, *grid, *stake, now)?;
+            let kind = if off_model {
+                "hors modèle"
+            } else {
+                "rattachée à sa recommandation"
+            };
+            Ok(format!(
+                "Grille {grid} du {} déclarée jouée ({kind}), n° {id}.",
+                date.format("%d/%m/%Y")
+            ))
         }
     }
 }

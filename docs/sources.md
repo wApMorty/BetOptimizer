@@ -1864,3 +1864,17 @@ extrapole le plus (effet de sélection : le gain réel sera plus petit que prév
 de numéros non modélisés au-delà du filtre ; probabilité qu'aucun autre joueur ne gagne le jackpot prise au hasard ; reports
 d'un rang vide ignorés ; gains des codes non suivis ; « Tirages Super Jackpot Forcément Gagné » non détectés ; règles 2027 de
 l'EuroMillions à revoir. Variance : celle d'une loterie, presque tout vient des rangs 1 à 4.
+
+## 45. Phase 17 — Page « Grand Loto » de l'application Web (2026-10-23)
+
+**Demande de Paul** : une vraie page `/loto`, comme `/lotofoot`. Choix de Paul : **pas de bouton** pour lancer la séance (elle reste
+celle du timer, trois jours avant l'édition, jamais refaite), et **un petit formulaire** pour déclarer une grille saisie à la main.
+
+- `GET /loto` (lecture seule, base ouverte en lecture seule) : prochaine édition de `grand_loto_editions` (la configuration n'est lue
+  qu'au démarrage d'`edge serve` : une édition ajoutée demande un redémarrage) ; séance de l'édition, ou la plus récente, lue dans
+  le journal telle qu'elle a été décidée (notes JSON : prévision, grille au hasard, verdict des préférences, grilles évaluées) ;
+  grilles jouées et leur règlement ; série EuroMillions au plafond en cours (`loto::alert::current_streak`, même calcul que
+  l'alerte) et alertes envoyées ; Grand Loto passés (`report::loto_report::edition_rows`, même calcul que `edge loto study`).
+- `POST /loto/jouee` : comme `edge loto played --last-session`. `POST /loto/grille` : grille (cinq numéros puis la chance, toute
+  écriture), édition, mise ; rattachée à la recommandation identique de l'édition, sinon hors modèle (invariant 7).
+- Rien de neuf dans le cœur du modèle ; aucune dépendance, aucune migration.

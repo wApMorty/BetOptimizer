@@ -22,3 +22,4 @@ trois questions pour vérifier la compréhension, trois fichiers à relire en pr
 | 14 | Loto Foot LF7 et LF8 (`edge lotofoot`, séance du samedi, page `/lotofoot`, vérification figée à 26 et 52 semaines) | [docs/learning/phase-14.md](docs/learning/phase-14.md) |
 | 15 | Application Web à la place d'edge-gui (`edge serve`, connexion, formulaires, image Loto Foot en bulletin) | [docs/learning/phase-15.md](docs/learning/phase-15.md) |
 | 16 | Grand Loto et alerte EuroMillions (`edge loto`, historique FDJ, préférences du public, seuil 1,05 au pessimiste) | [docs/learning/phase-16.md](docs/learning/phase-16.md) |
+| 17 | Page « Grand Loto » de l'application Web (`/loto`, séance en boules, grilles jouées, EuroMillions au plafond) | [docs/learning/phase-17.md](docs/learning/phase-17.md) |

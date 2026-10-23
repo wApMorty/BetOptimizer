@@ -5,6 +5,7 @@ pub mod bets;
 pub mod bonus;
 pub mod entry;
 pub mod latency;
+pub mod loto;
 pub mod lotofoot;
 pub mod opportunities;
 pub mod paper;
