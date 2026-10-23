@@ -5,6 +5,7 @@
 //! prono-match ([`pronomatch`]) et règle les tickets joués ([`settle`]). Étude et choix : `docs/sources.md` §37 et §38.
 
 pub mod bulletin;
+pub mod espn;
 pub mod fetch;
 pub mod live;
 pub mod model;
@@ -12,6 +13,7 @@ pub mod odds;
 pub mod optimize;
 pub mod played;
 pub mod pronomatch;
+pub mod scores;
 pub mod session;
 pub mod settle;
 pub mod verify;

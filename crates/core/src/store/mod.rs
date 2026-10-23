@@ -7,6 +7,7 @@ pub mod history;
 pub mod journal;
 pub mod loto;
 pub mod lotofoot;
+pub mod lotofoot_live;
 pub mod migrate;
 pub mod nba;
 pub mod oddspapi;
