@@ -1686,3 +1686,113 @@ Choix de Paul : séance réelle écrite au journal, mise de 1 à 16 €, Discord
   dans la console et dans le message de la page.
 - Durée : 10 à 20 secondes (5 s de pause entre deux pages de prono-match, puis les cotes) ; le serveur traite les requêtes une à
   une, les autres pages attendent pendant ce temps. Coût : 1 crédit par compétition manquante, 8 au plus par séance.
+
+## 42. Recherche élargie : jeux à répartition garantie et concours dotés, hors paris sportifs (2026-10-23)
+
+**Demande de Paul** : chercher, au-delà des paris sportifs, un système automatisable et rentable « à la manière du Loto Foot ».
+Critère retenu : une somme **garantie** (jackpot forcé, prix fixe) répartie entre un nombre de participants qui varie, ou un
+concours gratuit doté. Recherche documentaire seulement, aucune mesure ; chiffres non vérifiés marqués comme tels.
+
+**Pistes ouvertes, par ordre d'intérêt**
+
+1. **Grand Loto FDJ (jackpot forcé).** Selon la FDJ, si personne ne trouve la combinaison, les 20 M€ « sont redistribués sur les
+   rangs de gain inférieurs » au lieu d'être reportés ([FDJ, Grand Loto du 26/06/2026](https://www.fdj.fr/mag/actus/article-grand-loto-20M-euros-260626),
+   [Grand Loto de Noël 2025](https://www.fdj.fr/mag/actus/article-grand-loto-de-noel)). Grille à 5 € et 100 codes à 20 000 €
+   ([tirage-gagnant.com](https://tirage-gagnant.com/114708/grand-loto-des-vacances-2026/), source non officielle). Plusieurs
+   éditions par an (été, Noël…). Espérance par grille, avec `J` le jackpot, `C` les codes, `N` le nombre de grilles et `r` le gain
+   moyen des rangs inférieurs hors jackpot :
+
+       E = (J + C) / N + r ;   E > 5 €  ⇔  N < (J + C) / (5 − r).
+
+   Avec `r ≈ 1 €` (hypothèse à mesurer), le point mort est vers 5,5 millions de grilles. Seul volume trouvé : 4 millions de grilles
+   en 2017 ([Economie Matin](https://www.economiematin.fr/?p=52768), ancien et non officiel). Comme au Loto Foot, le choix de
+   numéros impopulaires (au-delà de 31, hors suites et dates) augmente la part reçue quand le jackpot est partagé (Thaler et Ziemba,
+   « Parimutuel Betting Markets: Racetracks and Lotteries », *J. Econ. Perspectives*, 1988). Données : la FDJ publie l'historique en
+   ZIP, Grand Loto compris, avec le nombre de gagnants par rang ([historique Loto](https://www.fdj.fr/jeux-de-tirage/loto/historique)),
+   d'où `N` se déduit par les rangs à forte fréquence. **Mesurable sans frais.**
+2. **EuroMillions, cinquième tirage au plafond.** Au plafond (250 M€), le jackpot est remis en jeu au plus quatre fois, puis
+   « redistribué au(x) gagnant(s) du deuxième rang » au cinquième tirage ([FDJ](https://www.fdj.fr/mag/questions/article-plafond-euromillions)).
+   Espérance de ce rang, avec `p₂ = 1/6 991 908` (5 numéros et 1 étoile) et `λ = N·p₂` :
+   `250 M€ · (1 − e^(−λ)) / N`, soit environ 2,50 € par grille si `N = 10⁸`. Le cas **ne s'est jamais produit**
+   ([lottery.co.uk](https://www.lottery.co.uk/euromillions/jackpot-cap)) : alerte possible, pas un système.
+3. **Tournoi de bots FutureEval (Metaculus).** Concours gratuit de prévision par des bots LLM : 50 000 $ par saison, trois saisons
+   par an, plus une MiniBench à 1 000 $ toutes les deux semaines ([annonce Fall 2026](https://forum.effectivealtruism.org/posts/hrJrsgMCwsdBuAqgQ/announcing-fall-2026-futureeval-bot-tournament)).
+   Printemps 2026 : 111 bots hors Metaculus, 297 questions ([bilan](https://www.lesswrong.com/posts/wZBbDqzfBjYG58CxK/futureeval-spring-results-pros-beat-bots-but-the-gap-is)).
+   Saison d'automne ouverte depuis le 28/09/2026, entrée possible jusqu'à quelques semaines avant le 01/01/2027 (départ à 0 point).
+   Crédits LLM financés sur demande (environ 100 $ au départ, non garantis). Particuliers éligibles ; bots commerciaux (trois
+   personnes ou plus) exclus des prix sauf code ouvert. Commentaires de raisonnement et questionnaire de saison obligatoires pour
+   les prix. Modèle de départ : [metac-bot-template](https://github.com/Metaculus/metac-bot-template) (Python). **Non trouvé** :
+   formule de répartition des prix (page Metaculus en 403). Prix imposables en France (à vérifier).
+4. **Bonus de bienvenue hippiques** (agrément distinct du sport, absent de `docs/bonus-bienvenue.md`) : Betclic Turf (1er pari
+   hippique perdant remboursé en freebet, 100 € max, rejouable sur le sport), PMU Turf (100 € de bonus turf et un ticket Quinté+),
+   Genybet (jusqu'à 200 €, dont 10 % des mises reversées) ([vitepromo](https://www.vitepromo.com/en/divers-rencontres/code-promo-betclicturf),
+   [vitepromo Genybet](https://www.vitepromo.com/divers-rencontres/code-promo-genybet), comparateurs non officiels, juin-juillet 2026).
+   Ponctuel, sans couverture possible en pari mutuel.
+
+**Pistes écartées**
+
+- **Quinté+ et sa tirelire** : structure proche du Loto Foot, mais retour aux joueurs d'environ 72 % (site affilié, non vérifié ;
+  pourcentages masqués dans les décisions ANJ [2024-120](https://anj.fr/sites/default/files/2024-07/D%C3%A9cision%202024-120_IP_Quint%C3%A9%2B_PMU_PDV.pdf)) ;
+  la répartition des combinaisons jouées par le public n'est pas publiée, et les données en direct viennent du site du PMU, un opérateur.
+- **Sorare** : régime JONUM (loi SREN, décret 2026-60) ; selon une [lecture du décret](https://medium.com/@N00V0/sorare-and-the-jonum-decree-b9efbf80a5d7)
+  non vérifiée sur Légifrance, aucune récompense en monnaie légale. Spéculation sur des cartes.
+- **Numerai** : gains liés à une mise en NMR (crypto-actif) brûlée en cas de mauvaise performance ; aucun avantage démontré.
+- **Concours de pronostics gratuits** : surtout des lots ; les dotations en argent viennent d'opérateurs et sont ponctuelles.
+- **Loto ordinaire** : jackpot redistribué seulement après 34 tirages sans gagnant ([FDJ, 2022](https://www.fdj.fr/mag/questions/article-plafond-loto)) ; jamais atteint en pratique.
+
+## 43. Grand Loto et EuroMillions au plafond : mesures sur l'historique officiel FDJ (2026-10-23)
+
+**Données** : archives ZIP de la FDJ, téléchargées avec l'accord de Paul depuis les pages
+[historique Loto](https://www.fdj.fr/jeux-de-tirage/loto/historique) et
+[historique EuroMillions](https://www.fdj.fr/jeux-de-tirage/euromillions-my-million/historique) (lien
+`sto.api.fdj.fr/anonymous/service-draw-info/v3/documentations/…`) : `grandloto_201912.csv` (9 tirages, 12/2019 → 12/2025),
+`lotonoel2017.csv` (2017, 2018), `loto_201911.csv`, `euromillions_*.csv` (2004 → 20/10/2026). Séparateur `;`, décimales à la
+virgule, nombre de gagnants et rapport par rang ; pour l'EuroMillions, gagnants en France **et en Europe**. Le Grand Loto du
+26/06/2026 (20 M€, deux gagnants) n'y figure pas encore. Scripts ponctuels dans le scratchpad, non versionnés.
+
+**Méthode.** Le nombre de grilles `N` se déduit des rangs à forte fréquence (estimateur de Poisson
+`N = Σ n_k / Σ p_k`, rangs 5 à 9 au Loto, 9 à 13 à l'EuroMillions ; `p_k` dénombré sur 5/49 × 1/10 et 5/50 × 2/12). Contrôle sur
+les Loto ordinaires de 2026 : 2,6 à 5,1 millions de grilles par tirage, 0,7 à 0,9 € reversé par grille de 2,20 € hors jackpot,
+cohérent. Les rangs 8 et 9 pris seuls donnent l'écart d'estimation (entre parenthèses ci-dessous). Biais possible : un tirage de
+numéros populaires gonfle les gagnants, donc `N`.
+
+**Grand Loto (jackpot forcé, 5 € la grille).** Le jackpot `J` est toujours versé, au premier rang ou aux rangs inférieurs : le
+total versé divisé par `N` est donc l'espérance par grille du tirage, et non un résultat chanceux. Avec `r` le reversement des
+rangs inférieurs hors jackpot et codes (2,1 à 2,6 €, soit environ 48 % de la mise), le point mort est `N* = (J + C) / (5 − r)`.
+
+| Tirage | J (M€) | N estimé (M) | N* (M) | Espérance par grille |
+|---|---|---|---|---|
+| 22/12/2017 | 20 | 7,41 | 8,49 | +8 % (prix de 2017 non vérifié) |
+| 25/12/2018 | 15 | 8,82 | 6,45 | −14 % |
+| 24/12/2019 | 15 | 7,38 | 6,59 | −6 % |
+| 25/12/2020 | 19 | 7,58 | 8,16 | +4 % (−6 à +19) |
+| 24/12/2021 | 15 | 9,35 | 6,58 | −15 % |
+| 25/12/2022 | 15 | 6,99 | 6,88 | −1 % |
+| 24/12/2023 | 15 | 7,26 | 6,82 | −3 % |
+| **26/07/2024 (JO)** | 15 | **2,86** | 5,80 | **+60 %** (+45 à +87) |
+| 24/12/2024 | 20 | 8,40 | 8,09 | −2 % |
+| **04/07/2025 (été)** | 20 | **4,94** | 8,66 | **+38 %** (+26 à +48) |
+| **25/12/2025** | 20 | 6,84 | 9,01 | **+16 %** (+12 à +17) |
+
+Lecture : les éditions **d'été** attirent deux à trois fois moins de grilles, avec le même jackpot garanti : espérance de +38 à
++60 %. Les éditions de Noël à 20 M€ sont autour de l'équilibre ; à 15 M€, elles perdent. Prochaine : **Noël, vendredi
+25/12/2026, 20 M€, 5 €** ([tirage-gagnant.com](https://tirage-gagnant.com/jouer-grand-loto-de-noel), non officiel ; jeu en ligne
+sur fdj.fr possible). Avec `N` entre 6,8 et 8,4 millions, l'espérance va de +1 % à +13 %. L'espérance est réelle, mais la variance
+est celle d'une loterie : presque toute la valeur vient du jackpot et des rangs 2 à 4. Pas encore mesuré : le gain des numéros
+impopulaires (estimable sur les quelque 1 000 Loto depuis 2019, par régression du nombre de gagnants sur les numéros tirés).
+
+**EuroMillions, cinquième tirage au plafond.** Grilles européennes : médiane de 21 à 26 millions par tirage, 60 à 67 millions aux
+pointes au plafond. Au plafond, les rangs 2 à 13 reversent environ 0,85 à 1,0 € par grille de 2,50 € (0,4 à 0,5 € d'ordinaire), car
+l'excédent du jackpot descend aux rangs inférieurs. Épisodes à 250 M€ : 2025-03 (gagné au premier tirage au plafond), 2025-06
+(gagné au quatrième), 2025-08 ; aucun en 2026. En 2022 (230 M€), le jackpot a aussi été gagné au quatrième tirage au plafond.
+Espérance d'un cinquième tirage, avec `p₂ = 1/6 991 908` et `r ≈ 0,9 €` :
+
+    V(N) = 250 M€ · (1 − e^(−N·p₂)) / N + r
+
+| N (millions) | 70 | 100 | 150 | point mort |
+|---|---|---|---|---|
+| V par grille de 2,50 € | 4,47 € (+79 %) | 3,40 € (+36 %) | 2,57 € (+3 %) | environ 156 M |
+
+Probabilité qu'un épisode atteigne le cinquième tirage : `Π e^(−N_i/139,8 M)` sur quatre tirages ; avec 50 à 65 millions de grilles,
+environ 0,15 à 0,25. Avec deux à trois épisodes par an, un tel tirage arriverait **une fois tous les deux à quatre ans** ; il n'a
+jamais eu lieu. Une alerte suffit : déclenchée quand le quatrième tirage au plafond n'a pas de gagnant.
