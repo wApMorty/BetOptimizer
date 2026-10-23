@@ -1878,3 +1878,50 @@ celle du timer, trois jours avant l'édition, jamais refaite), et **un petit for
 - `POST /loto/jouee` : comme `edge loto played --last-session`. `POST /loto/grille` : grille (cinq numéros puis la chance, toute
   écriture), édition, mise ; rattachée à la recommandation identique de l'édition, sinon hors modèle (invariant 7).
 - Rien de neuf dans le cœur du modèle ; aucune dépendance, aucune migration.
+
+## 46. Phase 18 — Suivi en direct des grilles Loto Foot (ESPN, 2026-10-23)
+
+**Demande de Paul** : un code couleur sur `/lotofoot` pour voir d'un coup d'œil les tickets encore en vie pendant les matchs. The Odds
+API `/scores` (2 crédits par compétition et par appel avec `daysFrom`) est refusée : le budget mensuel n'y suffirait pas.
+
+**Sources écartées.**
+- Sofascore : répond HTTP 403 à tout client qui n'est pas un navigateur, `robots.txt` compris. Y accéder voudrait dire contourner sa
+  protection : exclu.
+- Flashscore : `robots.txt` interdit `/direct/` et `/termines/` ; les données passent par un flux non documenté et signé. Exclu.
+- prono-match : la page de grille n'affiche aucun score en cours (relevés du 2026-10-22) ; seuls les résultats officiels, après la grille.
+
+**ESPN, API publique non documentée** (`https://site.api.espn.com/apis/site/v2/sports/soccer/{ligue}/scoreboard?dates=AAAAMMJJ`),
+gratuite, sans clé, testée le 2026-10-23. Conditions d'utilisation non lues (le `robots.txt` du domaine renvoie « Access Denied ») :
+usage personnel à très faible débit, même zone grise que prono-match. Elle peut changer sans préavis : la page affiche alors un
+message et le règlement reste celui des résultats officiels.
+- Couverture : 36 des 37 compétitions utiles (Big 5, Écosse et les 31 de `lotofoot_leagues`). `pol.1` (Ekstraklasa) répond HTTP 400
+  « Failed to get events endpoint » : pas de suivi pour la Pologne.
+- `dates` est un jour **de New York** : un match brésilien à 00:00 UTC le 18 figure sous le 17. Les plages `AAAAMMJJ-AAAAMMJJ`
+  renvoient zéro match (essai sur la Carabao Cup) : une page par jour.
+- Date d'un match sans secondes (`2026-10-24T18:45Z`). Champ `period` absent avant le coup d'envoi.
+- État : `status.type.state` (`pre`, `in`, `post`), `completed`, `name` (`STATUS_SCHEDULED`, `STATUS_FIRST_HALF`, `STATUS_HALFTIME`,
+  `STATUS_IN_PROGRESS`, `STATUS_SECOND_HALF`, `STATUS_FULL_TIME`, `STATUS_FINAL_PEN`…), `period` (1 et 2 : temps réglementaire ;
+  5 : tirs au but). Un `STATUS_FINAL_PEN` donne le score avant les tirs, sans `linescores` : le score à 90 minutes d'un match prolongé
+  n'est pas lisible. Ces matchs restent « à confirmer » jusqu'au résultat officiel.
+- Écart constaté : PSG – Lyon figure chez The Odds API le 25 octobre à 19:45 UTC, chez ESPN le 26 à 19:30 UTC. La page signale alors
+  la rencontre « absente de la page ESPN ».
+
+**Choix de Paul (2026-10-23).**
+1. Pas de timer : les scores sont relevés à l'affichage de `/lotofoot`, au plus une fois par minute et par page ESPN (compétition et
+   jour), seulement pour les rencontres commencées depuis moins de 6 h et pas finies, des grilles de la semaine sans résultat
+   officiel. La page se recharge seule toutes les 60 s (`<meta http-equiv="refresh">`, sans script) tant qu'une rencontre se joue.
+2. Couleurs provisoires : un match en cours compte avec son score du moment (cases en tirets).
+3. Dernier score seulement (migration 17, tables remplacées à chaque relevé) : exception assumée à l'archive immuable, le règlement
+   restant fondé sur `lotofoot_result`.
+
+**Appariement.** Compétition et coup d'envoi viennent de l'appel `/odds` figé avec la recommandation (`odds_calls` des entrées). Les
+noms d'ESPN passent par la section `[ESPN]` de `config/aliases.toml` (nom ESPN → nom de The Odds API) : un nom inconnu laisse la
+rencontre sans score et la page le nomme ; jamais d'appariement approximatif. La table est embarquée dans le binaire : un alias ajouté
+demande de réinstaller `edge` et de relancer `edge serve`.
+
+**Code couleur.** Par ticket, et par grille à remplir (son meilleur ticket : une rencontre n'y est fausse que si aucune case cochée
+n'est sortie) : gris avant le premier signe connu, vert sans faute, orange à une erreur (2e rang encore possible), rouge au-delà ;
+« perdu » dès deux erreurs définitives, « gagné » quand tout est définitif. Sous chaque grille multiple : tickets encore en lice.
+
+**Essai réel du 2026-10-23** (copie de la base, LF8 n°146 joué, 16 tickets) : les 8 rencontres appariées (Ligue 2, Ligue 1, Serie A,
+Premier League), quatre pages ESPN, page servie en 0,3 s.
