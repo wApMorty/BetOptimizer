@@ -1655,8 +1655,9 @@ règlement, déclaration). Les vues sont calculées par `lotofoot_page::page` (c
 
 **Chances et gains affichés (2026-10-23, demande de Paul : l'espérance se lit mal sur des probabilités aussi basses).** Pour chaque
 ticket, la chance de chaque rang (« 1 sur 2 400 ») et le gain moyen quand on l'atteint, `E[gain | rang] = E[gain · 1{rang}] / P(rang)`,
-calculés par le même parcours que l'espérance (`GridModel::rank_odds`). Pour chaque grille à remplir, la chance de payer au moins un
-ticket (loi de Poisson-binomiale des rencontres « dans les signes », `GridModel::line_paid_probability`) et le gain moyen quand elle
-paie, `Σ espérances des tickets / P(payée)`. Probabilités du marché, modèle de base ; les séances passées sont recalculées à partir
+calculés par le même parcours que l'espérance (`GridModel::rank_odds`). Pour chaque grille à remplir, les mêmes deux rangs selon son
+meilleur ticket (`GridModel::line_odds`, énumération des 3^n issues) : « sans faute » si l'un de ses tickets est parfait, avec le gain
+de toute la grille (ses tickets à une erreur compris), puis « une erreur ». Un premier essai donnait un seul gain moyen « quand elle
+paie », mélange du sans-faute et d'une erreur : Paul l'a jugé trompeur, il est retiré. Probabilités du marché, modèle de base ; les séances passées sont recalculées à partir
 des entrées figées au journal (`GridModel::from_journal`, déplacé de `verify.rs`). Le partage entre nos propres tickets n'est pas
 déduit, comme dans l'espérance.

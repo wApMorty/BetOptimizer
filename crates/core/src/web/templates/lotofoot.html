@@ -13,7 +13,7 @@
 
 <h2>{% if session %}Séance du {{ session }}{% else %}Dernière séance{% endif %}</h2>
 {% if tickets %}
-<p class="meta">Chaque colonne est une grille à remplir : coche toutes les cases indiquées pour chaque rencontre, dans l'ordre de la grille (deux cases : double, trois : triple). Les multiples regroupent sans perte les tickets choisis : mêmes tickets, même mise, mêmes gains (<code>docs/sources.md</code> §39).<br>Chances : probabilités du marché (Pinnacle, sans marge). Gains : moyenne sur les issues qui paient, une fois la masse du rang partagée avec les autres gagnants attendus ; le gain réel varie beaucoup selon le nombre de gagnants.</p>
+<p class="meta">Chaque colonne est une grille à remplir : coche toutes les cases indiquées pour chaque rencontre, dans l'ordre de la grille (deux cases : double, trois : triple). Les multiples regroupent sans perte les tickets choisis : mêmes tickets, même mise, mêmes gains (<code>docs/sources.md</code> §39).<br>Chances : probabilités du marché (Pinnacle, sans marge). Gains : moyenne sur les issues qui atteignent ce rang, une fois la masse partagée avec les autres gagnants attendus ; le gain réel varie beaucoup selon le nombre de gagnants. Pour une multiple, « sans faute » veut dire qu'un de ses tickets est parfait, et le gain compte aussi ses tickets à une erreur.</p>
 <div class="actions">
 {% if to_declare %}<form method="post" action="/lotofoot/jouee" class="inline"><button class="btn" type="submit" title="Déclare joués tous les tickets de la séance (comme edge lotofoot played --last-session). Un ticket déjà déclaré est ignoré, jamais doublé.">J'ai joué la séance</button></form>
 {% else %}<span class="chip t-pos">séance déclarée jouée</span>{% endif %}
@@ -27,7 +27,8 @@
     <tbody>
     {% for r in b.rows %}<tr><td>{{ r.fixture }}</td>{% for cell in r.cells %}<td class="sign-cell">{% for s in cell %}<span class="sign s-{{ s }}">{{ s }}</span>{% endfor %}</td>{% endfor %}</tr>
     {% endfor %}
-    <tr class="foot"><td class="meta">chance de gain<br>gain moyen quand elle gagne</td>{% for c in b.columns %}<td class="sign-cell"><b>{{ c.chance }}</b><br>{{ c.gain }}</td>{% endfor %}</tr>
+    {% for r in b.ranks %}<tr class="foot"><td class="meta">{{ r.label }}<br>chance · gain moyen</td>{% for cell in r.cells %}<td class="sign-cell">{% if cell %}<b>{{ cell.chance }}</b><br>{{ cell.gain }}{% else %}—{% endif %}</td>{% endfor %}</tr>
+    {% endfor %}
     <tr class="foot"><td class="meta">tickets · état</td>{% for c in b.columns %}<td class="sign-cell meta">{{ c.tickets }}<br><span class="chip {% if c.played %}t-pos{% else %}t-warn{% endif %}">{% if c.played %}joué{% else %}pas déclaré{% endif %}</span></td>{% endfor %}</tr>
     </tbody>
   </table>

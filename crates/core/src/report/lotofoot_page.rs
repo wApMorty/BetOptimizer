@@ -10,7 +10,7 @@ use serde::Serialize;
 use crate::error::Result;
 use crate::format::{chance, decimal, kickoff_label, long_date, rough_euros};
 use crate::lotofoot::bulletin::{Line, session_lines};
-use crate::lotofoot::model::{FROZEN, GridModel};
+use crate::lotofoot::model::{FROZEN, GridModel, RankOdds};
 use crate::lotofoot::session::SessionReport;
 use crate::lotofoot::settle::{self, Ledger};
 use crate::lotofoot::verify::{self, Verdict, Verification};
@@ -44,11 +44,11 @@ pub struct TicketView {
     pub played: bool,
 }
 
-/// Un rang payé d'un ticket : ce qu'il faut réussir, la chance d'y arriver, le gain moyen quand on y arrive.
+/// Un rang payé d'un ticket ou d'une grille : ce qu'il faut réussir, la chance d'y arriver, le gain moyen quand on y arrive.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RankView {
-    /// « 7 bons sur 7 », « 6 bons sur 7 ».
-    pub label: String,
+    /// « Sans faute », « Une erreur ».
+    pub label: &'static str,
     /// « 1 sur 2 400 ».
     pub chance: String,
     /// « ≈ 3 150 € ».
@@ -80,10 +80,9 @@ pub struct LineView {
     pub price: String,
     /// Numéros au journal des tickets contenus.
     pub tickets: Vec<i64>,
-    /// Chance que la grille paie au moins un de ses tickets (« 1 sur 40 »).
-    pub chance: String,
-    /// Gain moyen quand elle paie (« ≈ 210 € »).
-    pub gain: String,
+    /// Chance et gain moyen de la grille selon son meilleur résultat : sans faute, puis une erreur (vide si les entrées
+    /// du modèle manquent).
+    pub ranks: Vec<RankView>,
     /// Tous ses tickets sont déclarés joués.
     pub played: bool,
 }
@@ -308,35 +307,40 @@ pub fn page(conn: &Connection, now: DateTime<Utc>) -> Result<LotofootPage> {
 
 /// Chance et gain moyen de chaque rang d'un ticket, recalculés par le modèle à partir de ses entrées figées au journal.
 fn rank_views(reco: &RecoRow) -> Vec<RankView> {
-    let Some(model) = GridModel::from_journal(reco.game, &reco.inputs) else {
-        return Vec::new();
-    };
-    let n = reco.game.matches();
-    model
-        .rank_odds(&reco.ticket, &FROZEN)
-        .iter()
+    GridModel::from_journal(reco.game, &reco.inputs).map_or(Vec::new(), |model| {
+        views(&model.rank_odds(&reco.ticket, &FROZEN))
+    })
+}
+
+/// Chance et gain moyen d'une grille à remplir selon son meilleur résultat ([`GridModel::line_odds`]).
+pub fn line_ranks(model: &GridModel, line: &Line) -> Vec<RankView> {
+    views(&model.line_odds(line, &FROZEN))
+}
+
+/// Mise en forme des rangs : « Sans faute », 1 sur 2 400, ≈ 3 150 €.
+fn views(odds: &[RankOdds]) -> Vec<RankView> {
+    odds.iter()
         .enumerate()
-        .map(|(errors, odds)| RankView {
-            label: format!("{} bons sur {n}", n - errors),
-            chance: chance(odds.probability),
-            gain: rough_euros(odds.gain_if_reached * TICKET_PRICE),
+        .map(|(errors, o)| RankView {
+            label: match errors {
+                0 => "Sans faute",
+                1 => "Une erreur",
+                _ => "Plusieurs erreurs",
+            },
+            chance: chance(o.probability),
+            gain: rough_euros(o.gain_if_reached * TICKET_PRICE),
         })
         .collect()
 }
 
-/// Ce que peut rapporter une grille à remplir : chance d'être payée, et gain moyen quand elle l'est.
-///
-/// `E[gain | payée] = E[gain] / P(payée)`, car la grille ne rapporte rien quand elle n'est pas payée ; `E[gain]` est la
-/// somme des espérances de ses tickets (`expected_gain`, en euros). Le partage entre nos propres tickets n'est pas
-/// déduit, comme dans l'espérance des tickets.
-pub fn line_outlook(model: &GridModel, line: &Line, expected_gain: f64) -> (String, String) {
-    let paid = model.line_paid_probability(line);
-    let gain = if paid > 0.0 {
-        expected_gain / paid
-    } else {
-        0.0
-    };
-    (chance(paid), rough_euros(gain))
+/// Les rangs en une ligne de texte, pour Discord et la console : « sans faute 1 sur 2 400 (≈ 3 150 €), une erreur 1
+/// sur 60 (≈ 45 €) ».
+pub fn ranks_text(ranks: &[RankView]) -> String {
+    ranks
+        .iter()
+        .map(|r| format!("{} {} ({})", r.label.to_lowercase(), r.chance, r.gain))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Grilles à remplir pour les tickets de la séance ; `played` : numéros des tickets déclarés joués.
@@ -350,19 +354,12 @@ fn line_views(recos: &[RecoRow], played: &[i64]) -> Vec<LineView> {
         .map(|l| {
             // `l.tickets` donne des rangs dans `recos` : on les traduit en numéros du journal.
             let ids: Vec<i64> = l.tickets.iter().map(|&i| recos[i].id).collect();
-            let expected: f64 = l
-                .tickets
-                .iter()
-                .map(|&i| recos[i].ev_base * TICKET_PRICE)
-                .sum();
             // Tous les tickets d'une grille du Loto Foot partagent les mêmes entrées : celles du premier suffisent.
             let model = l
                 .tickets
                 .first()
                 .and_then(|&i| GridModel::from_journal(recos[i].game, &recos[i].inputs));
-            let (chance, gain) = model.map_or(("—".to_string(), "—".to_string()), |m| {
-                line_outlook(&m, &l.line, expected)
-            });
+            let ranks = model.map_or(Vec::new(), |m| line_ranks(&m, &l.line));
             LineView {
                 grid: format!("{} n°{}", l.grid.0, l.grid.1),
                 signs: l
@@ -375,8 +372,7 @@ fn line_views(recos: &[RecoRow], played: &[i64]) -> Vec<LineView> {
                 price: format!("{} €", l.line.combinations()),
                 played: ids.iter().all(|id| played.contains(id)),
                 tickets: ids,
-                chance,
-                gain,
+                ranks,
             }
         })
         .collect()
@@ -460,16 +456,11 @@ pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
             text.push_str(&format!("{}. {h} – {a}\n", i + 1));
         }
         for l in own {
-            let expected: f64 = l
-                .tickets
-                .iter()
-                .map(|&i| report.chosen[i].base.expected_return * TICKET_PRICE)
-                .sum();
-            let (chance, gain) = line_outlook(&grid.model, &l.line, expected);
             text.push_str(&format!(
-                "`{}`  {} € — gagne {chance}, {gain} quand elle gagne\n",
+                "`{}`  {} € — {}\n",
                 l.line,
-                l.line.combinations()
+                l.line.combinations(),
+                ranks_text(&line_ranks(&grid.model, &l.line))
             ));
         }
     }
@@ -544,11 +535,12 @@ mod tests {
         assert!(text.contains("**LF8 n°147**"));
         assert!(text.contains("1. H1 – A1"));
         assert!(text.contains("en 1 grille(s) à remplir"));
-        // 6 561 / 17 ≈ 386 issues pour une payée, et 2,50 € d'espérance / (17 / 6 561) ≈ 965 € quand elle paie.
+        // Huit rencontres à un tiers : sans faute 1 issue sur 6 561, une erreur 16 sur 6 561 (1 sur 410).
         assert!(
-            text.contains("`2 1 N 1 2 2 2 2`  1 € — gagne 1 sur 390, ≈ 965 € quand elle gagne"),
+            text.contains("`2 1 N 1 2 2 2 2`  1 € — sans faute 1 sur 6\u{a0}600 (≈ "),
             "{text}"
         );
+        assert!(text.contains("une erreur 1 sur 410 (≈ "), "{text}");
         assert!(text.contains("Inconnu FC"));
         assert!(text.contains("<http://portable.local:8737/lotofoot>"));
         let empty = SessionReport {

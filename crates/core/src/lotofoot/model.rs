@@ -231,40 +231,57 @@ impl GridModel {
     /// Gain moyen sachant le rang atteint : `E[gain | rang r] = E[gain · 1{rang r}] / P(rang r)` ; la somme des
     /// `probability · gain_if_reached` redonne l'espérance de [`GridModel::value`]. 0 € pour un rang impossible.
     pub fn rank_odds(&self, ticket: &Ticket, competitors: &Competitors) -> Vec<RankOdds> {
-        self.walk(ticket, competitors)
-            .into_iter()
-            .map(|r| RankOdds {
-                probability: r.probability,
-                gain_if_reached: if r.probability > 0.0 {
-                    r.gain / r.probability
-                } else {
-                    0.0
-                },
-            })
-            .collect()
+        odds(self.walk(ticket, competitors))
     }
 
-    /// Probabilité qu'une grille à remplir (simple ou multiple) paie au moins un de ses tickets.
+    /// Chance et gain moyen d'une grille à remplir (simple ou multiple) selon son meilleur résultat : sans faute si l'un
+    /// de ses tickets est parfait, une erreur si le meilleur en fait une, et ainsi de suite jusqu'au dernier rang payé.
     ///
-    /// La grille est payée si l'issue tombe hors de ses signes sur au plus `R − 1` rencontres. La rencontre i tombe
-    /// dans ses signes avec la probabilité `a_i = Σ_{s ∈ A_i} p_i(s)`, indépendamment des autres ; le nombre de
-    /// rencontres « dans les signes » suit donc une loi de Poisson-binomiale de paramètres `a_i`. Pour un ticket simple,
-    /// on retrouve sa probabilité de gain.
-    pub fn line_paid_probability(&self, line: &Line) -> f64 {
+    /// Le meilleur ticket fait autant d'erreurs qu'il y a de rencontres tombées hors des signes de la grille. On parcourt
+    /// les `3^n` issues (6 561 au LF8) ; pour celles qui paient, le gain de la grille est la somme des gains espérés de
+    /// ses tickets sachant l'issue ([`GridModel::outcome_gain`]). Pour une multiple, le gain d'un sans-faute comprend donc
+    /// aussi ses tickets à une erreur. Pour un ticket simple, on retrouve [`GridModel::rank_odds`].
+    pub fn line_odds(&self, line: &Line, competitors: &Competitors) -> Vec<RankOdds> {
         let n = self.len();
-        if line.signs().len() != n {
-            return 0.0;
+        let mut sums = vec![Accumulated::default(); self.ranks()];
+        let total = u32::try_from(n).ok().and_then(|n| 3usize.checked_pow(n));
+        let (Some(total), true) = (total, line.signs().len() == n) else {
+            return odds(sums);
+        };
+        let tickets = line.tickets();
+        for code in 0..total {
+            // L'issue de code `code` : ses chiffres en base 3 sont les signes sortis, rencontre par rencontre.
+            let mut rest = code;
+            let outcome: Vec<Outcome> = (0..n)
+                .map(|_| {
+                    let sign = Outcome::ALL[rest % 3];
+                    rest /= 3;
+                    sign
+                })
+                .collect();
+            let misses = line
+                .signs()
+                .iter()
+                .zip(&outcome)
+                .filter(|(choices, sign)| !choices.contains(sign))
+                .count();
+            // Au-delà du dernier rang payé, l'issue ne rapporte rien : on passe sans calculer de gain.
+            let Some(sum) = sums.get_mut(misses) else {
+                continue;
+            };
+            let prob: f64 = outcome
+                .iter()
+                .zip(&self.p)
+                .map(|(o, p)| p[o.index()])
+                .product();
+            let gain: f64 = tickets
+                .iter()
+                .map(|t| self.outcome_gain(t, &outcome, competitors))
+                .sum();
+            sum.probability += prob;
+            sum.gain += prob * gain;
         }
-        let a: Vec<f64> = line
-            .signs()
-            .iter()
-            .zip(&self.p)
-            .map(|(choices, p)| choices.iter().map(|s| p[s.index()]).sum())
-            .collect();
-        let good = poisson_binomial(&a);
-        (0..self.ranks())
-            .map(|errors| good.get(n - errors).copied().unwrap_or(0.0))
-            .sum()
+        odds(sums)
     }
 
     /// Parcours complet d'un ticket : probabilité et contribution à l'espérance de chaque rang (`gain` vaut ici
@@ -334,6 +351,21 @@ struct Walk<'a> {
     outcome: Vec<usize>,
     /// Sommes de chaque rang, indice = nombre d'erreurs.
     ranks: Vec<Accumulated>,
+}
+
+/// Chance et gain moyen sachant le rang, à partir des sommes de chaque rang : `E[gain | rang r] = E[gain · 1{rang r}] /
+/// P(rang r)` ; 0 € pour un rang impossible.
+fn odds(sums: Vec<Accumulated>) -> Vec<RankOdds> {
+    sums.into_iter()
+        .map(|r| RankOdds {
+            probability: r.probability,
+            gain_if_reached: if r.probability > 0.0 {
+                r.gain / r.probability
+            } else {
+                0.0
+            },
+        })
+        .collect()
 }
 
 /// Sommes d'un rang pendant le parcours : probabilité d'y arriver, et espérance du gain sur ces issues.
@@ -668,40 +700,46 @@ mod tests {
     }
 
     #[test]
-    fn a_line_pays_when_one_of_its_tickets_does() {
+    fn a_line_of_one_ticket_has_the_odds_of_that_ticket() {
         let grid = lf7();
         let single = Ticket::parse("1222122").unwrap();
-        assert_relative_eq!(
-            grid.line_paid_probability(&Line::single(&single)),
-            grid.value(&single, &FROZEN).paid_probability,
-            epsilon = 1e-12
-        );
-        // Multiple `1N 2 2 2 1 12 2` : contrôle par énumération des 3^7 issues.
+        let line = grid.line_odds(&Line::single(&single), &FROZEN);
+        let ticket = grid.rank_odds(&single, &FROZEN);
+        for (l, t) in line.iter().zip(&ticket) {
+            assert_relative_eq!(l.probability, t.probability, epsilon = 1e-12);
+            assert_relative_eq!(l.gain_if_reached, t.gain_if_reached, max_relative = 1e-9);
+        }
+    }
+
+    #[test]
+    fn a_multiple_is_paid_by_its_best_ticket_and_earns_all_its_tickets() {
+        let grid = lf7();
+        // Multiple `1N 2 2 2 1 12 2` : 4 tickets.
         let tickets: Vec<Ticket> = ["1222112", "1222122", "N222112", "N222122"]
             .iter()
             .map(|c| Ticket::parse(c).unwrap())
             .collect();
         let line = crate::lotofoot::bulletin::group(Game::Lf7, &tickets).remove(0);
         assert_eq!(line.combinations(), 4);
-        let mut paid = 0.0;
-        for code in 0..3usize.pow(7) {
-            let mut rest = code;
-            let outcome: Vec<Outcome> = (0..7)
-                .map(|_| {
-                    let sign = Outcome::ALL[rest % 3];
-                    rest /= 3;
-                    sign
-                })
-                .collect();
-            if tickets.iter().any(|t| t.good(&outcome) >= 6) {
-                paid += outcome
-                    .iter()
-                    .enumerate()
-                    .map(|(i, s)| P7[i][s.index()])
-                    .product::<f64>();
-            }
-        }
-        assert_relative_eq!(grid.line_paid_probability(&line), paid, epsilon = 1e-12);
+        let odds = grid.line_odds(&line, &FROZEN);
+        // Sans faute : l'issue tombe dans les signes de chaque rencontre, probabilité produit des a_i.
+        let inside: f64 = line
+            .signs()
+            .iter()
+            .zip(&P7)
+            .map(|(choices, p)| choices.iter().map(|s| p[s.index()]).sum::<f64>())
+            .product();
+        assert_relative_eq!(odds[0].probability, inside, epsilon = 1e-12);
+        // L'espérance totale de la grille est la somme des espérances de ses tickets.
+        let expected: f64 = odds.iter().map(|o| o.probability * o.gain_if_reached).sum();
+        let tickets_ev: f64 = tickets
+            .iter()
+            .map(|t| grid.value(t, &FROZEN).expected_return * TICKET_PRICE)
+            .sum();
+        assert_relative_eq!(expected, tickets_ev, max_relative = 1e-9);
+        // Un sans-faute de la multiple rapporte plus qu'un sans-faute d'un seul de ses tickets (les voisins à une
+        // erreur paient aussi), et plus qu'une erreur.
+        assert!(odds[0].gain_if_reached > odds[1].gain_if_reached);
     }
 
     #[test]

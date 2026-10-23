@@ -15,7 +15,7 @@ use edge_core::lotofoot::played::{self, Declared, Manual};
 use edge_core::lotofoot::session::{self, SessionReport};
 use edge_core::lotofoot::settle::{self, Ledger};
 use edge_core::lotofoot::verify;
-use edge_core::lotofoot::{Game, TICKET_PRICE, Ticket};
+use edge_core::lotofoot::{Game, Ticket};
 use edge_core::notify::discord;
 use edge_core::paths::Paths;
 use edge_core::report::{lotofoot_image, lotofoot_page};
@@ -200,19 +200,16 @@ fn print_lines(report: &SessionReport) {
     );
     for l in &lines {
         let ranks: Vec<String> = l.tickets.iter().map(|i| (i + 1).to_string()).collect();
-        let expected: f64 = l
-            .tickets
-            .iter()
-            .map(|&i| report.chosen[i].base.expected_return * TICKET_PRICE)
-            .sum();
         let outlook = report
             .evaluated
             .iter()
             .find(|e| (e.game, e.number) == l.grid)
-            .map(|e| lotofoot_page::line_outlook(&e.model, &l.line, expected));
-        let outlook = outlook.map_or(String::new(), |(chance, gain)| {
-            format!(", gagne {chance}, {gain} quand elle gagne")
-        });
+            .map_or(String::new(), |e| {
+                format!(
+                    ", {}",
+                    lotofoot_page::ranks_text(&lotofoot_page::line_ranks(&e.model, &l.line))
+                )
+            });
         println!(
             "  {} n°{}  {}  {} €{outlook}  (tickets {})",
             l.grid.0,

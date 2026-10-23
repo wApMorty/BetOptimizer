@@ -22,10 +22,15 @@ struct Column {
     price: String,
     /// Numéros des tickets contenus (« n° 12, 13 »).
     tickets: String,
-    /// Chance que la grille paie (« 1 sur 40 ») et gain moyen quand elle paie.
-    chance: String,
-    gain: String,
     played: bool,
+}
+
+/// Un rang en pied de bulletin (« Sans faute ») : pour chaque grille à remplir, sa chance et son gain moyen.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct RankRow {
+    label: &'static str,
+    /// `None` si les entrées du modèle manquent pour cette grille.
+    cells: Vec<Option<RankView>>,
 }
 
 /// Une rencontre et les cases à cocher dans chaque grille à remplir (une case par signe : deux pour un double).
@@ -59,6 +64,7 @@ struct Bulletin {
     closes: String,
     columns: Vec<Column>,
     rows: Vec<Row>,
+    ranks: Vec<RankRow>,
     details: Vec<Detail>,
 }
 
@@ -101,6 +107,7 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
                             .collect(),
                     })
                     .collect(),
+                ranks: rank_rows(&lines),
                 details: lotofoot
                     .tickets
                     .iter()
@@ -123,13 +130,27 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
     )
 }
 
+/// Lignes « Sans faute » et « Une erreur » du pied de bulletin, une case par grille à remplir.
+fn rank_rows(lines: &[&LineView]) -> Vec<RankRow> {
+    // Toutes les grilles d'une même formule ont le même nombre de rangs : la plus longue liste donne les libellés.
+    let Some(longest) = lines.iter().map(|l| &l.ranks).max_by_key(|r| r.len()) else {
+        return Vec::new();
+    };
+    longest
+        .iter()
+        .enumerate()
+        .map(|(k, rank)| RankRow {
+            label: rank.label,
+            cells: lines.iter().map(|l| l.ranks.get(k).cloned()).collect(),
+        })
+        .collect()
+}
+
 fn column(line: &LineView) -> Column {
     let ids: Vec<String> = line.tickets.iter().map(i64::to_string).collect();
     Column {
         price: line.price.clone(),
         tickets: format!("n° {}", ids.join(", ")),
-        chance: line.chance.clone(),
-        gain: line.gain.clone(),
         played: line.played,
     }
 }
