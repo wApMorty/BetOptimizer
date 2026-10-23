@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grand Loto et EuroMillions — edge</title>
+<style>
+  :root { --bg:#fafaf8; --fg:#1d1d1b; --muted:#6b6b66; --card:#ffffff; --line:#e3e2dc; --accent:#1f5eaa; --good:#1a7f4b; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ececea; --muted:#a3a39d; --card:#201f1e; --line:#34332f; --accent:#7fb2ee; --good:#59c58a; --bad:#f08b83; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.6rem; margin: .4em 0 .1em; }
+  h2 { font-size: 1.25rem; margin: 2em 0 .4em; padding-top: .6em; border-top: 1px solid var(--line); }
+  h3 { font-size: 1rem; margin: 1.2em 0 .3em; }
+  p, li { max-width: 72ch; }
+  .meta, .note { color: var(--muted); font-size: .9rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  tr.best td { font-weight: 700; }
+  .ci { color: var(--muted); }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .ns { color: var(--muted); }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .charts svg { width: 100%; height: auto; background: #fff; border-radius: 8px; border: 1px solid var(--line); }
+  details > summary { cursor: pointer; color: var(--accent); margin: .4em 0; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+
+
+{% macro signed(x) %}<span class="{{ 'good' if x > 0 else 'bad' }}">{{ x|spct(0) }}</span>{% endmacro %}
+
+<h1>Grand Loto et EuroMillions</h1>
+<p class="meta">Généré le {{ generated_on }} · historique officiel de la FDJ · phase 16 (<code>docs/sources.md</code> §43 et §44).</p>
+
+<div class="card">
+  <strong>En bref.</strong>
+  <ul>
+    <li>Le Grand Loto verse toujours son jackpot : au rang 1, ou réparti sur les rangs 2 à 9. L'espérance d'une grille est donc le total versé divisé par le nombre de grilles, <code>E = (J + C) / N + r</code>, positive quand <code>N</code> est sous le point mort <code>N* = (J + C) / (prix − r)</code>.</li>
+    <li>Le nombre de grilles <code>N</code> n'est pas publié ; il se déduit des gagnants des rangs 5 à 9 : <code>N̂ = Σ n_k / Σ p_k</code>. La fourchette vient des rangs 8 et 9 pris seuls.</li>
+    <li>Une grille est jouée si son espérance atteint le seuil au nombre de grilles pessimiste. Les numéros délaissés ne servent que si leurs préférences passent le critère hors échantillon (section 2).</li>
+  </ul>
+</div>
+
+<h2>1. Grand Loto passés</h2>
+<p>Le règlement donne aux rangs 2 à 9 <strong>{{ theory_lower|num(2) }} €</strong> par grille de 5 € ; la colonne <em>r</em> donne ce qu'ils ont reçu (la part reversée est « définie globalement », pas tirage par tirage).</p>
+<div class="card scroll"><table>
+  <tr><th>Tirage</th><th>Saison</th><th>Jackpot</th><th>Grilles (M) <span class="ci">[rangs 8 / 9]</span></th><th>r</th><th>Point mort (M)</th><th>Espérance <span class="ci">[fourchette]</span></th></tr>
+  {% for e in editions %}
+  <tr><td>{{ e.date }}</td><td>{{ e.season }}</td><td>{{ e.jackpot|num(0) }} M€{% if e.won %} · gagné{% endif %}</td><td>{{ e.grids|num(2) }} <span class="ci">[{{ e.grids_low|num(2) }} ; {{ e.grids_high|num(2) }}]</span></td><td>{{ e.lower|num(2) }} €</td><td>{{ e.break_even|num(2) }}</td><td>{{ signed(e.expectation) }} <span class="ci">[{{ e.expectation_low|spct(0) }} ; {{ e.expectation_high|spct(0) }}]</span></td></tr>
+  {% else %}
+  <tr><td colspan="7">Aucun Grand Loto en base : lance <code>edge loto fetch</code>.</td></tr>
+  {% endfor %}
+</table></div>
+
+<h2>2. Préférences du public</h2>
+{% if preferences %}
+{% set p = preferences %}
+<p>Modèle produit : un poids par numéro et une part par numéro chance, ajustés par maximum de vraisemblance sur le nombre de gagnants de chaque rang de {{ p.draws }} Loto (depuis mars 2017). Validation <strong>walk-forward annuelle</strong> : chaque année est prédite par un ajustement sur les années précédentes seulement.</p>
+<p><strong>Critère fixé d'avance</strong> : gain de log-vraisemblance par tirage dont l'intervalle à 95 % exclut 0, et pente de calibration du rang 8 dont la borne basse dépasse 0,5. Verdict : {% if p.validated %}<span class="good">validées</span> — les grilles suivent les numéros délaissés.{% else %}<span class="bad">non validées</span> — les grilles sont tirées au hasard.{% endif %}</p>
+<div class="card scroll"><table>
+  <tr><th>Année testée</th><th>Tirages d'entraînement</th><th>Tirages testés</th><th>Gain moyen par tirage</th></tr>
+  {% for y in p.years %}<tr><td>{{ y.year }}</td><td>{{ y.trained_on }}</td><td>{{ y.tested }}</td><td>{{ y.mean_gain|num(1) }}</td></tr>{% endfor %}
+  <tr class="best"><td>Toutes</td><td></td><td></td><td>{{ p.gain.mean|num(1) }} <span class="ci">[{{ p.gain.low|num(1) }} ; {{ p.gain.high|num(1) }}]</span></td></tr>
+</table></div>
+<p>Pente de calibration du rang 8 : {% if p.slope %}<strong>{{ p.slope.slope|num(2) }}</strong> <span class="ci">[{{ p.slope.low|num(2) }} ; {{ p.slope.high|num(2) }}]</span> (1 : les écarts prédits se retrouvent entiers dans les gagnants).{% else %}incalculable (aucun écart prédit).{% endif %}</p>
+<p>Contrôles hors critère (le gain d'une grille délaissée vient surtout des rangs 3 à 6) : {% for l in p.level_slopes %}{{ l[0] }} numéros trouvés {% if l[1] %}<strong>{{ l[1].slope|num(2) }}</strong> <span class="ci">[{{ l[1].low|num(2) }} ; {{ l[1].high|num(2) }}]</span>{% else %}—{% endif %}{% if not loop.last %} ; {% endif %}{% endfor %}. Une pente nettement sous 1 dirait que le modèle exagère le gain à ce niveau.</p>
+<div class="charts">
+  <div class="card"><strong>Les plus joués</strong><table><tr><th>Numéro</th><th>Poids</th></tr>{% for w in p.popular %}<tr><td>{{ w.number }}</td><td>{{ w.weight|num(2) }}</td></tr>{% endfor %}</table></div>
+  <div class="card"><strong>Les plus délaissés</strong><table><tr><th>Numéro</th><th>Poids</th></tr>{% for w in p.unpopular %}<tr><td>{{ w.number }}</td><td>{{ w.weight|num(2) }}</td></tr>{% endfor %}</table></div>
+  <div class="card"><strong>Numéros chance</strong><table><tr><th>Chance</th><th>Part</th></tr>{% for w in p.chances %}<tr><td>{{ w.number }}</td><td>{{ w.weight|pct(1) }}</td></tr>{% endfor %}</table></div>
+</div>
+<p>À la référence (Noël à 20 M€, 7 millions de grilles), une grille au hasard rend {{ p.uniform_value|num(2) }} €{% if p.best_grid %} ; la grille la plus délaissée hors motifs, <code>{{ p.best_grid }}</code>, rendrait {{ p.best_value|num(2) }} € si les préférences étaient prises au mot{% endif %}.</p>
+<details><summary>Contrôle sur les Grand Loto (public peut-être différent)</summary>
+<div class="card scroll"><table><tr><th>Tirage</th><th>Gain de log-vraisemblance</th></tr>
+{% for g in p.grand_loto_gains %}<tr><td>{{ g[0] }}</td><td>{{ g[1]|num(1) }}</td></tr>{% endfor %}
+</table></div></details>
+{% else %}
+<p class="note">Aucun Loto en base : lance <code>edge loto fetch</code>.</p>
+{% endif %}
+
+<h2>3. EuroMillions au plafond</h2>
+<p>Au cinquième tirage consécutif au plafond sans gagnant, le jackpot va au rang 2 (art. 4.2.5.6). Un tirage est compté au plafond quand le rang inférieur reçoit plus de 3 M€ au-delà de sa clé normale.</p>
+{% if alert %}<div class="card"><strong>Alerte due :</strong> {{ alert }}</div>{% else %}<p>Aucune alerte due.</p>{% endif %}
+<div class="card scroll"><table>
+  <tr><th>Tirage</th><th>Grilles en Europe (M)</th><th>Excédent (M€)</th><th>Jackpot</th></tr>
+  {% for c in caps %}<tr><td>{{ c.date }}</td><td>{{ c.grids|num(1) }}</td><td>{{ c.excess|num(1) }}</td><td>{% if c.won %}gagné{% else %}reporté{% endif %}</td></tr>
+  {% else %}<tr><td colspan="4">Aucun tirage au plafond en base.</td></tr>{% endfor %}
+</table></div>
+{% if alerts %}<p>Alertes envoyées : {% for a in alerts %}{{ a[0] }} ({{ a[1] }}){% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
+
+<h2>4. Séances et grilles jouées</h2>
+{% for s in sessions %}
+<p><strong>{{ s.date }}</strong> : {% if s.grids %}{{ s.grids|join(" ; ") }}{% else %}ne pas jouer{% endif %}.</p>
+{% else %}
+<p>Aucune séance.</p>
+{% endfor %}
+{% if plays %}
+<div class="card scroll"><table>
+  <tr><th>Édition</th><th>Grille</th><th>Mise</th><th>Gain</th><th></th></tr>
+  {% for p in plays %}<tr><td>{{ p.date }}</td><td>{{ p.grid }}</td><td>{{ p.stake|num(2) }} €</td><td>{% if p.gain is none %}à venir{% else %}{{ p.gain|num(2) }} €{% endif %}</td><td>{% if p.off_model %}hors modèle{% endif %}</td></tr>{% endfor %}
+</table></div>
+<p>Grilles recommandées réglées : {{ totals[2] }}, mises {{ totals[0]|num(2) }} €, gains {{ totals[1]|num(2) }} €. Hors modèle : {{ off_model_totals[2] }}, mises {{ off_model_totals[0]|num(2) }} €, gains {{ off_model_totals[1]|num(2) }} €. Les gains des codes ne sont pas suivis.</p>
+{% endif %}
+
+</main>
+</body>
+</html>

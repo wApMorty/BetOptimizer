@@ -46,6 +46,9 @@ toml = "1.1.8"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 ureq = "3.4.2"
+# Lecture des archives ZIP de l'historique officiel de la FDJ (Loto, Grand Loto, EuroMillions ; phase 16). Même version et
+# mêmes options que la dépendance de `calamine` : aucun paquet ajouté à `Cargo.lock`. Licence MIT. Validé par Paul le 2026-10-23.
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 # Règles de CLAUDE.md appliquées par le compilateur : pas d'`unsafe`, pas d'`unwrap()` hors des tests.
 [workspace.lints.rust]

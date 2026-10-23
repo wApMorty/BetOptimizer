@@ -516,6 +516,7 @@ dependencies = [
  "toml",
  "tracing",
  "ureq",
+ "zip",
 ]
 
 [[package]]

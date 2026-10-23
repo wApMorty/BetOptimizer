@@ -105,3 +105,17 @@ lotofoot_session_credits = 8
 # Compétitions où chercher les rencontres des grilles (`/events`, gratuit), en plus de `leagues`. Laisser la liste par
 # défaut sauf besoin : elle couvre les ligues vues dans les grilles de 2025-2026.
 # lotofoot_leagues = ["soccer_france_ligue_two", "soccer_uefa_champs_league", ...]
+
+# Grand Loto (phase 16, `edge loto`, docs/sources.md §43 et §44) : le jackpot est toujours versé, au rang 1 ou aux rangs
+# inférieurs. Une grille est jouée si ses euros rendus par euro misé atteignent grand_loto_threshold au nombre de grilles
+# pessimiste (quantile grand_loto_quantile de la prévision). Budget d'une édition : 20 €, soit quatre grilles à 5 €.
+grand_loto_budget = 20.0
+grand_loto_threshold = 1.05
+grand_loto_quantile = 0.8
+# La séance a lieu au plus 3 jours avant l'édition (timer edge-loto du soir).
+grand_loto_days_before = 3
+# Éditions annoncées par la FDJ, à saisir à la main (l'archive ne contient pas les tirages à venir). Prix, codes gagnants
+# et gain d'un code ont des valeurs par défaut (5 €, 100 codes de 20 000 €) ; les préciser s'ils changent.
+# [[grand_loto_editions]]
+# date = "2026-12-25"
+# jackpot = 20000000

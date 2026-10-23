@@ -4,6 +4,7 @@
 pub mod backtest_report;
 pub mod daily;
 pub mod latency_page;
+pub mod loto_report;
 pub mod lotofoot_image;
 pub mod lotofoot_page;
 pub mod market_report;

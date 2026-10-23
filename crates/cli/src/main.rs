@@ -7,6 +7,7 @@ mod bonus;
 mod boost;
 mod commands;
 mod latency;
+mod loto;
 mod lotofoot;
 mod serve;
 
@@ -130,6 +131,56 @@ enum Command {
     Lotofoot {
         #[command(subcommand)]
         command: LotofootCommand,
+    },
+    /// Grand Loto et alerte EuroMillions : historique FDJ, séance d'une édition, grilles jouées, étude (phase 16).
+    Loto {
+        #[command(subcommand)]
+        command: LotoCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum LotoCommand {
+    /// Relève l'historique officiel de la FDJ (archives publiques), puis cherche l'alerte EuroMillions au plafond.
+    Fetch {
+        /// Envoie l'alerte EuroMillions sur Discord (une seule fois par tirage déclencheur).
+        #[arg(long)]
+        notify: bool,
+    },
+    /// Séance de l'édition du Grand Loto due dans les jours qui viennent (ou de --date), écrite au journal.
+    Recommend {
+        /// Édition à traiter (AAAA-MM-JJ), au lieu de l'édition due.
+        #[arg(long)]
+        date: Option<chrono::NaiveDate>,
+        /// Envoie la séance sur Discord.
+        #[arg(long)]
+        notify: bool,
+        /// N'écrit rien.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Enregistre les grilles réellement jouées (numéros des grilles recommandées, ou toute la dernière séance).
+    Played {
+        /// Numéros des grilles recommandées.
+        ids: Vec<i64>,
+        /// Toutes les grilles de la dernière séance.
+        #[arg(long)]
+        last_session: bool,
+        /// Grille saisie à la main (2-3-30-35-44+10) ; hors modèle si elle ne correspond à aucune recommandation.
+        #[arg(long, requires = "date")]
+        grid: Option<String>,
+        /// Édition de la grille saisie à la main (AAAA-MM-JJ).
+        #[arg(long, requires = "grid")]
+        date: Option<chrono::NaiveDate>,
+        /// Mise de la grille saisie à la main, en euros.
+        #[arg(long, default_value_t = 5.0)]
+        stake: f64,
+    },
+    /// Rapport HTML : Grand Loto passés, préférences du public, EuroMillions au plafond, journal (lecture seule).
+    Study {
+        /// Fichier de sortie (par défaut : loto.html dans le dossier des rapports).
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
 }
 
@@ -572,6 +623,31 @@ fn main() -> Result<()> {
                 },
             ),
             LotofootCommand::Report => lotofoot::report(&paths),
+        },
+        Command::Loto { command } => match command {
+            LotoCommand::Fetch { notify } => loto::fetch(&paths, notify),
+            LotoCommand::Recommend {
+                date,
+                notify,
+                dry_run,
+            } => loto::recommend(&paths, date, notify, dry_run),
+            LotoCommand::Played {
+                ids,
+                last_session,
+                grid,
+                date,
+                stake,
+            } => loto::played(
+                &paths,
+                &loto::PlayedOptions {
+                    ids,
+                    last_session,
+                    grid,
+                    date,
+                    stake,
+                },
+            ),
+            LotoCommand::Study { output } => loto::study(&paths, output),
         },
         Command::Fd { command } => match command {
             FdCommand::Fetch { force } => commands::fd_fetch(&paths, force),

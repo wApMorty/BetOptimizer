@@ -8,6 +8,7 @@ use minijinja::{Environment, Value};
 use serde::Serialize;
 
 use super::backtest_report::BacktestReport;
+use super::loto_report::LotoReport;
 use super::market_report::MarketReport;
 use super::models_report::ModelsReport;
 use super::nba_report::NbaReport;
@@ -24,6 +25,7 @@ const RECOMMEND_TEMPLATE: &str = include_str!("templates/recommend.html");
 const TENNIS_TEMPLATE: &str = include_str!("templates/tennis.html");
 const NBA_TEMPLATE: &str = include_str!("templates/nba.html");
 const THRESHOLDS_TEMPLATE: &str = include_str!("templates/thresholds.html");
+const LOTO_TEMPLATE: &str = include_str!("templates/loto.html");
 /// Base commune (styles, barre latérale) dont héritent le rapport quotidien et les pages de l'application Web.
 const SITE_BASE_TEMPLATE: &str = include_str!("templates/site_base.html");
 
@@ -89,6 +91,11 @@ pub fn render_backtest_report(report: &BacktestReport) -> Result<String> {
 /// Génère le HTML du rapport « abaque des seuils ».
 pub fn render_thresholds_report(report: &ThresholdsReport) -> Result<String> {
     render_template("thresholds.html", THRESHOLDS_TEMPLATE, report)
+}
+
+/// Génère le HTML du rapport « Grand Loto et EuroMillions » (`edge loto study`).
+pub fn render_loto_report(report: &LotoReport) -> Result<String> {
+    render_template("loto.html", LOTO_TEMPLATE, report)
 }
 
 /// Rend une page de l'application Web (`crate::web`) : même environnement que les rapports, base `site_base.html` comprise.

@@ -208,6 +208,52 @@ pub struct Config {
     pub lotofoot_session_credits: u32,
     /// Loto Foot : compétitions où chercher les rencontres des grilles (`/events`, gratuit), en plus de `leagues`.
     pub lotofoot_leagues: Vec<String>,
+    /// Grand Loto : éditions annoncées par la FDJ, saisies à la main (choix de Paul du 2026-10-23 : l'archive ne contient
+    /// pas les tirages à venir, et les pages de fdj.fr ne sont pas lues). Vide par défaut.
+    pub grand_loto_editions: Vec<GrandLotoEdition>,
+    /// Grand Loto : budget d'une édition, en euros (choix de Paul du 2026-10-23 : 20 €, soit quatre grilles à 5 €).
+    pub grand_loto_budget: f64,
+    /// Grand Loto : espérance minimale d'une grille, en euros rendus par euro misé, au nombre de grilles pessimiste
+    /// (choix de Paul du 2026-10-23 : 1,05).
+    pub grand_loto_threshold: f64,
+    /// Grand Loto : quantile de la prévision du nombre de grilles retenu comme pessimiste (0,8 : quatre chances sur cinq
+    /// qu'il y ait moins de grilles).
+    pub grand_loto_quantile: f64,
+    /// Grand Loto : la séance a lieu au plus tant de jours avant l'édition (le timer quotidien la lance alors).
+    pub grand_loto_days_before: u32,
+}
+
+/// Une édition du Grand Loto, telle que la FDJ l'annonce.
+///
+/// Dans `edge.toml` : `[[grand_loto_editions]]` puis `date = "2026-12-25"` et `jackpot = 20000000`.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GrandLotoEdition {
+    /// Date du tirage (AAAA-MM-JJ, entre guillemets).
+    pub date: chrono::NaiveDate,
+    /// Jackpot garanti, en euros.
+    pub jackpot: f64,
+    /// Prix d'une grille, en euros (5 € depuis 2024 au moins).
+    #[serde(default = "default_grand_loto_price")]
+    pub price: f64,
+    /// Nombre de codes gagnants (100 à chaque édition depuis 2017).
+    #[serde(default = "default_grand_loto_codes")]
+    pub codes: u32,
+    /// Gain d'un code, en euros.
+    #[serde(default = "default_grand_loto_code_gain")]
+    pub code_gain: f64,
+}
+
+fn default_grand_loto_price() -> f64 {
+    crate::loto::rules::GRAND_LOTO_PRICE
+}
+
+fn default_grand_loto_codes() -> u32 {
+    100
+}
+
+fn default_grand_loto_code_gain() -> f64 {
+    20_000.0
 }
 
 impl Default for Config {
@@ -293,6 +339,11 @@ impl Default for Config {
                 "soccer_spain_copa_del_rey",
                 "soccer_italy_coppa_italia",
             ]),
+            grand_loto_editions: Vec::new(),
+            grand_loto_budget: 20.0,
+            grand_loto_threshold: 1.05,
+            grand_loto_quantile: 0.8,
+            grand_loto_days_before: 3,
         }
     }
 }
@@ -378,6 +429,7 @@ impl Config {
                 "lotofoot_frequency_weight doit être positif ou nul".to_string(),
             ));
         }
+        self.validate_grand_loto()?;
         let lists = [
             ("leagues", &self.leagues),
             ("bookmakers", &self.bookmakers),
@@ -412,6 +464,57 @@ impl Config {
             return Err(Error::InvalidConfig(format!(
                 "excluded_bookmakers : « {bad} » n'est pas un identifiant valide (minuscules, chiffres et _ uniquement)"
             )));
+        }
+        Ok(())
+    }
+
+    /// Vérifie les réglages du Grand Loto : budget d'au moins une grille, seuil d'au moins 1, quantile dans [0,5 ; 1[,
+    /// éditions à jackpot et prix positifs, sans date en double.
+    fn validate_grand_loto(&self) -> Result<()> {
+        if !(self.grand_loto_threshold.is_finite() && self.grand_loto_threshold >= 1.0) {
+            return Err(Error::InvalidConfig(
+                "grand_loto_threshold doit être au moins 1 (une grille d'espérance inférieure à la mise perd en moyenne)"
+                    .to_string(),
+            ));
+        }
+        if !(0.5..1.0).contains(&self.grand_loto_quantile) {
+            return Err(Error::InvalidConfig(
+                "grand_loto_quantile doit être dans [0,5 ; 1[".to_string(),
+            ));
+        }
+        if !(self.grand_loto_budget.is_finite() && self.grand_loto_budget > 0.0) {
+            return Err(Error::InvalidConfig(
+                "grand_loto_budget doit être un montant strictement positif".to_string(),
+            ));
+        }
+        for (i, edition) in self.grand_loto_editions.iter().enumerate() {
+            let valid = edition.jackpot.is_finite()
+                && edition.jackpot > 0.0
+                && edition.price.is_finite()
+                && edition.price > 0.0
+                && edition.code_gain.is_finite()
+                && edition.code_gain >= 0.0;
+            if !valid {
+                return Err(Error::InvalidConfig(format!(
+                    "grand_loto_editions : l'édition du {} doit avoir un jackpot et un prix positifs",
+                    edition.date
+                )));
+            }
+            if self.grand_loto_editions[..i]
+                .iter()
+                .any(|e| e.date == edition.date)
+            {
+                return Err(Error::InvalidConfig(format!(
+                    "grand_loto_editions : l'édition du {} figure deux fois",
+                    edition.date
+                )));
+            }
+            if self.grand_loto_budget < edition.price {
+                return Err(Error::InvalidConfig(format!(
+                    "grand_loto_budget ({} €) ne paie pas une grille de l'édition du {} ({} €)",
+                    self.grand_loto_budget, edition.date, edition.price
+                )));
+            }
         }
         Ok(())
     }
@@ -629,6 +732,44 @@ mod tests {
     #[test]
     fn default_config_is_valid() {
         Config::default().validate().unwrap();
+    }
+
+    #[test]
+    fn a_grand_loto_edition_is_read_with_its_defaults() {
+        let config =
+            Config::parse("[[grand_loto_editions]]\ndate = \"2026-12-25\"\njackpot = 20000000\n")
+                .unwrap();
+        config.validate().unwrap();
+        let edition = config.grand_loto_editions[0];
+        assert_eq!(
+            edition.date,
+            chrono::NaiveDate::from_ymd_opt(2026, 12, 25).unwrap()
+        );
+        assert_eq!(
+            (edition.price, edition.codes, edition.code_gain),
+            (5.0, 100, 20_000.0)
+        );
+        assert_eq!(config.grand_loto_budget, 20.0);
+        assert_eq!(config.grand_loto_threshold, 1.05);
+    }
+
+    #[test]
+    fn invalid_grand_loto_settings_are_rejected() {
+        for text in [
+            "grand_loto_threshold = 0.9",
+            "grand_loto_quantile = 1.0",
+            "grand_loto_budget = 0.0",
+            "grand_loto_budget = 4.0\n[[grand_loto_editions]]\ndate = \"2026-12-25\"\njackpot = 20000000",
+            "[[grand_loto_editions]]\ndate = \"2026-12-25\"\njackpot = 0",
+            "[[grand_loto_editions]]\ndate = \"2026-12-25\"\njackpot = 1\n[[grand_loto_editions]]\ndate = \"2026-12-25\"\njackpot = 2",
+        ] {
+            let config = Config::parse(text).unwrap();
+            assert!(config.validate().is_err(), "{text}");
+        }
+        assert!(
+            Config::parse("[[grand_loto_editions]]\ndate = \"2026-12-25\"\njackpot = 1\nprix = 5")
+                .is_err()
+        );
     }
 
     #[test]
