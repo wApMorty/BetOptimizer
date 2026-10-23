@@ -111,7 +111,7 @@ impl Ledger {
 /// Bilan des tickets recommandés (suivi du modèle).
 pub fn recommended(conn: &Connection) -> Result<Ledger> {
     let mut ledger = Ledger::default();
-    for reco in store::recos(conn)? {
+    for reco in store::current_recos(conn)? {
         ledger.tickets += 1;
         let Some(results) = store::results(conn, reco.game, reco.number)? else {
             continue;

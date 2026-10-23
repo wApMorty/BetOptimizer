@@ -12,7 +12,7 @@ use edge_core::lotofoot::bulletin;
 use edge_core::lotofoot::fetch::{self, FetchReport, PronoMatchClient};
 use edge_core::lotofoot::live::{self, Notified};
 use edge_core::lotofoot::played::{self, Declared, Manual};
-use edge_core::lotofoot::session::SessionReport;
+use edge_core::lotofoot::session::{Request, SessionReport};
 use edge_core::lotofoot::settle::{self, Ledger};
 use edge_core::lotofoot::verify;
 use edge_core::lotofoot::{Game, Ticket};
@@ -65,14 +65,13 @@ pub fn recommend(paths: &Paths, notify: bool, dry_run: bool) -> Result<()> {
     let mut conn = store::open_migrated(&paths.db_file)
         .context("base inaccessible : lance d'abord `edge init`")?;
     let aliases = Aliases::bundled()?;
-    let live = live::recommend(
-        &mut conn,
-        &config,
-        &aliases,
-        config.lotofoot_max_tickets,
-        notify,
+    // Le timer ne remplace jamais une recommandation : il n'analyse que les grilles nouvelles.
+    let request = Request {
+        max_tickets: config.lotofoot_max_tickets,
+        replace: false,
         dry_run,
-    )?;
+    };
+    let live = live::recommend(&mut conn, &config, &aliases, request, notify)?;
     print_fetch(&live.fetched);
     print_session(&live.report, dry_run);
     match live.notified {

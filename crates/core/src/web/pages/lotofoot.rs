@@ -12,6 +12,7 @@ use serde::Serialize;
 use crate::error::Result;
 use crate::lotofoot::bulletin::session_lines;
 use crate::lotofoot::live::{self, Live, Notified};
+use crate::lotofoot::session::Request;
 use crate::report::lotofoot_page::{self, LineView, LotofootPage, RankView, TicketView};
 use crate::store;
 use crate::web::App;
@@ -166,14 +167,13 @@ fn stake(text: &str, cap: u32) -> std::result::Result<u32, String> {
 
 fn run_now(app: &App, max_tickets: u32, notify: bool) -> Result<String> {
     let mut conn = store::open_migrated(&app.paths.db_file)?;
-    let live = live::recommend(
-        &mut conn,
-        &app.config,
-        &app.aliases,
+    // Le bouton recalcule aussi les grilles déjà recommandées (pas encore jouées) : la répartition a pu bouger.
+    let request = Request {
         max_tickets,
-        notify,
-        false,
-    )?;
+        replace: true,
+        dry_run: false,
+    };
+    let live = live::recommend(&mut conn, &app.config, &app.aliases, request, notify)?;
     Ok(summary(&live))
 }
 

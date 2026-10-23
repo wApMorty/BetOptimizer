@@ -1665,17 +1665,24 @@ noircies, prix de chaque grille ; rendu par `resvg` avec Inter, comme l'autre im
 ## 41. Loto Foot : séance à la demande depuis l'application Web (2026-10-23)
 
 **Demande de Paul** : pouvoir lancer l'optimisation plus tôt que le samedi midi (courses du matin), avec une mise réglable.
-Choix de Paul : séance réelle écrite au journal, une seule séance par grille, mise de 1 à 16 €, Discord en option.
+Choix de Paul : séance réelle écrite au journal, mise de 1 à 16 €, Discord en option.
 
 - Bouton « Optimiser maintenant » sur `/lotofoot` (`POST /lotofoot/optimiser`, champs `mise` et `discord`) : même chemin que
   `edge lotofoot recommend` (`lotofoot::live::recommend` : relevé frais de prono-match, cotes manquantes, séance, Discord). La mise
   est un plafond en euros entiers, de 1 € au plafond gelé `lotofoot_max_tickets` (16 €, §37) ; elle est enregistrée dans les
   paramètres de la séance (`max_tickets`). Seuil τ, poids μ et modèle inchangés.
-- **Une grille n'est recommandée qu'une fois** : une grille qui a déjà des tickets au journal est écartée (« déjà recommandée »).
-  Le bouton du matin et le timer de midi ne doublent donc jamais une grille. Les séances n°1 et n°2 du 2026-10-22 (essai, mêmes
-  16 tickets du LF8 n°146) restent en double dans le journal : décision de Paul en attente.
-- **Une séance sans ticket n'est plus écrite** : elle masquait la séance précédente (page `/lotofoot`, « J'ai joué la séance »,
-  qui prennent la dernière séance). Ses raisons restent dans le message Discord (désormais listées quand il n'y a aucun ticket),
+- **Le bouton recalcule et remplace ; le timer ne remplace jamais** (choix de Paul, même jour, après un premier essai où « une seule
+  séance par grille » l'empêchait de refaire l'optimisation à 10 € : la répartition des autres joueurs bouge, il faut pouvoir
+  recalculer). Le bouton recalcule aussi les grilles déjà recommandées, sauf celles dont des tickets sont déjà déclarés joués ; sa
+  séance remplace leur recommandation, même sans y retenir de ticket (grilles listées dans `replaces` de ses paramètres). Le timer
+  écarte les grilles déjà recommandées (« déjà recommandée »).
+- **Seule la dernière recommandation de chaque grille compte** (`store::current_recos`), pour le bilan, la vérification figée et la
+  déclaration des tickets joués. Le journal reste immuable : les anciennes lignes y restent, ignorées. Aucune fuite du futur : une
+  grille n'est recalculée qu'au moins 3 h avant sa clôture. Effet sur le journal réel : les séances d'essai n°1 et n°2 du
+  2026-10-22 (mêmes 16 tickets du LF8 n°146) ne comptent plus qu'une fois (la n°2).
+- La page et « J'ai joué » prennent les tickets en vigueur de la semaine de la dernière séance (`store::week_recos`, séances des
+  6 jours qui la précèdent) : un clic le matin puis le timer de midi sur une nouvelle grille se jouent ensemble.
+- **Une séance sans ticket et sans remplacement n'est pas écrite** : elle n'a rien à journaliser. Ses raisons restent dans le message Discord (désormais listées quand il n'y a aucun ticket),
   dans la console et dans le message de la page.
 - Durée : 10 à 20 secondes (5 s de pause entre deux pages de prono-match, puis les cotes) ; le serveur traite les requêtes une à
   une, les autres pages attendent pendant ce temps. Coût : 1 crédit par compétition manquante, 8 au plus par séance.

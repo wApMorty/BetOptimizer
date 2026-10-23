@@ -1,14 +1,14 @@
 //! Séance avec les vrais clients : relevé frais de prono-match, cotes manquantes chez The Odds API, séance écrite au
 //! journal, et au besoin message Discord avec l'image des grilles à remplir.
 //!
-//! Partagée par `edge lotofoot recommend` (timer du samedi) et le bouton « Optimiser maintenant » de l'application Web :
-//! les deux font exactement la même chose, seule la mise plafond change.
+//! Partagée par `edge lotofoot recommend` (timer du samedi) et le bouton « Optimiser maintenant » de l'application Web.
+//! Seule la demande change : le bouton choisit sa mise et recalcule les grilles déjà recommandées, le timer non.
 
 use chrono::Utc;
 use rusqlite::Connection;
 
 use super::fetch::{self, FetchReport, PronoMatchClient};
-use super::session::{self, SessionReport};
+use super::session::{self, Request, SessionReport};
 use crate::config::{API_KEY_ENV, Config, WEBHOOK_ENV};
 use crate::error::{Error, Result};
 use crate::format::long_date;
@@ -39,15 +39,14 @@ pub struct Live {
     pub notified: Notified,
 }
 
-/// Relève prono-match, lance la séance avec la mise plafond `max_tickets` (en euros), puis envoie le message Discord
-/// si `notify`. `dry_run` : rien n'est écrit, aucune compétition n'est relevée, aucun message n'est envoyé.
+/// Relève prono-match, lance la séance demandée (mise plafond, remplacement, à blanc), puis envoie le message Discord
+/// si `notify`. À blanc, rien n'est écrit, aucune compétition n'est relevée et aucun message n'est envoyé.
 pub fn recommend(
     conn: &mut Connection,
     config: &Config,
     aliases: &Aliases,
-    max_tickets: u32,
+    request: Request,
     notify: bool,
-    dry_run: bool,
 ) -> Result<Live> {
     // Un relevé juste avant la séance : la répartition utilisée a quelques minutes, pas une heure.
     let pages = PronoMatchClient::new();
@@ -57,15 +56,14 @@ pub fn recommend(
         &mut |path, params| pages.get(path, params),
         &mut std::thread::sleep,
     )?;
-    let report = if dry_run {
+    let report = if request.dry_run {
         session::run(
             conn,
             config,
             aliases,
             &mut Utc::now,
             &mut |path, _| refused(path),
-            max_tickets,
-            true,
+            request,
         )?
     } else {
         // `.ok()` : variable d'environnement absente = `None`, la clé est alors lue dans la configuration.
@@ -77,11 +75,10 @@ pub fn recommend(
             aliases,
             &mut Utc::now,
             &mut |path, params| odds.get(path, params),
-            max_tickets,
-            false,
+            request,
         )?
     };
-    let notified = if notify && !dry_run {
+    let notified = if notify && !request.dry_run {
         match send(config, &report) {
             Ok(()) => Notified::Sent,
             Err(error) => Notified::Failed(error.to_string()),

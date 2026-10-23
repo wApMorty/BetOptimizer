@@ -203,7 +203,7 @@ pub fn page(conn: &Connection, now: DateTime<Utc>) -> Result<LotofootPage> {
             decimal(verification.frequency.p_low, 3)
         ),
     };
-    let Some((session_id, created_at, notes)) = store::last_session(conn)? else {
+    let Some((_, created_at, notes)) = store::last_session(conn)? else {
         return Ok(page);
     };
     page.session = long_date(created_at);
@@ -233,10 +233,9 @@ pub fn page(conn: &Connection, now: DateTime<Utc>) -> Result<LotofootPage> {
             })
             .unwrap_or_default();
     }
-    let recos: Vec<_> = store::recos(conn)?
-        .into_iter()
-        .filter(|r| r.session_id == session_id)
-        .collect();
+    // Les tickets en vigueur de la semaine, pas seulement ceux de la dernière séance : après un clic le matin, le timer
+    // de midi peut écrire une séance pour une seule nouvelle grille.
+    let recos = store::week_recos(conn)?;
     let played: Vec<i64> = store::plays(conn)?
         .iter()
         .filter_map(|p| p.reco_id)

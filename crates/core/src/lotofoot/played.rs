@@ -28,7 +28,7 @@ pub fn declare(
     now: DateTime<Utc>,
     stake: Euros,
 ) -> Result<Declared> {
-    let recos = store::recos(conn)?;
+    let recos = store::current_recos(conn)?;
     let chosen = ids
         .iter()
         .map(|id| {
@@ -41,20 +41,18 @@ pub fn declare(
     write(conn, &chosen, now, stake)
 }
 
-/// Déclare jouées toutes les recommandations de la dernière séance.
+/// Déclare joués tous les tickets en vigueur de la semaine de la dernière séance ([`store::week_recos`]).
 pub fn declare_last_session(
     conn: &Connection,
     now: DateTime<Utc>,
     stake: Euros,
 ) -> Result<Declared> {
-    let Some((session_id, _, _)) = store::last_session(conn)? else {
+    if store::last_session(conn)?.is_none() {
         return Err(Error::Input("aucune séance au journal".to_string()));
-    };
-    let recos = store::recos(conn)?;
-    let chosen: Vec<&RecoRow> = recos
-        .iter()
-        .filter(|r| r.session_id == session_id)
-        .collect();
+    }
+    // Les tickets en vigueur de la semaine : ceux du bouton du matin et du timer de midi se jouent ensemble.
+    let recos = store::week_recos(conn)?;
+    let chosen: Vec<&RecoRow> = recos.iter().collect();
     write(conn, &chosen, now, stake)
 }
 
@@ -122,7 +120,7 @@ pub fn declare_manual(
             "{game} n°{number} inconnue : elle n'a jamais été relevée"
         )));
     }
-    let reco_id = store::recos(conn)?
+    let reco_id = store::current_recos(conn)?
         .iter()
         .find(|r| r.game == game && r.number == number && r.ticket == *ticket)
         .map(|r| r.id);
@@ -235,7 +233,11 @@ mod tests {
     #[test]
     fn unknown_numbers_are_refused_before_writing() {
         let conn = journal();
-        let ids: Vec<i64> = store::recos(&conn).unwrap().iter().map(|r| r.id).collect();
+        let ids: Vec<i64> = store::current_recos(&conn)
+            .unwrap()
+            .iter()
+            .map(|r| r.id)
+            .collect();
         assert!(declare(&conn, &[ids[0], 999], at("2026-10-24T14:00:00Z"), one()).is_err());
         assert!(store::plays(&conn).unwrap().is_empty());
         // Le même numéro deux fois : une seule écriture.

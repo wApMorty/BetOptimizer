@@ -19,7 +19,7 @@ use crate::domain::Probs1x2;
 use crate::error::Result;
 use crate::ingest::aliases::Aliases;
 use crate::ingest::snapshot::{Clock, Fetch};
-use crate::store::lotofoot::{self as store, GridRow, NewReco, NewSession};
+use crate::store::lotofoot::{self as store, GridRow, NewReco, NewSession, RecoRow};
 
 /// Version du modèle, enregistrée avec chaque recommandation.
 pub const MODEL_VERSION: &str = "lotofoot-1";
@@ -96,23 +96,35 @@ struct Ready {
     model: GridModel,
 }
 
-/// Lance la séance. `max_tickets` : mise plafond en euros (un ticket coûte 1 €), ramenée au plafond de la
-/// configuration (`lotofoot_max_tickets`, 16 € gelés au `docs/sources.md` §37) s'il le dépasse. `dry_run` : rien n'est
-/// écrit et aucune compétition n'est relevée (aucun crédit).
+/// Ce que demande une séance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Request {
+    /// Mise plafond en euros (un ticket coûte 1 €), ramenée au plafond de la configuration (`lotofoot_max_tickets`,
+    /// 16 € gelés au `docs/sources.md` §37) s'il le dépasse.
+    pub max_tickets: u32,
+    /// Recalculer aussi les grilles déjà recommandées (bouton de l'application) : la nouvelle séance remplace alors leur
+    /// recommandation, sauf pour une grille dont des tickets sont déjà déclarés joués. Le timer ne remplace jamais.
+    pub replace: bool,
+    /// Rien n'est écrit et aucune compétition n'est relevée (aucun crédit).
+    pub dry_run: bool,
+}
+
+/// Lance la séance.
 ///
-/// Une grille qui a déjà des tickets au journal est écartée : chaque grille n'est recommandée qu'une fois (séance du
-/// bouton de l'application, puis timer du samedi). Une séance qui ne retient aucun ticket n'est pas écrite : elle n'a
-/// rien à journaliser, et elle masquerait sinon la séance précédente (page `/lotofoot`, « J'ai joué la séance »).
+/// Une grille déjà recommandée est écartée, sauf si `request.replace` : elle est alors recalculée, et la séance la
+/// remplace même si elle n'y retient aucun ticket (« remplacée par rien », noté dans les paramètres de la séance).
+/// Seule la dernière recommandation de chaque grille compte ([`store::current_recos`], `docs/sources.md` §41). Une
+/// séance qui ne retient aucun ticket et ne remplace rien n'est pas écrite : elle n'aurait rien à journaliser.
 pub fn run(
     conn: &mut Connection,
     config: &Config,
     aliases: &Aliases,
     now: Clock,
     fetch: Fetch,
-    max_tickets: u32,
-    dry_run: bool,
+    request: Request,
 ) -> Result<SessionReport> {
-    let max_tickets = max_tickets.min(config.lotofoot_max_tickets);
+    let max_tickets = request.max_tickets.min(config.lotofoot_max_tickets);
+    let dry_run = request.dry_run;
     let started = now();
     let min_close = started + Duration::hours(i64::from(config.lotofoot_min_hours_before_close));
     let fresh_after = started - Duration::hours(i64::from(config.lotofoot_max_odds_age_hours));
@@ -126,7 +138,11 @@ pub fn run(
     };
 
     // 1. Grilles candidates, pas encore recommandées, avec répartition récente, noms connus et mises estimables.
-    let recommended = store::recos(conn)?;
+    let recommended = store::current_recos(conn)?;
+    let played: Vec<i64> = store::plays(conn)?
+        .iter()
+        .filter_map(|p| p.reco_id)
+        .collect();
     let mut pending: Vec<Pending> = Vec::new();
     for row in store::grids_closing_after(conn, min_close)? {
         let label = format!("{} n°{}", row.game, row.number);
@@ -134,15 +150,25 @@ pub fn run(
             grid: label.clone(),
             reason,
         };
-        if let Some(earlier) = recommended
+        let earlier: Vec<&RecoRow> = recommended
             .iter()
-            .find(|r| (r.game, r.number) == (row.game, row.number))
-        {
-            report.skipped.push(skip(format!(
-                "déjà recommandée (séance n°{})",
-                earlier.session_id
-            )));
-            continue;
+            .filter(|r| (r.game, r.number) == (row.game, row.number))
+            .collect();
+        if let Some(first) = earlier.first() {
+            if !request.replace {
+                report.skipped.push(skip(format!(
+                    "déjà recommandée (séance n°{})",
+                    first.session_id
+                )));
+                continue;
+            }
+            if earlier.iter().any(|r| played.contains(&r.id)) {
+                report.skipped.push(skip(format!(
+                    "tickets de la séance n°{} déjà déclarés joués : non recalculée",
+                    first.session_id
+                )));
+                continue;
+            }
         }
         let Some((split_fetch_id, split)) =
             store::latest_split(conn, row.game, row.number, started)?
@@ -292,11 +318,18 @@ pub fn run(
     report.chosen = optimize::select(all, config.lotofoot_threshold, budget);
 
     // 4. Journal immuable : la séance, ses paramètres, et chaque ticket avec tout ce qui a servi à le choisir.
-    if !dry_run && !report.chosen.is_empty() {
+    // Grilles recalculées qui avaient une recommandation : la séance la remplace, tickets retenus ou non.
+    let replaces: Vec<(&str, u32)> = ready
+        .iter()
+        .map(|g| (g.row.game, g.row.number))
+        .filter(|key| recommended.iter().any(|r| (r.game, r.number) == *key))
+        .map(|(game, number)| (game.code(), number))
+        .collect();
+    if !dry_run && (!report.chosen.is_empty() || !replaces.is_empty()) {
         let params = json!({
             "kappa": FROZEN.kappa, "beta": FROZEN.beta, "phi": FROZEN.phi,
             "frequency_weight": config.lotofoot_frequency_weight, "threshold": config.lotofoot_threshold,
-            "max_tickets": max_tickets, "pessimistic_shrink": PESSIMISTIC_SHRINK,
+            "max_tickets": max_tickets, "replace": request.replace, "replaces": replaces, "pessimistic_shrink": PESSIMISTIC_SHRINK,
             "pessimistic_low_mult": PESSIMISTIC_LOW_MULT, "margin_method": config.margin_method.name(),
         })
         .to_string();
@@ -395,6 +428,15 @@ mod tests {
 
     fn at(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    /// Demande de séance : mise plafond, remplacement, à blanc.
+    fn ask(max_tickets: u32, replace: bool, dry_run: bool) -> Request {
+        Request {
+            max_tickets,
+            replace,
+            dry_run,
+        }
     }
 
     /// Une grille LF7 synthétique de 7 rencontres « Hi – Ai », avec sa répartition, et les cotes Pinnacle archivées.
@@ -498,7 +540,12 @@ mod tests {
             panic!("aucun appel attendu : {path}")
         };
         let report = run(
-            &mut conn, &config, &aliases, &mut clock, &mut fetch, 16, false,
+            &mut conn,
+            &config,
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            ask(16, false, false),
         )
         .unwrap();
         assert!(report.skipped.is_empty(), "{:?}", report.skipped);
@@ -510,7 +557,7 @@ mod tests {
                 .iter()
                 .all(|c| c.pessimistic.expected_return >= 1.0)
         );
-        let recos = store::recos(&conn).unwrap();
+        let recos = store::current_recos(&conn).unwrap();
         assert_eq!(recos.len(), report.chosen.len());
         assert_eq!(recos[0].position, 1);
     }
@@ -532,14 +579,24 @@ mod tests {
         };
         // Mise de 3 € : 3 tickets au plus ; une mise au-delà du plafond gelé (16 €) y est ramenée.
         let first = run(
-            &mut conn, &config, &aliases, &mut clock, &mut fetch, 3, false,
+            &mut conn,
+            &config,
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            ask(3, false, false),
         )
         .unwrap();
         assert_eq!(first.chosen.len(), 3);
         assert!(first.session_id.is_some());
         // Seconde séance sur la même grille : écartée, et rien n'est écrit (aucun ticket retenu).
         let again = run(
-            &mut conn, &config, &aliases, &mut clock, &mut fetch, 100, false,
+            &mut conn,
+            &config,
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            ask(100, false, false),
         )
         .unwrap();
         assert!(again.chosen.is_empty());
@@ -551,12 +608,125 @@ mod tests {
             again.skipped
         );
         assert!(again.session_id.is_none());
-        assert_eq!(store::recos(&conn).unwrap().len(), 3);
+        assert_eq!(store::current_recos(&conn).unwrap().len(), 3);
         assert!(
             store::last_session(&conn)
                 .unwrap()
                 .is_some_and(|(id, _, _)| Some(id) == first.session_id)
         );
+    }
+
+    #[test]
+    fn the_button_replaces_an_unplayed_recommendation_but_never_a_played_one() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let mut aliases_text = String::new();
+        setup(&mut conn, &mut aliases_text);
+        let aliases = Aliases::parse(&aliases_text).unwrap();
+        let config = Config {
+            lotofoot_threshold: 1.0,
+            ..Config::default()
+        };
+        let mut clock = || at("2026-10-24T10:00:00Z");
+        let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
+            panic!("aucun appel attendu : {path}")
+        };
+        let first = run(
+            &mut conn,
+            &config,
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            ask(16, false, false),
+        )
+        .unwrap();
+        assert!(first.chosen.len() > 3);
+        // Le bouton à 3 € : la grille est recalculée, la nouvelle séance remplace l'ancienne.
+        let second = run(
+            &mut conn,
+            &config,
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            ask(3, true, false),
+        )
+        .unwrap();
+        assert_eq!(second.chosen.len(), 3);
+        let current = store::current_recos(&conn).unwrap();
+        assert_eq!(current.len(), 3);
+        assert!(
+            current
+                .iter()
+                .all(|r| Some(r.session_id) == second.session_id)
+        );
+        // Un ticket est joué : la grille n'est plus recalculée, même par le bouton.
+        let stake = crate::domain::Euros::new(1.0).unwrap();
+        crate::lotofoot::played::declare(
+            &conn,
+            &[current[0].id],
+            at("2026-10-24T11:00:00Z"),
+            stake,
+        )
+        .unwrap();
+        let third = run(
+            &mut conn,
+            &config,
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            ask(16, true, false),
+        )
+        .unwrap();
+        assert!(
+            third.skipped[0].reason.contains("déjà déclarés joués"),
+            "{:?}",
+            third.skipped
+        );
+        assert!(third.session_id.is_none());
+        assert_eq!(store::current_recos(&conn).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn a_grid_can_be_replaced_by_nothing() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let mut aliases_text = String::new();
+        setup(&mut conn, &mut aliases_text);
+        let aliases = Aliases::parse(&aliases_text).unwrap();
+        let mut clock = || at("2026-10-24T10:00:00Z");
+        let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
+            panic!("aucun appel attendu : {path}")
+        };
+        let easy = Config {
+            lotofoot_threshold: 1.0,
+            ..Config::default()
+        };
+        run(
+            &mut conn,
+            &easy,
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            ask(16, false, false),
+        )
+        .unwrap();
+        // Recalcul où plus rien ne passe le seuil : la séance est écrite pour remplacer, sans ticket.
+        let strict = Config {
+            lotofoot_threshold: 1e9,
+            ..Config::default()
+        };
+        let report = run(
+            &mut conn,
+            &strict,
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            ask(16, true, false),
+        )
+        .unwrap();
+        assert!(report.chosen.is_empty());
+        assert!(report.session_id.is_some());
+        assert!(store::current_recos(&conn).unwrap().is_empty());
     }
 
     #[test]
@@ -576,7 +746,12 @@ mod tests {
             panic!("aucun appel attendu : {path}")
         };
         let report = run(
-            &mut conn, &config, &aliases, &mut clock, &mut fetch, 16, false,
+            &mut conn,
+            &config,
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            ask(16, false, false),
         )
         .unwrap();
         assert_eq!(report.evaluated.len(), 1);
@@ -598,7 +773,15 @@ mod tests {
         // Table d'alias vide : la grille est écartée, les 14 noms sont listés, rien n'est relevé ni écrit à blanc.
         let empty = Aliases::parse("").unwrap();
         let mut clock = || at("2026-10-24T10:00:00Z");
-        let report = run(&mut conn, &config, &empty, &mut clock, &mut fetch, 16, true).unwrap();
+        let report = run(
+            &mut conn,
+            &config,
+            &empty,
+            &mut clock,
+            &mut fetch,
+            ask(16, false, true),
+        )
+        .unwrap();
         assert_eq!(report.unknown_names.len(), 14);
         assert!(report.session_id.is_none());
 
@@ -606,7 +789,12 @@ mod tests {
         let aliases = Aliases::parse(&aliases_text).unwrap();
         let mut late = || at("2026-10-24T14:00:00Z");
         let report = run(
-            &mut conn, &config, &aliases, &mut late, &mut fetch, 16, true,
+            &mut conn,
+            &config,
+            &aliases,
+            &mut late,
+            &mut fetch,
+            ask(16, false, true),
         )
         .unwrap();
         assert!(report.skipped[0].reason.contains("plus de 3 h"));

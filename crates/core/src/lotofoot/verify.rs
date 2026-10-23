@@ -199,7 +199,7 @@ pub struct Verification {
 /// Établit le bilan à l'instant `now`.
 pub fn verify(conn: &Connection, now: DateTime<Utc>) -> Result<Verification> {
     let bands = calibration(conn)?;
-    let recos = store::recos(conn)?;
+    let recos = store::current_recos(conn)?;
     let first_session = recos.iter().map(|r| r.created_at).min();
 
     // Tickets réglés, regroupés par grille (la simulation tire une seule issue par grille et par tirage).

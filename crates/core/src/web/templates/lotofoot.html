@@ -17,7 +17,7 @@
     <label style="padding: 8px 0"><input type="checkbox" name="discord"> Envoyer sur Discord</label>
     <button class="btn" type="submit" title="Relève prono-match et les cotes manquantes (1 crédit par compétition, 8 au plus), choisit les tickets au-dessus du seuil dans la mise, et écrit la séance au journal.">Optimiser maintenant</button>
   </div>
-  <p class="meta" style="margin: 8px 0 0">Comme la séance du samedi : relevé frais (une vingtaine de secondes), tickets au-dessus du seuil, séance écrite au journal. Une grille déjà recommandée n'est pas recalculée.</p>
+  <p class="meta" style="margin: 8px 0 0">Comme la séance du samedi : relevé frais (une vingtaine de secondes), tickets au-dessus du seuil, séance écrite au journal. Les grilles déjà recommandées sont recalculées sur la répartition du moment et leur recommandation est remplacée, sauf si tu as déjà déclaré leurs tickets joués.</p>
 </form>
 <h2>{% if session %}Séance du {{ session }}{% else %}Dernière séance{% endif %}</h2>
 {% if tickets %}

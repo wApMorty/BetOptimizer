@@ -717,7 +717,10 @@ mod tests {
         let flash = flash_of(&refused);
         assert!(flash.text.contains("entre 1 et 16"), "{flash:?}");
         let conn = crate::store::open_migrated(&sample.app.paths.db_file).unwrap();
-        assert_eq!(crate::store::lotofoot::recos(&conn).unwrap().len(), 2);
+        assert_eq!(
+            crate::store::lotofoot::current_recos(&conn).unwrap().len(),
+            2
+        );
     }
 
     #[test]

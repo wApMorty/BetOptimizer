@@ -417,6 +417,20 @@ pub fn last_session(conn: &Connection) -> Result<Option<(i64, DateTime<Utc>, Str
         .transpose()
 }
 
+/// Les tickets en vigueur de la semaine de la dernière séance : ceux des séances écrites au plus 6 jours avant elle.
+/// C'est ce que montre la page `/lotofoot` et ce que déclare « J'ai joué » : un clic le matin puis le timer de midi
+/// sur une nouvelle grille donnent deux séances, dont les tickets se jouent ensemble.
+pub fn week_recos(conn: &Connection) -> Result<Vec<RecoRow>> {
+    let Some((_, latest, _)) = last_session(conn)? else {
+        return Ok(Vec::new());
+    };
+    let since = latest - chrono::Duration::days(6);
+    Ok(current_recos(conn)?
+        .into_iter()
+        .filter(|r| r.created_at >= since)
+        .collect())
+}
+
 /// Un ticket recommandé, relu du journal.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecoRow {
@@ -446,12 +460,23 @@ pub struct RecoRow {
     pub inputs: String,
 }
 
-/// Tous les tickets recommandés, du plus ancien au plus récent.
-pub fn recos(conn: &Connection) -> Result<Vec<RecoRow>> {
+/// Les tickets recommandés **en vigueur**, du plus ancien au plus récent : pour chaque grille, ceux de la dernière séance
+/// qui l'a recommandée, sauf si une séance plus récente l'a recalculée sans y retenir de ticket (grille listée dans le
+/// champ `replaces` de ses paramètres : « remplacée par rien »). Une séance relancée par le bouton de l'application
+/// remplace ainsi la précédente pour ses grilles ; les anciennes lignes restent au journal (immuable) mais ne comptent
+/// plus nulle part (`docs/sources.md` §41).
+pub fn current_recos(conn: &Connection) -> Result<Vec<RecoRow>> {
     let mut stmt = conn.prepare(
         "SELECT r.id, r.session_id, s.created_at, r.game, r.number, r.ticket, r.position, r.ev_base, r.ev_pessimistic,
                 r.paid_probability, r.stakes_estimate, r.inputs
-         FROM lotofoot_reco r JOIN lotofoot_session s ON s.id = r.session_id ORDER BY r.session_id, r.position",
+         FROM lotofoot_reco r JOIN lotofoot_session s ON s.id = r.session_id
+         WHERE r.session_id = (SELECT MAX(r2.session_id) FROM lotofoot_reco r2
+                               WHERE r2.game = r.game AND r2.number = r.number)
+           AND NOT EXISTS (SELECT 1 FROM lotofoot_session s2, json_each(s2.params, '$.replaces') j
+                           WHERE s2.id > r.session_id
+                             AND json_extract(j.value, '$[0]') = r.game
+                             AND json_extract(j.value, '$[1]') = r.number)
+         ORDER BY r.session_id, r.position",
     )?;
     let raw = stmt
         .query_map([], |row| {
@@ -803,8 +828,9 @@ mod tests {
             split_fetch_id: f,
             inputs: "{}",
         };
-        record_session(&mut conn, &session, &[reco]).unwrap();
-        let recos = recos(&conn).unwrap();
+        // `from_ref` : une tranche d'un élément qui emprunte `reco`, réutilisée (ticket changé) en fin de test.
+        record_session(&mut conn, &session, std::slice::from_ref(&reco)).unwrap();
+        let recos = current_recos(&conn).unwrap();
         assert_eq!(recos.len(), 1);
         assert_eq!(recos[0].ticket, ticket);
         assert!(
@@ -830,6 +856,21 @@ mod tests {
         assert_eq!(plays.len(), 2);
         assert_eq!(plays[1].reco_id, None);
         assert!(conn.execute("DELETE FROM lotofoot_play", []).is_err());
+
+        // Une seconde séance sur la même grille la remplace : seul son ticket est en vigueur, l'ancien reste au journal.
+        let other = Ticket::parse("2N21N21").unwrap();
+        let second = NewReco {
+            ticket: &other,
+            ..reco
+        };
+        record_session(&mut conn, &session, &[second]).unwrap();
+        let current = current_recos(&conn).unwrap();
+        assert_eq!(current.len(), 1);
+        assert_eq!(current[0].ticket, other);
+        let all: i64 = conn
+            .query_row("SELECT COUNT(*) FROM lotofoot_reco", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(all, 2);
     }
 
     #[test]
