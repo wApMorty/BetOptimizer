@@ -55,6 +55,12 @@ pub enum Error {
     )]
     MissingWebhook,
 
+    /// Aucun secret de connexion à l'application Web, ni dans l'environnement ni dans le fichier.
+    #[error(
+        "secret de connexion introuvable : définis la variable EDGE_SERVE_TOKEN ou ajoute serve_token dans le fichier de configuration (24 caractères au moins, par exemple la sortie de `openssl rand -hex 24`)"
+    )]
+    MissingServeToken,
+
     /// Erreur renvoyée par SQLite. `#[from]` écrit pour nous `impl From<rusqlite::Error> for Error` :
     /// c'est ce qui permet d'écrire `?` sur un résultat rusqlite dans une fonction qui renvoie notre `Result`.
     #[error("erreur SQLite : {0}")]

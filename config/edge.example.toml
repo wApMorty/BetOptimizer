@@ -74,10 +74,13 @@ min_stake = 1.0
 # s'il est écrit ici, le fichier doit être en permissions 0600. La variable EDGE_DISCORD_WEBHOOK a priorité.
 # discord_webhook_url = "https://discord.com/api/webhooks/..."
 
-# Site de rapports (`edge serve`) : rapport du jour, rapports précédents, opportunités actives, paper trading.
-# Lecture seule, sans mot de passe. "127.0.0.1:8737" : visible de ce poste seulement ; "0.0.0.0:8737" : de tout le
-# réseau local (le pare-feu doit laisser passer le port).
+# Application Web (`edge serve`) : recommandations, saisie des paris, bankroll, bonus, Loto Foot, rapports.
+# "127.0.0.1:8737" : visible de ce poste seulement ; "0.0.0.0:8737" : de tout le réseau local (le pare-feu doit laisser
+# passer le port).
 serve_bind = "127.0.0.1:8737"
+# Secret demandé une fois par navigateur à la connexion. Obligatoire pour `edge serve`. 24 caractères au moins (lettres,
+# chiffres, - et _) : `openssl rand -hex 24`. Secret : fichier en permissions 0600. La variable EDGE_SERVE_TOKEN a priorité.
+# serve_token = "..."
 # Adresse du site vue depuis un autre appareil, rappelée dans le message Discord (qui ne joint alors plus le rapport).
 # site_url = "http://portable.local:8737/"
 

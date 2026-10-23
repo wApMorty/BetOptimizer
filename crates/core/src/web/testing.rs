@@ -5,7 +5,7 @@ use chrono::{DateTime, Duration, Utc};
 
 use super::{App, Method, Request, Response, handle};
 use crate::betting::recommend::{self, RECOMMEND_MIN_EDGE};
-use crate::config::Config;
+use crate::config::{Config, ServeToken};
 use crate::domain::{Euros, Event, Odds, Quota, Quote};
 use crate::ingest::aliases::Aliases;
 use crate::lotofoot::pronomatch::{GridPage, OpenGrid};
@@ -25,15 +25,41 @@ pub struct Sample {
     pub now: DateTime<Utc>,
 }
 
+/// Secret de connexion des tests.
+pub const TOKEN: &str = "jeton-de-test-0123456789abcdef";
+/// Cookie d'une session ouverte.
+pub const SESSION: &str = "edge_session=jeton-de-test-0123456789abcdef";
+/// Hôte des requêtes de test, et l'origine d'un formulaire envoyé par le site lui-même.
+pub const HOST: &str = "edge.test:8737";
+pub const ORIGIN: &str = "http://edge.test:8737";
+
 impl Sample {
-    /// Une requête `GET`.
+    /// Une requête `GET`, connecté.
     pub fn get(&self, target: &str) -> Response {
-        handle(&self.app, &request(Method::Get, target, b""), self.now)
+        let request = Request {
+            cookies: Some(SESSION),
+            ..request(Method::Get, target, b"")
+        };
+        handle(&self.app, &request, self.now)
     }
 
     /// Le HTML d'une page, entités décodées : les tests cherchent `l'instant` ou `/paris/1`, pas `l&#x27;instant`.
     pub fn html(&self, target: &str) -> String {
         unescape(&String::from_utf8(self.get(target).body).unwrap())
+    }
+
+    /// Un formulaire envoyé par le site lui-même, connecté.
+    pub fn post(&self, target: &str, body: &str) -> Response {
+        let request = Request {
+            cookies: Some(SESSION),
+            ..request(Method::Post, target, body.as_bytes())
+        };
+        handle(&self.app, &request, self.now)
+    }
+
+    /// Une requête quelconque.
+    pub fn send(&self, request: &Request<'_>) -> Response {
+        handle(&self.app, request, self.now)
     }
 }
 
@@ -47,14 +73,14 @@ pub fn unescape(html: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// Une requête sans en-tête.
+/// Une requête sans cookie, venue du site (`Origin` et `Host` concordants).
 pub fn request<'a>(method: Method, target: &'a str, body: &'a [u8]) -> Request<'a> {
     Request {
         method,
         target,
         cookies: None,
-        origin: None,
-        host: None,
+        origin: Some(ORIGIN),
+        host: Some(HOST),
         body,
     }
 }
@@ -76,6 +102,7 @@ fn app(paths: Paths) -> App {
         paths,
         config: Config::default(),
         aliases: Aliases::bundled().unwrap(),
+        token: ServeToken::new(TOKEN).unwrap(),
     }
 }
 

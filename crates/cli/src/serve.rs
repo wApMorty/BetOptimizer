@@ -129,7 +129,7 @@ mod tests {
     use std::io::Write;
     use std::net::TcpStream;
 
-    use edge_core::config::Config;
+    use edge_core::config::{Config, ServeToken};
     use edge_core::ingest::aliases::Aliases;
     use edge_core::paths::Paths;
     use edge_core::store;
@@ -153,6 +153,7 @@ mod tests {
             paths,
             config: Config::default(),
             aliases: Aliases::bundled().unwrap(),
+            token: ServeToken::new("jeton-de-test-0123456789abcdef").unwrap(),
         };
         // Port 0 : le système choisit un port libre, que l'on relit ensuite.
         let server = Server::http("127.0.0.1:0").unwrap();
@@ -162,16 +163,18 @@ mod tests {
         // avant que ces variables ne soient détruites (sans `scope`, il faudrait les partager par `Arc`).
         std::thread::scope(|scope| {
             scope.spawn(|| {
-                for _ in 0..3 {
+                for _ in 0..4 {
                     handle(server.recv().unwrap(), &app);
                 }
             });
 
+            // Sans session : renvoi vers la connexion, avec les en-têtes de sécurité.
             let home = ask(
                 addr,
                 "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
             );
-            assert!(home.starts_with("HTTP/1.1 200"), "{home}");
+            assert!(home.starts_with("HTTP/1.1 303"), "{home}");
+            assert!(home.contains("Location: /connexion"));
             assert!(home.contains("Content-Security-Policy: default-src 'none'"));
             assert!(home.contains("form-action 'self'"));
             assert!(home.contains("Cache-Control: no-store"));
@@ -185,9 +188,19 @@ mod tests {
 
             let missing = ask(
                 addr,
-                "GET /rapports/../edge.db HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+                "GET /rapports/../edge.db HTTP/1.1\r\nHost: x\r\nCookie: edge_session=jeton-de-test-0123456789abcdef\r\nConnection: close\r\n\r\n",
             );
             assert!(missing.starts_with("HTTP/1.1 404"), "{missing}");
+
+            let big = "x".repeat(MAX_BODY + 10);
+            let oversized = ask(
+                addr,
+                &format!(
+                    "POST /paris/regler HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{big}",
+                    big.len()
+                ),
+            );
+            assert!(oversized.starts_with("HTTP/1.1 413"), "{oversized}");
         });
     }
 }

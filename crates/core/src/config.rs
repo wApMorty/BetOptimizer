@@ -24,6 +24,12 @@ pub const ODDSPAPI_KEY_ENV: &str = "EDGE_ODDSPAPI_KEY";
 /// Nom de la variable d'environnement qui contient l'URL du webhook Discord.
 pub const WEBHOOK_ENV: &str = "EDGE_DISCORD_WEBHOOK";
 
+/// Nom de la variable d'environnement qui contient le secret de connexion à l'application Web (`edge serve`).
+pub const SERVE_TOKEN_ENV: &str = "EDGE_SERVE_TOKEN";
+
+/// Longueur minimale du secret de connexion : 24 caractères tirés au hasard ne se devinent pas en essayant.
+pub const MIN_SERVE_TOKEN: usize = 24;
+
 /// Débuts d'URL acceptés pour un webhook Discord : l'URL contient un secret et le rapport est envoyé à cette adresse,
 /// on refuse donc tout autre site (faute de frappe, ou fichier de configuration modifié).
 const WEBHOOK_PREFIXES: [&str; 2] = [
@@ -98,6 +104,40 @@ impl fmt::Debug for WebhookUrl {
     }
 }
 
+/// Secret de connexion à l'application Web. Même principe que [`ApiKey`] : newtype dont `Debug` masque la valeur.
+///
+/// Il finit dans un cookie : seuls les lettres, chiffres, `-` et `_` sont admis, ce qui évite tout caractère que l'en-tête
+/// `Cookie` interdit (espace, `;`, `,`…).
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+pub struct ServeToken(String);
+
+impl ServeToken {
+    /// Vérifie et enveloppe un secret : [`MIN_SERVE_TOKEN`] caractères au moins, lettres, chiffres, `-` ou `_`.
+    pub fn new(value: impl Into<String>) -> Result<ServeToken> {
+        let value = value.into();
+        let allowed = value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if value.chars().count() < MIN_SERVE_TOKEN || !allowed {
+            return Err(Error::InvalidConfig(format!(
+                "serve_token : {MIN_SERVE_TOKEN} caractères au moins, lettres, chiffres, - ou _ (par exemple la sortie de `openssl rand -hex 24`)"
+            )));
+        }
+        Ok(ServeToken(value))
+    }
+
+    /// Donne accès au secret en clair : à n'appeler que pour le comparer à celui d'une requête.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for ServeToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ServeToken(***)")
+    }
+}
+
 /// Configuration de l'application.
 ///
 /// `#[serde(default)]` : un champ absent du fichier reçoit la valeur de [`Config::default`].
@@ -145,6 +185,8 @@ pub struct Config {
     /// Adresse et port d'écoute de `edge serve`. `127.0.0.1` : ce poste seul ; `0.0.0.0` : tout le réseau local.
     /// Le type `SocketAddr` fait valider l'adresse par `serde` dès la lecture du fichier.
     pub serve_bind: SocketAddr,
+    /// Secret de connexion à l'application Web (alternative à la variable d'environnement). Secret : fichier en 0600.
+    pub serve_token: Option<ServeToken>,
     /// Adresse du site telle qu'un autre appareil la tape (`http://portable.local:8737/`) : rappelée dans le message
     /// Discord, qui ne joint alors plus le rapport HTML. Absente : le rapport reste joint.
     pub site_url: Option<String>,
@@ -207,6 +249,7 @@ impl Default for Config {
             min_stake: 1.0,
             discord_webhook_url: None,
             serve_bind: SocketAddr::from(([127, 0, 0, 1], 8737)),
+            serve_token: None,
             site_url: None,
             bonus_freebet_value: crate::bonus::DEFAULT_FREEBET_VALUE,
             lotofoot_max_tickets: 16,
@@ -279,6 +322,7 @@ impl Config {
         if config.odds_api_key.is_some()
             || config.oddspapi_api_key.is_some()
             || config.discord_webhook_url.is_some()
+            || config.serve_token.is_some()
         {
             check_permissions(path)?;
         }
@@ -384,6 +428,18 @@ impl Config {
         }
     }
 
+    /// Détermine le secret de connexion à l'application Web : la variable d'environnement (`from_env`) prime, sinon celui
+    /// du fichier. Il est vérifié dans les deux cas.
+    pub fn web_token(&self, from_env: Option<&str>) -> Result<ServeToken> {
+        match from_env.map(str::trim).filter(|value| !value.is_empty()) {
+            Some(value) => ServeToken::new(value),
+            None => match &self.serve_token {
+                Some(token) if !token.expose().is_empty() => ServeToken::new(token.expose()),
+                _ => Err(Error::MissingServeToken),
+            },
+        }
+    }
+
     /// Détermine la clé API : la variable d'environnement (`from_env`) prime, sinon celle du fichier.
     ///
     /// L'appelant lit l'environnement et nous passe la valeur : la fonction reste pure, donc testable
@@ -480,6 +536,24 @@ mod tests {
         assert_eq!(config.oddspapi_key(None).unwrap().expose(), "du-fichier");
         let err = Config::default().oddspapi_key(Some("  ")).unwrap_err();
         assert!(err.to_string().contains("EDGE_ODDSPAPI_KEY"));
+    }
+
+    #[test]
+    fn the_web_token_prefers_the_environment_and_must_be_long_and_cookie_safe() {
+        let long = "a".repeat(MIN_SERVE_TOKEN);
+        let config = Config::parse(&format!("serve_token = \"{long}\"")).unwrap();
+        assert_eq!(config.web_token(None).unwrap().expose(), long);
+        let from_env = "b".repeat(30);
+        assert_eq!(
+            config.web_token(Some(&from_env)).unwrap().expose(),
+            from_env
+        );
+        assert!(config.web_token(Some("court")).is_err());
+        assert!(format!("{:?}", config.web_token(None).unwrap()).contains("***"));
+        let spaced = Config::parse(&format!("serve_token = \"{long} ;x\"")).unwrap();
+        assert!(spaced.web_token(None).is_err());
+        let missing = Config::default().web_token(Some(" ")).unwrap_err();
+        assert!(missing.to_string().contains("EDGE_SERVE_TOKEN"));
     }
 
     #[test]

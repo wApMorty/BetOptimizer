@@ -2,7 +2,9 @@
 //!
 //! Le serveur HTTP de la CLI traduit chaque requête en [`Request`], appelle [`handle`] et renvoie la [`Response`]
 //! obtenue : tout ce qui s'affiche se teste ici, sans ouvrir de port. Les pages sont rendues côté serveur, sans script.
+//! Tout est derrière la connexion ([`auth`]), sauf la page de connexion elle-même et les polices.
 
+pub mod auth;
 mod charts;
 pub mod form;
 mod pages;
@@ -13,14 +15,14 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::config::Config;
+use crate::config::{Config, ServeToken};
 use crate::error::{Error, Result};
 use crate::ingest::aliases::Aliases;
 use crate::paths::Paths;
 use crate::report::daily;
 use crate::report::picks_image::{INTER_REGULAR, INTER_SEMIBOLD};
 use form::Form;
-use view::{Flash, Layout, render};
+use view::{Layout, render};
 
 /// Type de contenu des pages.
 pub const HTML: &str = "text/html; charset=utf-8";
@@ -32,6 +34,7 @@ const TEXT: &str = "text/plain; charset=utf-8";
 pub const MAX_BODY: usize = 16 * 1024;
 
 const MESSAGE_TEMPLATE: &str = include_str!("templates/message.html");
+const LOGIN_TEMPLATE: &str = include_str!("templates/login.html");
 
 /// Ce dont l'application a besoin pour répondre. Construite une fois au démarrage de `edge serve`.
 #[derive(Debug, Clone)]
@@ -42,6 +45,8 @@ pub struct App {
     pub config: Config,
     /// Table d'alias (résultats des matchs).
     pub aliases: Aliases,
+    /// Secret de connexion.
+    pub token: ServeToken,
 }
 
 /// Méthode HTTP d'une requête.
@@ -111,6 +116,16 @@ impl Response {
         }
     }
 
+    /// Redirection après un formulaire (`303 See Other`) : le navigateur recharge `location` en `GET`, si bien
+    /// qu'actualiser la page ne renvoie pas le formulaire.
+    fn redirect(location: &str, cookies: Vec<String>) -> Response {
+        Response {
+            location: Some(location.to_string()),
+            cookies,
+            ..Response::html(303, String::new())
+        }
+    }
+
     fn font(bytes: &[u8]) -> Response {
         Response {
             status: 200,
@@ -130,12 +145,33 @@ pub fn handle(app: &App, request: &Request<'_>, now: DateTime<Utc>) -> Response 
         .target
         .split_once('?')
         .unwrap_or((request.target, ""));
+    let signed_in = auth::signed_in(request.cookies, app.token.expose());
     let result = match request.method {
-        Method::Get | Method::Head => get(app, path, &Form::parse(query), now),
-        Method::Post | Method::Other => Ok(message(
+        Method::Get | Method::Head => match path {
+            "/police/inter-regular.ttf" => Ok(Response::font(INTER_REGULAR)),
+            "/police/inter-semibold.ttf" => Ok(Response::font(INTER_SEMIBOLD)),
+            "/connexion" if signed_in => Ok(Response::redirect("/", Vec::new())),
+            "/connexion" => login(200, None),
+            // Toute autre adresse, même inconnue, renvoie à la connexion : rien n'est révélé avant.
+            _ if !signed_in => Ok(Response::redirect("/connexion", Vec::new())),
+            _ => get(app, path, &Form::parse(query), request.cookies, now),
+        },
+        // Un formulaire envoyé depuis un autre site est refusé avant même de regarder la session.
+        Method::Post if !auth::same_origin(request.origin, request.host) => Ok(message(
+            403,
+            "Formulaire refusé",
+            "Ce formulaire ne vient pas de l'application elle-même.",
+        )),
+        Method::Post => {
+            // Un champ de formulaire n'est que du texte : des octets invalides deviennent `�`, et la validation du
+            // champ concerné les refusera.
+            let form = Form::parse(&String::from_utf8_lossy(request.body));
+            post(app, path, &form, signed_in, now)
+        }
+        Method::Other => Ok(message(
             405,
             "Méthode refusée",
-            "Site en lecture seule : seules les requêtes GET et HEAD sont acceptées.",
+            "Seules les requêtes GET, HEAD et POST sont acceptées.",
         )),
     };
     result.unwrap_or_else(|error| {
@@ -148,9 +184,16 @@ pub fn handle(app: &App, request: &Request<'_>, now: DateTime<Utc>) -> Response 
     })
 }
 
-/// Les pages en lecture.
-fn get(app: &App, path: &str, query: &Form, now: DateTime<Utc>) -> Result<Response> {
-    let flash: Option<Flash> = None;
+/// Les pages en lecture. Un message laissé par l'action précédente est affiché une fois, puis effacé.
+fn get(
+    app: &App,
+    path: &str,
+    query: &Form,
+    cookies: Option<&str>,
+    now: DateTime<Utc>,
+) -> Result<Response> {
+    let flash = auth::read_flash(cookies);
+    let clear = flash.is_some();
     let html = match path {
         "/" | "/index.html" => pages::today::page(app, now, flash)?,
         "/opportunites" => pages::opportunities::page(app, query, now, flash)?,
@@ -161,11 +204,64 @@ fn get(app: &App, path: &str, query: &Form, now: DateTime<Utc>) -> Result<Respon
         "/lotofoot" => pages::lotofoot::page(app, now, flash)?,
         "/latence" => pages::latency::page(app, now, flash)?,
         "/rapports" | "/rapports/" => pages::reports::page(app, now, flash)?,
-        "/police/inter-regular.ttf" => return Ok(Response::font(INTER_REGULAR)),
-        "/police/inter-semibold.ttf" => return Ok(Response::font(INTER_SEMIBOLD)),
         _ => return archived(app, path),
     };
-    Ok(Response::html(200, html))
+    let mut response = Response::html(200, html);
+    if clear {
+        response.cookies.push(auth::clear_flash());
+    }
+    Ok(response)
+}
+
+/// Les formulaires. Seule la connexion est acceptée sans session.
+fn post(
+    app: &App,
+    path: &str,
+    form: &Form,
+    signed_in: bool,
+    _now: DateTime<Utc>,
+) -> Result<Response> {
+    match path {
+        "/connexion" => {
+            if auth::same_secret(form.get("secret"), app.token.expose()) {
+                tracing::info!("connexion réussie");
+                let cookie = auth::session_cookie(app.token.expose());
+                Ok(Response::redirect("/", vec![cookie]))
+            } else {
+                tracing::warn!("connexion refusée : secret erroné");
+                login(401, Some("Secret erroné."))
+            }
+        }
+        "/deconnexion" => Ok(Response::redirect("/connexion", vec![auth::end_session()])),
+        _ if !signed_in => Ok(message(
+            403,
+            "Connexion requise",
+            "La session a expiré : reconnecte-toi, puis recommence.",
+        )),
+        _ => Ok(not_found()),
+    }
+}
+
+/// Page de connexion.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct LoginPage {
+    #[serde(flatten)]
+    layout: Layout,
+    error: Option<&'static str>,
+}
+
+fn login(status: u16, error: Option<&'static str>) -> Result<Response> {
+    let page = LoginPage {
+        layout: Layout {
+            nav: false,
+            ..Layout::new("", Utc::now(), None)
+        },
+        error,
+    };
+    Ok(Response::html(
+        status,
+        render("login.html", LOGIN_TEMPLATE, &page)?,
+    ))
 }
 
 /// `/rapports/<nom>` (rapport quotidien) ou `/rapports/analyse/<nom>` (rapport d'analyse). Le nom doit être
@@ -232,6 +328,7 @@ mod testing;
 mod tests {
     use super::*;
     use testing::{Sample, sample};
+    use view::Flash;
 
     fn get(sample: &Sample, target: &str) -> (u16, String) {
         let response = sample.get(target);
@@ -313,6 +410,91 @@ mod tests {
                 assert!(html.contains("class=\"side\""), "{target} : barre latérale");
             }
         }
+    }
+
+    #[test]
+    fn without_a_session_every_page_leads_to_the_login_page_but_the_fonts_do_not() {
+        let sample = testing::empty();
+        for target in ["/", "/paris", "/rapports/analyse/x.html", "/inconnue"] {
+            let response = sample.send(&testing::request(Method::Get, target, b""));
+            assert_eq!(response.status, 303, "{target}");
+            assert_eq!(response.location.as_deref(), Some("/connexion"));
+        }
+        let login = sample.send(&testing::request(Method::Get, "/connexion", b""));
+        assert_eq!(login.status, 200);
+        assert!(
+            !String::from_utf8(login.body)
+                .unwrap()
+                .contains("class=\"side\"")
+        );
+        let font = sample.send(&testing::request(
+            Method::Get,
+            "/police/inter-regular.ttf",
+            b"",
+        ));
+        assert_eq!(font.status, 200);
+        // Déjà connecté : la page de connexion renvoie à l'accueil.
+        assert_eq!(sample.get("/connexion").status, 303);
+    }
+
+    #[test]
+    fn the_right_secret_opens_a_session_and_a_wrong_one_does_not() {
+        let sample = testing::empty();
+        let wrong = sample.send(&testing::request(Method::Post, "/connexion", b"secret=non"));
+        assert_eq!(wrong.status, 401);
+        assert!(wrong.cookies.is_empty());
+
+        let body = format!("secret={}", testing::TOKEN);
+        let right = sample.send(&testing::request(
+            Method::Post,
+            "/connexion",
+            body.as_bytes(),
+        ));
+        assert_eq!(right.status, 303);
+        assert_eq!(right.location.as_deref(), Some("/"));
+        assert!(right.cookies[0].starts_with(testing::SESSION));
+
+        let out = sample.post("/deconnexion", "");
+        assert_eq!(out.location.as_deref(), Some("/connexion"));
+        assert!(out.cookies[0].contains("Max-Age=0"));
+    }
+
+    #[test]
+    fn a_form_from_another_site_or_without_a_session_is_refused() {
+        let sample = testing::empty();
+        let foreign = Request {
+            cookies: Some(testing::SESSION),
+            origin: Some("http://evil.example"),
+            ..testing::request(Method::Post, "/paris/regler", b"")
+        };
+        assert_eq!(sample.send(&foreign).status, 403);
+        let no_origin = Request {
+            origin: None,
+            ..foreign
+        };
+        assert_eq!(sample.send(&no_origin).status, 403);
+        let anonymous = testing::request(Method::Post, "/paris/regler", b"");
+        assert_eq!(sample.send(&anonymous).status, 403);
+        let other = testing::request(Method::Other, "/", b"");
+        assert_eq!(sample.send(&other).status, 405);
+    }
+
+    #[test]
+    fn a_flash_message_is_shown_once_then_cleared() {
+        let sample = testing::empty();
+        let cookie = auth::flash_cookie(&Flash::ok("Pari n° 3 enregistré."));
+        let value = cookie.split(';').next().unwrap();
+        let cookies = format!("{}; {value}", testing::SESSION);
+        let request = Request {
+            cookies: Some(&cookies),
+            ..testing::request(Method::Get, "/paris", b"")
+        };
+
+        let response = sample.send(&request);
+
+        let html = testing::unescape(&String::from_utf8(response.body).unwrap());
+        assert!(html.contains("Pari n° 3 enregistré."), "{html}");
+        assert!(response.cookies[0].starts_with("edge_flash=;"));
     }
 
     #[test]

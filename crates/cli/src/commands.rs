@@ -9,7 +9,7 @@ use edge_core::backtest::candidates::load_inputs;
 use edge_core::backtest::{curve, study};
 use edge_core::betting::kelly::{self, to_units};
 use edge_core::betting::{clv, ledger, live, recommend, settle};
-use edge_core::config::{API_KEY_ENV, Config, WEBHOOK_ENV};
+use edge_core::config::{API_KEY_ENV, Config, SERVE_TOKEN_ENV, WEBHOOK_ENV};
 use edge_core::domain::{Euros, Outcome};
 use edge_core::format;
 use edge_core::ingest::aliases::Aliases;
@@ -1437,10 +1437,13 @@ pub fn serve(paths: &Paths) -> Result<()> {
     store::open_read_only(&paths.db_file)
         .context("base inaccessible : lance d'abord `edge init`")?;
     let bind = config.serve_bind;
+    // Sans secret, pas d'application : elle permet d'écrire dans le journal.
+    let token = config.web_token(std::env::var(SERVE_TOKEN_ENV).ok().as_deref())?;
     let app = App {
         paths: paths.clone(),
         config,
         aliases: Aliases::bundled()?,
+        token,
     };
     // L'erreur de `tiny_http` est une `Box<dyn Error + Send + Sync>` : `anyhow!` l'enveloppe avec son message.
     let server = tiny_http::Server::http(bind)

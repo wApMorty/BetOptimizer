@@ -1,0 +1,13 @@
+{% extends "site_base.html" %}
+{% block title %}Connexion{% endblock %}
+{% block content %}
+<div class="card" style="max-width: 420px; margin: 12vh auto 0; padding: 28px">
+  <div class="brand" style="padding: 0 0 14px"><span class="dot"></span>edge</div>
+  <p class="sub">Tape le secret de connexion (<code>serve_token</code> de la configuration). Ce navigateur s'en souviendra un an.</p>
+  <form method="post" action="/connexion">
+    <label class="field"><span>Secret</span><input type="password" name="secret" autocomplete="current-password" autofocus></label>
+    {% if error %}<div class="neg" style="margin-bottom: 12px">{{ error }}</div>{% endif %}
+    <button class="btn" type="submit">Se connecter</button>
+  </form>
+</div>
+{% endblock %}

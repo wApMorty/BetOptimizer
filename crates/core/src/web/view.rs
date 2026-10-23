@@ -17,6 +17,24 @@ pub struct Flash {
     pub text: String,
 }
 
+impl Flash {
+    /// Une réussite.
+    pub fn ok(text: impl Into<String>) -> Flash {
+        Flash {
+            kind: "t-pos",
+            text: text.into(),
+        }
+    }
+
+    /// Un échec.
+    pub fn error(text: impl Into<String>) -> Flash {
+        Flash {
+            kind: "t-neg",
+            text: text.into(),
+        }
+    }
+}
+
 /// Le cadre commun : barre latérale, onglet actif, heure de calcul, message éventuel.
 ///
 /// Chaque page l'inclut avec `#[serde(flatten)]` : ses champs arrivent au gabarit au même niveau que ceux de la page,
