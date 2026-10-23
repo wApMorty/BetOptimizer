@@ -1603,3 +1603,47 @@ exacte minimale par programmation dynamique sur les sous-ensembles de tickets (2
 
 **Exemples** : les 16 tickets LF7 du test de référence de l'optimiseur tiennent en 6 grilles (8 €, trois à 2 €, deux à 1 €) ; les
 16 tickets de la séance réelle LF8 n°146 du 2026-10-22 en 5 grilles (8 €, 4 €, 2 €, deux à 1 €).
+
+## 40. Phase 15 — Application Web à la place d'edge-gui (2026-10-23)
+
+**Demande de Paul** : servir une vraie application Web plutôt qu'une page statique, en reprenant l'interface d'edge-gui ;
+consultation sur le PC fixe de la maison (pas de rendu téléphone), le portable restant serveur ; edge-gui retiré une fois le serveur
+en place ; une image dans le message Discord des opportunités et du Loto Foot (celle-ci « ressemblant à un ticket »).
+
+**Choix : rendu côté serveur, sans script**, plutôt qu'egui compilé en WebAssembly. egui dans le navigateur aurait demandé une API
+JSON et des appels HTTP asynchrones côté navigateur (contraire à la règle « pas d'async »), une crate de types séparée (le cœur, avec
+`rusqlite` en C, `ureq` et `resvg`, ne compile pas pour le navigateur) et l'assouplissement de la politique de sécurité. Aucune
+dépendance nouvelle : `tiny_http` (§28) et `minijinja` suffisent ; les graphiques sont des SVG écrits à la main, colorés par les
+classes CSS de la page (thème clair ou sombre du système).
+
+**Organisation.** Module `web` du cœur : routage, connexion, formulaires, pages, testés sans ouvrir de port ; la CLI ne fait que
+traduire HTTP ↔ `web::Request`/`Response`. Les écritures passent par les fonctions du cœur qu'utilisaient la CLI et edge-gui
+(`betting::ledger`, `bonus::tracking`, `lotofoot::played`) : mêmes règles (cote minimale, règlement unique, `off_model`).
+Palette commune (`report/theme.rs`) : celle d'edge-gui, partagée par le site, le rapport quotidien et les images Discord.
+
+**Sécurité** (le site écrit désormais au journal) :
+- secret `serve_token` (fichier en 0600) ou `EDGE_SERVE_TOKEN`, 24 caractères au moins, lettres, chiffres, `-` et `_` (il finit
+  dans un cookie) ; `edge serve` refuse de démarrer sans lui ;
+- cookie de session `HttpOnly; SameSite=Strict`, un an ; comparaison du secret en temps constant ;
+- tout `POST` doit porter un en-tête `Origin` égal à `http://` + `Host`, sinon 403 ; sans session, toute adresse renvoie à
+  `/connexion` (sauf les polices) ;
+- politique de sécurité : `default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'self'; form-action 'self';
+  frame-ancestors 'none'; base-uri 'none'` ;
+- HTTP sans chiffrement : secret et cookie circulent en clair, acceptable sur le réseau de la maison seulement.
+
+**Constaté en essayant.**
+- `Referrer-Policy: no-referrer` (§28) fait envoyer `Origin: null` par Chromium avec un formulaire : le contrôle d'origine
+  refusait toutes les connexions (journal du serveur, 2026-10-23). Passé à `same-origin` : aucune adresse du site n'est transmise
+  à un site extérieur, et l'origine redevient visible pour le site lui-même.
+- L'échappement HTML de `minijinja` écrit `/` en `&#x2f;` et `'` en `&#x27;` : sans effet pour le navigateur, mais les tests
+  décodent ces entités avant de chercher un texte (`web/testing.rs`, `unescape`).
+- Le test du serveur restait bloqué : la réponse binaire de la police était lue avec `read_to_string`, qui échoue, et le thread du
+  serveur attendait ensuite une requête qui ne venait plus. Corrigé en lisant des octets. Au même moment, le corps n'est plus lu
+  que pour un `POST` (borné à 16 Kio) : un `GET` n'en a pas, inutile de le lire.
+
+**Images Discord.** Recommandations : inchangées, aux couleurs de la palette sombre. Loto Foot (`report/lotofoot_image.rs`) :
+un bulletin par grille, une ligne par rencontre, une colonne par grille à remplir (multiples de §39), cases 1, N, 2 à cocher
+noircies, prix de chaque grille ; rendu par `resvg` avec Inter, comme l'autre image. Séance LF8 n°146 : 5 colonnes (8, 1, 2, 4,
+1 €).
+
+**Retiré** : `crates/gui`, `eframe`, `egui_plot` (204 paquets en moins dans `Cargo.lock`) et `deploy/edge-gui.desktop`.

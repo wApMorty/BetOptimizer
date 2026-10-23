@@ -20,3 +20,4 @@ trois questions pour vérifier la compréhension, trois fichiers à relire en pr
 | 12 | Bonus de bienvenue couverts (`edge bonus`, onglet Bonus, page `/bonus`, journal des offres) | [docs/learning/phase-12.md](docs/learning/phase-12.md) |
 | 13 | Test prospectif de la latence française (OddsPapi, `edge latency`, page `/latence`, verdict figé à 32 paris) | [docs/learning/phase-13.md](docs/learning/phase-13.md) |
 | 14 | Loto Foot LF7 et LF8 (`edge lotofoot`, séance du samedi, page `/lotofoot`, vérification figée à 26 et 52 semaines) | [docs/learning/phase-14.md](docs/learning/phase-14.md) |
+| 15 | Application Web à la place d'edge-gui (`edge serve`, connexion, formulaires, image Loto Foot en bulletin) | [docs/learning/phase-15.md](docs/learning/phase-15.md) |
