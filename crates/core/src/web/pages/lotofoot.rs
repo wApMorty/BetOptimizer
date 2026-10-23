@@ -1,24 +1,42 @@
-//! Onglet « Loto Foot » (`/lotofoot`) : verdict du modèle, dernière séance (grilles et tickets à remplir), bilans,
+//! Onglet « Loto Foot » (`/lotofoot`) : verdict du modèle, dernière séance (grilles à remplir et tickets), bilans,
 //! vérification.
 //!
 //! Tout vient de [`crate::report::lotofoot_page::page`] ; ce module ajoute la présentation en bulletin : une ligne par
-//! rencontre, une colonne par ticket, le signe à cocher dans chaque case.
+//! rencontre, une colonne par grille à remplir (simple ou multiple, `docs/sources.md` §39), les cases à cocher dans
+//! chaque colonne ; puis le détail des tickets de la grille (espérance, règlement).
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::error::Result;
-use crate::report::lotofoot_page::{self, LotofootPage, TicketView};
+use crate::report::lotofoot_page::{self, LineView, LotofootPage, TicketView};
 use crate::store;
 use crate::web::App;
 use crate::web::view::{Flash, Layout, render};
 
 const TEMPLATE: &str = include_str!("../templates/lotofoot.html");
 
-/// Un ticket, en tête de sa colonne.
+/// Une grille à remplir, en tête et en pied de sa colonne.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 struct Column {
+    price: String,
+    /// Numéros des tickets contenus (« n° 12, 13 »).
+    tickets: String,
+    played: bool,
+}
+
+/// Une rencontre et les cases à cocher dans chaque grille à remplir (une case par signe : deux pour un double).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct Row {
+    fixture: String,
+    cells: Vec<Vec<String>>,
+}
+
+/// Un ticket de la grille, pour le détail.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct Detail {
     id: i64,
+    ticket: String,
     played: bool,
     status: String,
     /// Tonalité du règlement (`t-pos` pour un rang payé, `t-neg` pour perdu).
@@ -28,20 +46,14 @@ struct Column {
     paid: String,
 }
 
-/// Une rencontre et le signe de chaque ticket.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-struct Line {
-    fixture: String,
-    signs: Vec<String>,
-}
-
-/// Une grille présentée en bulletin.
+/// Une grille du Loto Foot présentée en bulletin.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 struct Bulletin {
     grid: String,
     closes: String,
     columns: Vec<Column>,
-    lines: Vec<Line>,
+    rows: Vec<Row>,
+    details: Vec<Detail>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -62,32 +74,32 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
         .grids
         .iter()
         .map(|grid| {
-            let tickets: Vec<&TicketView> = lotofoot
-                .tickets
+            let lines: Vec<&LineView> = lotofoot
+                .lines
                 .iter()
-                .filter(|t| t.grid == grid.grid)
+                .filter(|l| l.grid == grid.grid)
                 .collect();
             Bulletin {
                 grid: grid.grid.clone(),
                 closes: grid.closes.clone(),
-                columns: tickets.iter().map(|t| column(t)).collect(),
-                lines: grid
+                columns: lines.iter().map(|l| column(l)).collect(),
+                rows: grid
                     .matches
                     .iter()
                     .enumerate()
-                    .map(|(index, fixture)| Line {
+                    .map(|(index, fixture)| Row {
                         fixture: fixture.clone(),
-                        // Le i-ième caractère du ticket est le signe de la i-ième rencontre (`1`, `N` ou `2`).
-                        signs: tickets
+                        cells: lines
                             .iter()
-                            .map(|t| {
-                                t.ticket
-                                    .chars()
-                                    .nth(index)
-                                    .map_or(String::new(), String::from)
-                            })
+                            .map(|l| l.signs.get(index).cloned().unwrap_or_default())
                             .collect(),
                     })
+                    .collect(),
+                details: lotofoot
+                    .tickets
+                    .iter()
+                    .filter(|t| t.grid == grid.grid)
+                    .map(detail)
                     .collect(),
             }
         })
@@ -105,7 +117,16 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
     )
 }
 
-fn column(ticket: &TicketView) -> Column {
+fn column(line: &LineView) -> Column {
+    let ids: Vec<String> = line.tickets.iter().map(i64::to_string).collect();
+    Column {
+        price: line.price.clone(),
+        tickets: format!("n° {}", ids.join(", ")),
+        played: line.played,
+    }
+}
+
+fn detail(ticket: &TicketView) -> Detail {
     let tone = if ticket.status.starts_with("rang") {
         "t-pos"
     } else if ticket.status.starts_with("perdu") {
@@ -113,8 +134,9 @@ fn column(ticket: &TicketView) -> Column {
     } else {
         ""
     };
-    Column {
+    Detail {
         id: ticket.id,
+        ticket: ticket.ticket.clone(),
         played: ticket.played,
         status: ticket.status.clone(),
         tone,
@@ -129,11 +151,18 @@ mod tests {
     use crate::web::testing::{empty, sample};
 
     #[test]
-    fn the_session_is_shown_as_a_bulletin_with_one_column_per_ticket() {
+    fn the_session_is_shown_as_a_bulletin_with_one_column_per_grid_to_fill() {
         let html = sample().html("/lotofoot");
         assert!(html.contains("LF7 n°133"), "{html}");
-        // Deux tickets : deux colonnes ; sept rencontres : sept lignes de deux cases.
-        assert_eq!(html.matches("class=\"sign s-").count(), 14, "{html}");
+        // Deux tickets, `1N21N21` et `2N21N21`, qui ne diffèrent que sur la première rencontre : une seule grille à
+        // remplir, un double 12 puis six simples, soit huit cases cochées pour sept rencontres.
+        assert_eq!(html.matches("class=\"sign s-").count(), 8, "{html}");
+        assert!(html.contains("2 €"), "{html}");
+        // Le détail garde chaque ticket.
+        assert!(
+            html.contains("1N21N21") && html.contains("2N21N21"),
+            "{html}"
+        );
         assert!(html.contains("J'ai joué la séance"));
         let html = empty().html("/lotofoot");
         assert!(html.contains("Aucune séance pour l'instant"));

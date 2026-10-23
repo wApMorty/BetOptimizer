@@ -177,7 +177,8 @@ rang 1 (le « pactole » : 100 000 € pour le LF7, 150 000 € pour le LF8).
 ## Complément (2026-10-23) : les tickets regroupés en grilles multiples
 
 `crates/core/src/lotofoot/bulletin.rs` regroupe les tickets choisis en grilles multiples **sans en changer un seul** (`docs/sources.md`
-§39). `edge lotofoot recommend` affiche ces grilles à remplir après la liste des tickets.
+§39). `edge lotofoot recommend`, le message Discord (texte et image) et la page `/lotofoot` affichent ces grilles à remplir ;
+la page garde, sous chaque bulletin, le détail des tickets.
 
 Rust :
 - `Line` garde, pour chaque rencontre, une liste triée de signes (`Vec<Vec<Outcome>>`) ; `Line::tickets` déroule le produit

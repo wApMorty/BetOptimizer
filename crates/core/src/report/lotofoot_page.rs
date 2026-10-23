@@ -9,11 +9,12 @@ use serde::Serialize;
 
 use crate::error::Result;
 use crate::format::{decimal, kickoff_label, long_date};
+use crate::lotofoot::bulletin::session_lines;
 use crate::lotofoot::session::SessionReport;
 use crate::lotofoot::settle::{self, Ledger};
 use crate::lotofoot::verify::{self, Verdict, Verification};
-use crate::lotofoot::{Game, TICKET_PRICE};
-use crate::store::lotofoot as store;
+use crate::lotofoot::{Game, TICKET_PRICE, sign_char};
+use crate::store::lotofoot::{self as store, RecoRow};
 
 /// Un ticket recommandé, prêt à afficher.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -47,6 +48,24 @@ pub struct GridView {
     pub closes: String,
     /// Rencontres numérotées.
     pub matches: Vec<String>,
+}
+
+/// Une grille à remplir au guichet : des tickets de la séance regroupés sans perte en une grille simple ou multiple
+/// ([`crate::lotofoot::bulletin`]).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LineView {
+    /// Grille du Loto Foot (« LF8 n°146 »).
+    pub grid: String,
+    /// Signes à cocher pour chaque rencontre, dans l'ordre du bulletin (`["1", "N"]` pour un double 1N).
+    pub signs: Vec<Vec<String>>,
+    /// Forme écrite (`1N 2 2 1 N2 1N2 1`).
+    pub code: String,
+    /// Prix (« 8 € ») : nombre de tickets contenus.
+    pub price: String,
+    /// Numéros au journal des tickets contenus.
+    pub tickets: Vec<i64>,
+    /// Tous ses tickets sont déclarés joués.
+    pub played: bool,
 }
 
 /// Un bilan affiché.
@@ -90,6 +109,8 @@ pub struct LotofootPage {
     pub grids: Vec<GridView>,
     /// Tickets de la dernière séance.
     pub tickets: Vec<TicketView>,
+    /// Les mêmes tickets regroupés en grilles à remplir, grille du Loto Foot par grille du Loto Foot.
+    pub lines: Vec<LineView>,
     /// Mise totale de la dernière séance.
     pub stake: String,
     /// Grilles écartées (« LF7 n°133 : répartition pas encore publiée »).
@@ -119,6 +140,7 @@ pub fn page(conn: &Connection, now: DateTime<Utc>) -> Result<LotofootPage> {
         session: String::new(),
         grids: Vec::new(),
         tickets: Vec::new(),
+        lines: Vec::new(),
         stake: String::new(),
         skipped: Vec::new(),
         unknown_names: Vec::new(),
@@ -257,8 +279,37 @@ pub fn page(conn: &Connection, now: DateTime<Utc>) -> Result<LotofootPage> {
             played: played.contains(&reco.id),
         });
     }
+    page.lines = line_views(&recos, &played);
     page.stake = format!("{} €", decimal(recos.len() as f64 * TICKET_PRICE, 0));
     Ok(page)
+}
+
+/// Grilles à remplir pour les tickets de la séance ; `played` : numéros des tickets déclarés joués.
+fn line_views(recos: &[RecoRow], played: &[i64]) -> Vec<LineView> {
+    let keyed: Vec<_> = recos
+        .iter()
+        .map(|r| ((r.game, r.number), &r.ticket))
+        .collect();
+    session_lines(&keyed)
+        .into_iter()
+        .map(|l| {
+            // `l.tickets` donne des rangs dans `recos` : on les traduit en numéros du journal.
+            let ids: Vec<i64> = l.tickets.iter().map(|&i| recos[i].id).collect();
+            LineView {
+                grid: format!("{} n°{}", l.grid.0, l.grid.1),
+                signs: l
+                    .line
+                    .signs()
+                    .iter()
+                    .map(|choices| choices.iter().map(|&s| sign_char(s).to_string()).collect())
+                    .collect(),
+                code: l.line.to_string(),
+                price: format!("{} €", l.line.combinations()),
+                played: ids.iter().all(|id| played.contains(id)),
+                tickets: ids,
+            }
+        })
+        .collect()
 }
 
 fn ledger_view(label: &'static str, ledger: &Ledger, with_expected: bool) -> LedgerView {
@@ -311,20 +362,22 @@ pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
     let mut text = String::from("**edge · Loto Foot** — séance du samedi\n");
     if report.chosen.is_empty() {
         text.push_str("Aucun ticket ne passe le seuil cette semaine : rien à jouer.\n");
-    } else {
+    }
+    let keyed: Vec<_> = report.chosen.iter().map(|c| (c.grid, &c.ticket)).collect();
+    let lines = session_lines(&keyed);
+    if !report.chosen.is_empty() {
         text.push_str(&format!(
-            "{} ticket(s) à 1 €, soit {} € (budget plafond). À valider avant la clôture de chaque grille.\n",
+            "{} ticket(s) à 1 €, soit {} € (budget plafond), en {} grille(s) à remplir (multiples sans perte : mêmes \
+             tickets, même mise). À valider avant la clôture de chaque grille.\n",
             report.chosen.len(),
-            report.chosen.len()
+            report.chosen.len(),
+            lines.len()
         ));
     }
     for grid in &report.evaluated {
-        let tickets: Vec<_> = report
-            .chosen
-            .iter()
-            .filter(|c| c.grid == (grid.game, grid.number))
-            .collect();
-        if tickets.is_empty() {
+        let key = (grid.game, grid.number);
+        let own: Vec<_> = lines.iter().filter(|l| l.grid == key).collect();
+        if own.is_empty() {
             continue;
         }
         text.push_str(&format!(
@@ -336,12 +389,19 @@ pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
         for (i, (h, a)) in grid.matches.iter().enumerate() {
             text.push_str(&format!("{}. {h} – {a}\n", i + 1));
         }
-        for c in tickets {
+        for l in own {
+            // Espérance moyenne des tickets de la grille, dans le scénario défavorable (celui du seuil).
+            let low: f64 = l
+                .tickets
+                .iter()
+                .map(|&i| report.chosen[i].pessimistic.expected_return)
+                .sum::<f64>()
+                / l.tickets.len() as f64;
             text.push_str(&format!(
-                "`{}`  espérance {} (défavorable {})\n",
-                c.ticket,
-                decimal(c.base.expected_return, 2),
-                decimal(c.pessimistic.expected_return, 2)
+                "`{}`  {} € — défavorable {}\n",
+                l.line,
+                l.line.combinations(),
+                decimal(low, 2)
             ));
         }
     }
@@ -401,7 +461,8 @@ mod tests {
         assert!(text.contains("1 ticket(s) à 1 €"));
         assert!(text.contains("**LF8 n°147**"));
         assert!(text.contains("1. H1 – A1"));
-        assert!(text.contains("`21N12222`  espérance 2,50 (défavorable 2,00)"));
+        assert!(text.contains("en 1 grille(s) à remplir"));
+        assert!(text.contains("`2 1 N 1 2 2 2 2`  1 € — défavorable 2,00"));
         assert!(text.contains("Inconnu FC"));
         assert!(text.contains("<http://portable.local:8737/lotofoot>"));
         let empty = SessionReport {

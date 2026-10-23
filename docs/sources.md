@@ -1647,3 +1647,8 @@ noircies, prix de chaque grille ; rendu par `resvg` avec Inter, comme l'autre im
 1 €).
 
 **Retiré** : `crates/gui`, `eframe`, `egui_plot` (204 paquets en moins dans `Cargo.lock`) et `deploy/edge-gui.desktop`.
+
+**Affichage (2026-10-23, après la phase 15).** Les grilles à remplir figurent dans `edge lotofoot recommend`, dans l'image jointe au
+message Discord (`report/lotofoot_image.rs`), dans le texte du message (une ligne par grille : signes, prix, espérance défavorable
+moyenne de ses tickets) et sur la page `/lotofoot` (une colonne par grille à remplir, puis le détail des tickets : espérance,
+règlement, déclaration). Les vues sont calculées par `lotofoot_page::page` (champ `lines`), partagé par la page et le message.
