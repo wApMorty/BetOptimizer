@@ -19,6 +19,7 @@
     </tbody>
   </table>
   </div>
+  {% if b.total.ranks %}<p class="meta" style="margin: 8px 0 0" title="Toutes les colonnes ensemble, selon le meilleur ticket : les rangs s'excluent. Gain moyen : celui de tous nos tickets sur ces issues. Le partage entre nos propres tickets d'un même rang n'est pas compté, d'où un gain un peu optimiste quand plusieurs font une erreur.">Grille entière ({{ b.total.price }}) : {% for r in b.total.ranks %}{{ r.label|lower }} <b>{{ r.chance }}</b> ({{ r.gain }}) · {% endfor %}au moins un rang payé <b>{{ b.total.paid }}</b></p>{% endif %}
   <details><summary class="meta">Détail des {{ b.details|length }} ticket(s)</summary>
   <div class="scroll">
   <table>

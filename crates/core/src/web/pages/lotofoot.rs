@@ -24,7 +24,9 @@ use crate::lotofoot::live::{self, Live, Notified};
 use crate::lotofoot::scores::{self, MatchNow, Standing};
 use crate::lotofoot::session::{self, Request};
 use crate::lotofoot::{Ticket, sign_char};
-use crate::report::lotofoot_page::{self, Group, LineView, LotofootPage, RankView, TicketView};
+use crate::report::lotofoot_page::{
+    self, GridTotal, Group, LineView, LotofootPage, RankView, TicketView,
+};
 use crate::store;
 use crate::store::lotofoot as lotofoot_store;
 use crate::web::App;
@@ -109,6 +111,8 @@ struct Bulletin {
     columns: Vec<Column>,
     rows: Vec<Row>,
     ranks: Vec<RankRow>,
+    /// Toutes les colonnes ensemble.
+    total: GridTotal,
     details: Vec<Detail>,
 }
 
@@ -238,6 +242,7 @@ fn bulletins(group: &Group, follow: &Follow) -> Vec<Bulletin> {
                     .map(|(index, fixture)| row(fixture, index, &lines, matches.get(index)))
                     .collect(),
                 ranks: rank_rows(&lines),
+                total: grid.total.clone(),
                 details: tickets.iter().map(|t| detail(t, matches)).collect(),
             }
         })

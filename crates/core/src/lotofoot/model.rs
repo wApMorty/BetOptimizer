@@ -236,19 +236,31 @@ impl GridModel {
 
     /// Chance et gain moyen d'une grille à remplir (simple ou multiple) selon son meilleur résultat : sans faute si l'un
     /// de ses tickets est parfait, une erreur si le meilleur en fait une, et ainsi de suite jusqu'au dernier rang payé.
-    ///
-    /// Le meilleur ticket fait autant d'erreurs qu'il y a de rencontres tombées hors des signes de la grille. On parcourt
-    /// les `3^n` issues (6 561 au LF8) ; pour celles qui paient, le gain de la grille est la somme des gains espérés de
-    /// ses tickets sachant l'issue ([`GridModel::outcome_gain`]). Pour une multiple, le gain d'un sans-faute comprend donc
-    /// aussi ses tickets à une erreur. Pour un ticket simple, on retrouve [`GridModel::rank_odds`].
+    /// Pour un ticket simple, on retrouve [`GridModel::rank_odds`]. Voir [`GridModel::lines_odds`].
     pub fn line_odds(&self, line: &Line, competitors: &Competitors) -> Vec<RankOdds> {
+        // `from_ref` voit la ligne empruntée comme une tranche d'un élément, sans la copier.
+        self.lines_odds(std::slice::from_ref(line), competitors)
+    }
+
+    /// Chance et gain moyen d'un ensemble de grilles à remplir sur la même grille du Loto Foot (toutes les colonnes d'un
+    /// bulletin) selon le meilleur résultat de l'ensemble.
+    ///
+    /// Le meilleur ticket d'une colonne fait autant d'erreurs qu'il y a de rencontres tombées hors de ses signes ; celui
+    /// de l'ensemble, le minimum sur les colonnes : `rang(o) = min_c #{i : o_i ∉ signes_c(i)}`. On parcourt les `3^n`
+    /// issues (6 561 au LF8) ; pour celles qui paient, le gain est la somme des gains espérés de tous les tickets sachant
+    /// l'issue ([`GridModel::outcome_gain`]) : un sans-faute comprend donc aussi les tickets à une erreur. Les colonnes
+    /// portent sur les mêmes rencontres : leurs chances ne s'additionnent pas, sauf au sans-faute (deux tickets distincts
+    /// ne peuvent pas être parfaits ensemble). Comme pour chaque ticket, le partage entre nos propres tickets d'un même
+    /// rang est ignoré (`docs/sources.md` §39) : le gain d'un rang à plusieurs de nos tickets est un peu optimiste.
+    pub fn lines_odds(&self, lines: &[Line], competitors: &Competitors) -> Vec<RankOdds> {
         let n = self.len();
         let mut sums = vec![Accumulated::default(); self.ranks()];
         let total = u32::try_from(n).ok().and_then(|n| 3usize.checked_pow(n));
-        let (Some(total), true) = (total, line.signs().len() == n) else {
+        let well_formed = !lines.is_empty() && lines.iter().all(|l| l.signs().len() == n);
+        let (Some(total), true) = (total, well_formed) else {
             return odds(sums);
         };
-        let tickets = line.tickets();
+        let tickets: Vec<Ticket> = lines.iter().flat_map(Line::tickets).collect();
         for code in 0..total {
             // L'issue de code `code` : ses chiffres en base 3 sont les signes sortis, rencontre par rencontre.
             let mut rest = code;
@@ -259,12 +271,17 @@ impl GridModel {
                     sign
                 })
                 .collect();
-            let misses = line
-                .signs()
+            let misses = lines
                 .iter()
-                .zip(&outcome)
-                .filter(|(choices, sign)| !choices.contains(sign))
-                .count();
+                .map(|line| {
+                    line.signs()
+                        .iter()
+                        .zip(&outcome)
+                        .filter(|(choices, sign)| !choices.contains(sign))
+                        .count()
+                })
+                .min()
+                .unwrap_or(n);
             // Au-delà du dernier rang payé, l'issue ne rapporte rien : on passe sans calculer de gain.
             let Some(sum) = sums.get_mut(misses) else {
                 continue;
@@ -740,6 +757,45 @@ mod tests {
         // Un sans-faute de la multiple rapporte plus qu'un sans-faute d'un seul de ses tickets (les voisins à une
         // erreur paient aussi), et plus qu'une erreur.
         assert!(odds[0].gain_if_reached > odds[1].gain_if_reached);
+    }
+
+    #[test]
+    fn a_whole_bulletin_is_paid_by_its_best_column() {
+        let grid = lf7();
+        let codes = ["1222122", "1222112", "N122122", "2212111"];
+        let tickets: Vec<Ticket> = codes.iter().map(|c| Ticket::parse(c).unwrap()).collect();
+        let lines: Vec<Line> = tickets.iter().map(Line::single).collect();
+        let whole = grid.lines_odds(&lines, &FROZEN);
+        let columns: Vec<Vec<RankOdds>> =
+            lines.iter().map(|l| grid.line_odds(l, &FROZEN)).collect();
+        // Une seule colonne : le même résultat que `line_odds`.
+        let alone = grid.lines_odds(&lines[..1], &FROZEN);
+        for (a, c) in alone.iter().zip(&columns[0]) {
+            assert_relative_eq!(a.probability, c.probability, epsilon = 1e-12);
+            assert_relative_eq!(a.gain_if_reached, c.gain_if_reached, max_relative = 1e-9);
+        }
+        // Sans faute : deux tickets distincts ne sont jamais parfaits ensemble, les chances s'additionnent.
+        let perfect: f64 = columns.iter().map(|c| c[0].probability).sum();
+        assert_relative_eq!(whole[0].probability, perfect, epsilon = 1e-12);
+        // Une erreur : les colonnes se recouvrent, la chance cumulée est sous la somme des colonnes.
+        let one_error: f64 = columns.iter().map(|c| c[1].probability).sum();
+        assert!(whole[1].probability < one_error);
+        // L'espérance de l'ensemble est la somme des espérances de ses tickets.
+        let expected: f64 = whole
+            .iter()
+            .map(|o| o.probability * o.gain_if_reached)
+            .sum();
+        let tickets_ev: f64 = tickets
+            .iter()
+            .map(|t| grid.value(t, &FROZEN).expected_return * TICKET_PRICE)
+            .sum();
+        assert_relative_eq!(expected, tickets_ev, max_relative = 1e-9);
+        // Aucune colonne : rien n'est joué.
+        assert!(
+            grid.lines_odds(&[], &FROZEN)
+                .iter()
+                .all(|o| o.probability == 0.0)
+        );
     }
 
     #[test]

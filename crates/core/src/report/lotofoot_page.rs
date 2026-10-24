@@ -71,6 +71,20 @@ pub struct GridView {
     pub session: String,
     /// Rencontres numérotées.
     pub matches: Vec<String>,
+    /// Toutes les grilles à remplir ensemble, selon le meilleur résultat de l'ensemble ([`GridTotal`]).
+    pub total: GridTotal,
+}
+
+/// Cumul d'une grille du Loto Foot sur tous les tickets du groupe ([`GridModel::lines_odds`]) : chaque rang compte les
+/// issues où notre meilleur ticket l'atteint, les rangs s'excluent donc et leurs chances s'additionnent.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct GridTotal {
+    /// Mise (« 16 € »).
+    pub price: String,
+    /// Chance et gain moyen de chaque rang, gain de tous nos tickets compris (vide si les entrées du modèle manquent).
+    pub ranks: Vec<RankView>,
+    /// Chance d'au moins un rang payé (« 1 sur 8 »), vide si les entrées du modèle manquent.
+    pub paid: String,
 }
 
 /// Un groupe de tickets : ceux à jouer (grille ouverte, pas encore déclarés joués) ou ceux en cours (joués, résultats
@@ -395,6 +409,7 @@ fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group>
                             .collect()
                     })
                     .unwrap_or_default(),
+                total: grid_total(recos, reco.game, reco.number),
             });
         }
         let status = match store::results(conn, reco.game, reco.number)? {
@@ -435,6 +450,34 @@ fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group>
     out.lines = line_views(recos, played);
     out.stake = format!("{} €", decimal(recos.len() as f64 * TICKET_PRICE, 0));
     Ok(out)
+}
+
+/// Cumul d'une grille du Loto Foot sur les tickets du groupe qui la jouent. Les multiples regroupent sans perte : on
+/// évalue directement les tickets, chacun comme une grille simple.
+fn grid_total(recos: &[&RecoRow], game: Game, number: u32) -> GridTotal {
+    let mine: Vec<&RecoRow> = recos
+        .iter()
+        .copied()
+        .filter(|r| r.game == game && r.number == number)
+        .collect();
+    let price = format!("{} €", decimal(mine.len() as f64 * TICKET_PRICE, 0));
+    // Tous les tickets d'une grille du Loto Foot partagent les mêmes entrées : celles du premier suffisent.
+    let Some(model) = mine
+        .first()
+        .and_then(|r| GridModel::from_journal(r.game, &r.inputs))
+    else {
+        return GridTotal {
+            price,
+            ..GridTotal::default()
+        };
+    };
+    let lines: Vec<Line> = mine.iter().map(|r| Line::single(&r.ticket)).collect();
+    let odds = model.lines_odds(&lines, &FROZEN);
+    GridTotal {
+        price,
+        paid: chance(odds.iter().map(|o| o.probability).sum()),
+        ranks: views(&odds),
+    }
 }
 
 /// Chance et gain moyen de chaque rang d'un ticket, recalculés par le modèle à partir de ses entrées figées au journal.
