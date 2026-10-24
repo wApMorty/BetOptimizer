@@ -37,7 +37,7 @@
 <div class="card"><span class="chip {% if verdict_class == "bad" %}t-neg{% elif verdict_class %}t-warn{% else %}t-pos{% endif %}">Verdict</span> {{ verdict }}</div>
 
 <div class="tiles">
-  <div class="tile"><div class="label">Budget de {{ budget.month }}</div><div class="figure acc">{{ budget.left }} €</div><div class="note">restant sur {{ budget.monthly }} € ({{ budget.spent }} € engagés)</div></div>
+  <div class="tile"><div class="label">Budget · {{ budget.month }}</div><div class="figure acc">{{ budget.left }} €</div><div class="note">restant sur {{ budget.monthly }} € ({{ budget.spent }} € engagés)</div></div>
   <div class="tile"><div class="label">Seuil τ</div><div class="figure">{{ budget.threshold }}</div><div class="note">abaque, budget de {{ budget.monthly }} € par mois</div></div>
   <div class="tile"><div class="label">À jouer</div><div class="figure {% if to_play.tickets %}wrn{% endif %}">{{ to_play.tickets|length }}</div><div class="note">{% if to_play.tickets %}{{ to_play.stake }} sur {{ to_play.grids|length }} grille(s){% else %}aucun ticket en attente{% endif %}</div></div>
   <div class="tile"><div class="label">En cours</div><div class="figure">{{ in_play.tickets|length }}</div><div class="note">tickets joués, résultats attendus</div></div>
