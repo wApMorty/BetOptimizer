@@ -131,5 +131,11 @@ mod tests {
         );
         assert_eq!(aliases.resolve("SC0", "Falkirk"), Some("Falkirk F.C."));
         assert_eq!(aliases.resolve("SP1", "Espanol"), Some("Espanyol"));
+        // Noms d'ESPN qui bloquaient le suivi en direct du 2026-10-24.
+        assert_eq!(aliases.resolve("ESPN", "FC Cologne"), Some("1. FC Köln"));
+        assert_eq!(
+            aliases.resolve("ESPN", "Internazionale"),
+            Some("Inter Milan")
+        );
     }
 }
