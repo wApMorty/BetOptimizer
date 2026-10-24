@@ -228,6 +228,13 @@ pub fn run(
             grid: label.clone(),
             reason,
         };
+        // Des tickets joués portent sur l'ancienne composition : on ne recalcule pas une grille qui n'est plus la leur.
+        if store::recomposition(conn, row.game, row.number)?.is_some_and(|r| r.played_before) {
+            report.skipped.push(skip(
+                "rencontres changées après des tickets déclarés joués : grille bloquée, à régler à la main".to_string(),
+            ));
+            continue;
+        }
         let earlier: Vec<&RecoRow> = recommended
             .iter()
             .filter(|r| (r.game, r.number) == (row.game, row.number))
@@ -666,6 +673,17 @@ mod tests {
         let teams: Vec<(String, String)> = (1..=7)
             .map(|i| (format!("H{i}"), format!("A{i}")))
             .collect();
+        record_grid_with(conn, number, closes_at, fetched, teams);
+    }
+
+    /// Une grille LF7 de rencontres données, relevée à `fetched`, avec la répartition des tests.
+    fn record_grid_with(
+        conn: &mut Connection,
+        number: u32,
+        closes_at: DateTime<Utc>,
+        fetched: DateTime<Utc>,
+        teams: Vec<(String, String)>,
+    ) {
         let fetch_id = record_fetch(conn, fetched, Page::Grid(Game::Lf7), 200, None).unwrap();
         let page = GridPage {
             open: Some(OpenGrid {
@@ -674,7 +692,7 @@ mod tests {
                 number,
                 closes_at,
                 jackpot: Euros::new(100_000.0),
-                matches: teams.clone(),
+                matches: teams,
                 split: Some(vec![
                     [61, 20, 19],
                     [31, 24, 45],
@@ -892,6 +910,93 @@ mod tests {
         );
         assert!(third.session_id.is_none());
         assert_eq!(store::current_recos(&conn).unwrap().len(), 3);
+    }
+
+    /// La grille 133 relevée à `fetched` avec les mêmes rencontres dans un autre ordre (la première passe en dernier) :
+    /// les positions de la répartition ne désignent plus les mêmes rencontres (`docs/sources.md` §52).
+    fn recompose(conn: &mut Connection, fetched: DateTime<Utc>) {
+        let teams: Vec<(String, String)> = (2..=7)
+            .chain(1..=1)
+            .map(|i| (format!("H{i}"), format!("A{i}")))
+            .collect();
+        record_grid_with(conn, 133, at("2026-10-25T16:10:00Z"), fetched, teams);
+    }
+
+    #[test]
+    fn a_changed_grid_is_recalculated_from_its_new_composition_or_blocked_if_played() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let mut aliases_text = String::new();
+        setup(&mut conn, &mut aliases_text);
+        let aliases = Aliases::parse(&aliases_text).unwrap();
+        let config = Config::default();
+        let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
+            panic!("aucun appel attendu : {path}")
+        };
+        let mut clock = || at("2026-10-24T10:00:00Z");
+        let first = run(
+            &mut conn,
+            &config,
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            ask(16, 1.0, false, false),
+        )
+        .unwrap();
+        assert!(!first.chosen.is_empty());
+        // Les rencontres changent à 10 h 30 : les tickets de 10 h ne sont plus en vigueur, et la séance suivante
+        // recalcule la grille sans le bouton ; son âge repart de la nouvelle composition (une demi-heure).
+        recompose(&mut conn, at("2026-10-24T10:30:00Z"));
+        assert!(store::current_recos(&conn).unwrap().is_empty());
+        let mut later = || at("2026-10-24T11:00:00Z");
+        let second = run(
+            &mut conn,
+            &config,
+            &aliases,
+            &mut later,
+            &mut fetch,
+            ask(16, 1.0, false, false),
+        )
+        .unwrap();
+        assert!(
+            second.skipped[0].reason.contains("trop jeune"),
+            "{:?}",
+            second.skipped
+        );
+
+        // Autre base : un ticket est déclaré joué avant le changement, la grille est bloquée.
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        setup(&mut conn, &mut String::new());
+        run(
+            &mut conn,
+            &config,
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            ask(16, 1.0, false, false),
+        )
+        .unwrap();
+        let played = store::current_recos(&conn).unwrap()[0].id;
+        let stake = crate::domain::Euros::new(1.0).unwrap();
+        crate::lotofoot::played::declare(&conn, &[played], at("2026-10-24T10:15:00Z"), stake)
+            .unwrap();
+        recompose(&mut conn, at("2026-10-24T10:30:00Z"));
+        let blocked = run(
+            &mut conn,
+            &config,
+            &aliases,
+            &mut later,
+            &mut fetch,
+            ask(16, 1.0, true, false),
+        )
+        .unwrap();
+        assert!(
+            blocked.skipped[0].reason.contains("grille bloquée"),
+            "{:?}",
+            blocked.skipped
+        );
+        assert!(blocked.session_id.is_none());
     }
 
     #[test]

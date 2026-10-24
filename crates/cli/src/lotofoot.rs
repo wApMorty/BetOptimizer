@@ -84,6 +84,9 @@ fn print_fetch(report: &FetchReport) {
     for failure in &report.failures {
         println!("  échec : {failure}");
     }
+    for warning in &report.warnings {
+        println!("  attention : {warning}");
+    }
 }
 
 /// `edge lotofoot recommend` : séance (relevé frais, cotes, tickets), écrite au journal ; `--notify` l'envoie sur Discord.

@@ -178,6 +178,8 @@ pub struct LotofootPage {
     pub to_play: Group,
     /// Tickets en cours : joués, résultats pas tous connus.
     pub in_play: Group,
+    /// Grilles ouvertes ou suivies dont la composition a changé (`docs/sources.md` §52), en clair.
+    pub recomposed: Vec<String>,
     /// Dernière séance (« n°11, samedi 24 octobre à 17:34 »), vide s'il n'y en a pas.
     pub session: String,
     /// Seuil et budget de la dernière séance (« τ = 1,7, budget de 60 € par mois »), vide s'ils ne sont pas notés.
@@ -216,6 +218,7 @@ pub fn page(conn: &Connection, now: DateTime<Utc>, monthly_budget: u32) -> Resul
         budget: budget_view(conn, &recos, now, monthly_budget)?,
         to_play: group(conn, &to_play, &played)?,
         in_play: group(conn, &in_play, &played)?,
+        recomposed: recomposed_notices(conn, now, &in_play)?,
         session: String::new(),
         session_rule: String::new(),
         evaluated: Vec::new(),
@@ -343,6 +346,42 @@ pub fn followed(conn: &Connection, now: DateTime<Utc>) -> Result<Followed> {
     }
     out.played = played;
     Ok(out)
+}
+
+/// Avis des grilles dont la composition a changé : celles qui ferment après `now`, et celles des tickets en cours.
+fn recomposed_notices(
+    conn: &Connection,
+    now: DateTime<Utc>,
+    in_play: &[&RecoRow],
+) -> Result<Vec<String>> {
+    let mut keys: Vec<(Game, u32)> = store::grids_closing_after(conn, now)?
+        .iter()
+        .map(|g| (g.game, g.number))
+        .collect();
+    for reco in in_play {
+        if !keys.contains(&(reco.game, reco.number)) {
+            keys.push((reco.game, reco.number));
+        }
+    }
+    let mut notices = Vec::new();
+    for (game, number) in keys {
+        let Some(change) = store::recomposition(conn, game, number)? else {
+            continue;
+        };
+        let when = format!("{} à {}", long_date(change.at), clock(change.at));
+        notices.push(if change.played_before {
+            format!(
+                "{game} n°{number} : rencontres changées ({when}) après des tickets déclarés joués. Grille bloquée : \
+                 ni recalcul ni règlement automatique, à régler à la main."
+            )
+        } else {
+            format!(
+                "{game} n°{number} : rencontres changées ({when}). Répartitions et tickets calculés avant sont écartés ; \
+                 la prochaine séance la recalcule sur sa nouvelle composition."
+            )
+        });
+    }
+    Ok(notices)
 }
 
 /// « 17:34 », heure de Paris.

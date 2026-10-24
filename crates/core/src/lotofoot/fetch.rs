@@ -77,6 +77,8 @@ pub struct FetchReport {
     pub new_results: usize,
     /// Pages non lues, avec la raison.
     pub failures: Vec<String>,
+    /// Lues mais à signaler : composition d'une grille changée, résultats refusés (`docs/sources.md` §52).
+    pub warnings: Vec<String>,
 }
 
 /// Lance un passage : page du LF7, page du LF8, page des résultats.
@@ -115,8 +117,16 @@ pub fn run(conn: &mut Connection, now: Clock, fetch: Fetch, pause: Pause) -> Res
                 )?,
                 Ok(page) => {
                     let fetch_id = store::record_fetch(conn, at, Page::Grid(game), 200, None)?;
-                    report.splits += store::record_grid_page(conn, fetch_id, game, &page)?;
+                    let record = store::record_grid_page(conn, fetch_id, game, &page)?;
+                    report.splits += record.splits;
                     if let Some(grid) = &page.open {
+                        if record.recomposed {
+                            report.warnings.push(format!(
+                                "{game} n°{} : les rencontres ont changé, nouvelle composition enregistrée ; \
+                                 répartitions et tickets antérieurs écartés",
+                                grid.number
+                            ));
+                        }
                         let state = if grid.split.is_some() {
                             "répartition publiée"
                         } else if grid.accepting {
@@ -155,7 +165,9 @@ pub fn run(conn: &mut Connection, now: Clock, fetch: Fetch, pause: Pause) -> Res
             )?,
             Ok(results) => {
                 let fetch_id = store::record_fetch(conn, at, Page::Results, 200, None)?;
-                report.new_results += store::record_results(conn, fetch_id, &results)?;
+                let record = store::record_results(conn, fetch_id, &results)?;
+                report.new_results += record.new;
+                report.warnings.extend(record.refused);
             }
         },
     }
@@ -237,6 +249,37 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM lotofoot_fetch", [], |r| r.get(0))
             .unwrap();
         assert_eq!(logged, 3);
+    }
+
+    #[test]
+    fn a_grid_whose_matches_change_is_reported() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let mut clock = || {
+            DateTime::parse_from_rfc3339("2026-10-24T10:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc)
+        };
+        let mut pass = |conn: &mut Connection, lf7: String| {
+            let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
+                Ok(HttpResponse {
+                    status: 200,
+                    quota: Default::default(),
+                    body: if path == "loto-foot-7/" {
+                        lf7.clone()
+                    } else {
+                        "<html></html>".to_string()
+                    },
+                })
+            };
+            run(conn, &mut clock, &mut fetch, &mut |_| {}).unwrap()
+        };
+        assert!(pass(&mut conn, page(7, 133)).warnings.is_empty());
+        // Même grille, rencontre 1 remplacée.
+        let changed = page(7, 133).replace("A1 - B1", "C1 - D1");
+        let report = pass(&mut conn, changed);
+        assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
+        assert!(report.warnings[0].starts_with("LF7 n°133 : les rencontres ont changé"));
     }
 
     #[test]

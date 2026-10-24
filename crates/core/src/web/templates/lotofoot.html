@@ -55,6 +55,7 @@
 </form>
 
 <h2>À jouer<small>grilles ouvertes, tickets pas encore déclarés joués</small></h2>
+{% for r in recomposed %}<div class="notice t-warn">{{ r }}</div>{% endfor %}
 {% if play_bulletins %}
 <p class="meta">Chaque colonne est une grille à remplir : coche toutes les cases indiquées pour chaque rencontre, dans l'ordre de la grille (deux cases : double, trois : triple). Les multiples regroupent sans perte les tickets choisis (<code>docs/sources.md</code> §39). Chances : probabilités du marché (Pinnacle, sans marge) ; gains : moyenne une fois la masse partagée avec les autres gagnants attendus.</p>
 {% for b in play_bulletins %}{{ bulletin(b, true) }}{% endfor %}

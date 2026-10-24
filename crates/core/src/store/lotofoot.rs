@@ -1,7 +1,9 @@
 //! Archive du Loto Foot (migration 15) : faits relevés sur prono-match, séances de recommandation, tickets joués.
 //!
 //! Uniquement des `INSERT` : des déclencheurs interdisent toute modification ou suppression. Une grille, un résultat ou
-//! un rapport déjà connu n'est pas réécrit (`INSERT OR IGNORE`) : la première observation fait foi.
+//! un rapport déjà connu n'est pas réécrit (`INSERT OR IGNORE`) : la première observation fait foi. Seule exception, la
+//! composition d'une grille : si la page montre d'autres rencontres pour le même numéro, la nouvelle composition est
+//! ajoutée (migration 20, `docs/sources.md` §52) et fait foi à partir de ce relevé ; rien n'est jamais apparié en silence.
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -65,26 +67,52 @@ pub fn fetch_time(conn: &Connection, fetch_id: i64) -> Result<DateTime<Utc>> {
     parse_timestamp(&text)
 }
 
-/// Enregistre ce qu'a montré la page d'une formule : la grille en cours, sa répartition, les rapports passés.
-/// Une seule transaction : tout ou rien. Renvoie le nombre de répartitions écrites (0 si la FDJ n'en a pas publié).
+/// Ce qu'a écrit le relevé de la page d'une formule.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GridRecord {
+    /// Répartitions de rencontres écrites (0 si la FDJ n'en a pas publié).
+    pub splits: usize,
+    /// Les rencontres de la grille en cours diffèrent de la composition en vigueur : la nouvelle composition a été
+    /// enregistrée et fait foi à partir de ce relevé.
+    pub recomposed: bool,
+}
+
+/// Enregistre ce qu'a montré la page d'une formule : la grille en cours, sa composition si elle a changé, sa
+/// répartition, les rapports passés. Une seule transaction : tout ou rien.
+///
+/// Les rencontres sont comparées à l'identique (noms bruts, dans l'ordre) à la composition en vigueur : la répartition
+/// est publiée par position, et une rencontre retirée décale toutes les suivantes (LF7 n°133, `docs/sources.md` §52).
 pub fn record_grid_page(
     conn: &mut Connection,
     fetch_id: i64,
     game: Game,
     page: &GridPage,
-) -> Result<usize> {
+) -> Result<GridRecord> {
     let tx = conn.transaction()?;
-    let mut splits = 0;
+    let mut record = GridRecord::default();
     if let Some(grid) = &page.open {
         tx.execute(
             "INSERT OR IGNORE INTO lotofoot_grid (game, number, closes_at, jackpot, fetch_id) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![game.code(), grid.number, timestamp(grid.closes_at), grid.jackpot.map(Euros::get), fetch_id],
         )?;
+        // `&tx` : une transaction s'utilise comme une connexion (elle s'y déréférence) ; on lit donc la composition
+        // dans la transaction même, avant d'écrire.
+        let current = matches(&tx, game, grid.number)?;
+        let first = current.is_empty();
+        record.recomposed = !first && current != grid.matches;
         for (i, (home, away)) in grid.matches.iter().enumerate() {
-            tx.execute(
-                "INSERT OR IGNORE INTO lotofoot_match (game, number, position, home_raw, away_raw) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![game.code(), grid.number, int(i + 1), home, away],
-            )?;
+            if first {
+                tx.execute(
+                    "INSERT INTO lotofoot_match (game, number, position, home_raw, away_raw) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![game.code(), grid.number, int(i + 1), home, away],
+                )?;
+            } else if record.recomposed {
+                tx.execute(
+                    "INSERT INTO lotofoot_match_revision (game, number, fetch_id, position, home_raw, away_raw)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![game.code(), grid.number, fetch_id, int(i + 1), home, away],
+                )?;
+            }
         }
         if let Some(split) = &grid.split {
             for (i, q) in split.iter().enumerate() {
@@ -93,7 +121,7 @@ pub fn record_grid_page(
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                     params![fetch_id, game.code(), grid.number, int(i + 1), q[0], q[1], q[2], grid.split_at.map(timestamp)],
                 )?;
-                splits += 1;
+                record.splits += 1;
             }
         }
     }
@@ -107,21 +135,53 @@ pub fn record_grid_page(
         }
     }
     tx.commit()?;
-    Ok(splits)
+    Ok(record)
 }
 
-/// Enregistre les résultats et rapports des grilles LF7 et LF8 de la page des résultats. Renvoie le nombre de grilles
-/// dont les signes ont été écrits pour la première fois.
+/// Ce qu'a écrit le relevé de la page des résultats.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ResultsRecord {
+    /// Grilles dont les signes ont été écrits pour la première fois.
+    pub new: usize,
+    /// Grilles dont les résultats n'ont pas été écrits, avec la raison : rencontres différentes de la composition en
+    /// vigueur, ou composition changée après des tickets déclarés joués.
+    pub refused: Vec<String>,
+}
+
+/// Enregistre les résultats et rapports des grilles LF7 et LF8 de la page des résultats.
+///
+/// Pour une grille connue, les rencontres de la page doivent être celles de la composition en vigueur : les signes sont
+/// écrits par position. Une grille dont la composition a changé après des tickets déclarés joués n'est pas réglée : ces
+/// tickets portent sur des rencontres qui ne sont plus celles de la grille, ils se règlent à la main.
 pub fn record_results(
     conn: &mut Connection,
     fetch_id: i64,
     results: &[GridResult],
-) -> Result<usize> {
+) -> Result<ResultsRecord> {
     let tx = conn.transaction()?;
-    let mut new = 0;
+    let mut record = ResultsRecord::default();
     for result in results {
         let Some(game) = result.game else { continue };
         if result.matches.len() != game.matches() {
+            continue;
+        }
+        let label = format!("{game} n°{}", result.number);
+        let current = matches(&tx, game, result.number)?;
+        let shown: Vec<(String, String)> = result
+            .matches
+            .iter()
+            .map(|(home, away, _)| (home.clone(), away.clone()))
+            .collect();
+        if !current.is_empty() && current != shown {
+            record.refused.push(format!(
+                "{label} : les rencontres des résultats diffèrent de la composition enregistrée, résultats non écrits"
+            ));
+            continue;
+        }
+        if recomposition(&tx, game, result.number)?.is_some_and(|r| r.played_before) {
+            record.refused.push(format!(
+                "{label} : composition changée après des tickets déclarés joués, résultats non écrits (règlement à la main)"
+            ));
             continue;
         }
         let mut written = 0;
@@ -131,7 +191,7 @@ pub fn record_results(
                 params![game.code(), result.number, int(i + 1), outcome.code(), fetch_id],
             )?;
         }
-        new += usize::from(written > 0);
+        record.new += usize::from(written > 0);
         for (i, rank) in result.ranks.iter().enumerate().take(2) {
             tx.execute(
                 "INSERT OR IGNORE INTO lotofoot_rank (game, number, rank, winners, unit_gain, fetch_id)
@@ -141,7 +201,7 @@ pub fn record_results(
         }
     }
     tx.commit()?;
-    Ok(new)
+    Ok(record)
 }
 
 /// Une grille connue, avec ses rencontres.
@@ -205,8 +265,12 @@ pub fn budget_at(conn: &Connection, at: DateTime<Utc>) -> Result<Option<u32>> {
         .optional()?)
 }
 
-/// Première apparition d'une grille dans un relevé (le relevé qui l'a inscrite) : sert à son âge.
+/// Première apparition d'une grille dans un relevé (le relevé qui l'a inscrite) : sert à son âge. Si sa composition a
+/// changé, l'âge part du relevé qui a vu la composition en vigueur : les répartitions antérieures ne comptent pas (§52).
 pub fn first_seen(conn: &Connection, game: Game, number: u32) -> Result<Option<DateTime<Utc>>> {
+    if let Some(fetch_id) = revision(conn, game, number)? {
+        return fetch_time(conn, fetch_id).map(Some);
+    }
     let seen: Option<String> = conn
         .query_row(
             "SELECT f.fetched_at FROM lotofoot_grid g JOIN lotofoot_fetch f ON f.id = g.fetch_id
@@ -270,31 +334,94 @@ pub fn grid(conn: &Connection, game: Game, number: u32) -> Result<Option<GridRow
     }))
 }
 
+/// Composition en vigueur d'une grille, rencontres dans l'ordre : celle de sa dernière révision, ou à défaut la première
+/// composition (`lotofoot_match`). Vide si la grille est inconnue.
 fn matches(conn: &Connection, game: Game, number: u32) -> Result<Vec<(String, String)>> {
-    let mut stmt = conn.prepare(
-        "SELECT home_raw, away_raw FROM lotofoot_match WHERE game = ?1 AND number = ?2 ORDER BY position",
-    )?;
-    let rows = stmt
-        .query_map(params![game.code(), number], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let rows = match revision(conn, game, number)? {
+        Some(fetch_id) => conn
+            .prepare(
+                "SELECT home_raw, away_raw FROM lotofoot_match_revision
+                 WHERE game = ?1 AND number = ?2 AND fetch_id = ?3 ORDER BY position",
+            )?
+            .query_map(params![game.code(), number, fetch_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
+        None => conn
+            .prepare(
+                "SELECT home_raw, away_raw FROM lotofoot_match WHERE game = ?1 AND number = ?2 ORDER BY position",
+            )?
+            .query_map(params![game.code(), number], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
+    };
     Ok(rows)
 }
 
-/// Dernière répartition complète relevée au plus tard à `at` : identifiant du relevé et pourcents par rencontre.
+/// Relevé de la dernière révision de composition d'une grille, `None` si elle n'a jamais changé.
+fn revision(conn: &Connection, game: Game, number: u32) -> Result<Option<i64>> {
+    // `MAX` sur aucune ligne donne NULL, lu en `None`.
+    let fetch_id = conn.query_row(
+        "SELECT MAX(fetch_id) FROM lotofoot_match_revision WHERE game = ?1 AND number = ?2",
+        params![game.code(), number],
+        |row| row.get(0),
+    )?;
+    Ok(fetch_id)
+}
+
+/// Changement de composition d'une grille ([`recomposition`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Recomposition {
+    /// Relevé qui a vu la composition en vigueur.
+    pub fetch_id: i64,
+    /// Instant de ce relevé.
+    pub at: DateTime<Utc>,
+    /// Des tickets de la grille ont été déclarés joués avant ce relevé : ils portent sur l'ancienne composition. La
+    /// grille est alors bloquée (ni recalcul, ni règlement automatique).
+    pub played_before: bool,
+}
+
+/// Dernier changement de composition d'une grille, `None` si elle n'en a jamais eu.
+pub fn recomposition(conn: &Connection, game: Game, number: u32) -> Result<Option<Recomposition>> {
+    let Some(fetch_id) = revision(conn, game, number)? else {
+        return Ok(None);
+    };
+    let at = fetch_time(conn, fetch_id)?;
+    let played: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM lotofoot_play WHERE game = ?1 AND number = ?2 AND played_at < ?3",
+        params![game.code(), number, timestamp(at)],
+        |row| row.get(0),
+    )?;
+    Ok(Some(Recomposition {
+        fetch_id,
+        at,
+        played_before: played > 0,
+    }))
+}
+
+/// Dernière répartition complète relevée au plus tard à `at` : identifiant du relevé et pourcents par rencontre. Une
+/// répartition relevée avant la composition en vigueur ne compte pas : ses positions peuvent désigner d'autres
+/// rencontres (§52). Les identifiants de relevé croissent avec le temps (clé `INTEGER PRIMARY KEY`, rien n'est supprimé).
 pub fn latest_split(
     conn: &Connection,
     game: Game,
     number: u32,
     at: DateTime<Utc>,
 ) -> Result<Option<(i64, Vec<[u32; 3]>)>> {
+    let since = revision(conn, game, number)?.unwrap_or(0);
     let fetch_id: Option<i64> = conn
         .query_row(
             "SELECT s.fetch_id FROM lotofoot_split s JOIN lotofoot_fetch f ON f.id = s.fetch_id
-             WHERE s.game = ?1 AND s.number = ?2 AND f.fetched_at <= ?3
+             WHERE s.game = ?1 AND s.number = ?2 AND f.fetched_at <= ?3 AND s.fetch_id >= ?5
              GROUP BY s.fetch_id HAVING COUNT(*) = ?4 ORDER BY f.fetched_at DESC LIMIT 1",
-            params![game.code(), number, timestamp(at), int(game.matches())],
+            params![
+                game.code(),
+                number,
+                timestamp(at),
+                int(game.matches()),
+                since
+            ],
             |row| row.get(0),
         )
         .optional()?;
@@ -535,6 +662,9 @@ pub struct RecoRow {
 /// champ `replaces` de ses paramètres : « remplacée par rien »). Une séance relancée par le bouton de l'application
 /// remplace ainsi la précédente pour ses grilles ; les anciennes lignes restent au journal (immuable) mais ne comptent
 /// plus nulle part (`docs/sources.md` §41).
+///
+/// Un ticket calculé sur une répartition antérieure à la composition en vigueur de sa grille n'est plus en vigueur
+/// (§52), sauf s'il a été déclaré joué : il reste alors suivi, et la grille est bloquée ([`Recomposition`]).
 pub fn current_recos(conn: &Connection) -> Result<Vec<RecoRow>> {
     let mut stmt = conn.prepare(
         "SELECT r.id, r.session_id, s.created_at, r.game, r.number, r.ticket, r.position, r.ev_base, r.ev_pessimistic,
@@ -546,6 +676,9 @@ pub fn current_recos(conn: &Connection) -> Result<Vec<RecoRow>> {
                            WHERE s2.id > r.session_id
                              AND json_extract(j.value, '$[0]') = r.game
                              AND json_extract(j.value, '$[1]') = r.number)
+           AND (r.split_fetch_id >= COALESCE((SELECT MAX(v.fetch_id) FROM lotofoot_match_revision v
+                                              WHERE v.game = r.game AND v.number = r.number), 0)
+                OR EXISTS (SELECT 1 FROM lotofoot_play p WHERE p.reco_id = r.id))
          ORDER BY r.session_id, r.position",
     )?;
     let raw = stmt
@@ -784,7 +917,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            record_grid_page(&mut conn, f1, Game::Lf7, &page(133, None)).unwrap(),
+            record_grid_page(&mut conn, f1, Game::Lf7, &page(133, None))
+                .unwrap()
+                .splits,
             0
         );
         let f2 = record_fetch(
@@ -802,7 +937,8 @@ mod tests {
                 Game::Lf7,
                 &page(133, Some(vec![[50, 30, 20]; 7]))
             )
-            .unwrap(),
+            .unwrap()
+            .splits,
             7
         );
         let f3 = record_fetch(
@@ -943,6 +1079,204 @@ mod tests {
         assert_eq!(all, 2);
     }
 
+    /// LF7 n°133 tel que vu le 2026-10-24 (`docs/sources.md` §52) : annoncé avec PSG – Lyon, ouvert sans lui, avec
+    /// Fribourg – Bayern en rencontre 6 ; les autres rencontres remontent d'un rang.
+    const ANNOUNCED: [(&str, &str); 7] = [
+        ("Paris SG", "Lyon"),
+        ("Marseille", "Le Havre"),
+        ("Rennes", "Strasbourg"),
+        ("Auxerre", "Le Mans"),
+        ("Angers", "Lorient"),
+        ("Toulouse", "Troyes"),
+        ("FC Barcelone", "Real Madrid"),
+    ];
+    const OPENED: [(&str, &str); 7] = [
+        ("Marseille", "Le Havre"),
+        ("Rennes", "Strasbourg"),
+        ("Auxerre", "Le Mans"),
+        ("Angers", "Lorient"),
+        ("Toulouse", "Troyes"),
+        ("Fribourg", "Bayern Munich"),
+        ("FC Barcelone", "Real Madrid"),
+    ];
+
+    fn composed(matches: &[(&str, &str)], split: Option<Vec<[u32; 3]>>) -> GridPage {
+        let mut grid = page(133, split);
+        if let Some(open) = &mut grid.open {
+            open.matches = matches
+                .iter()
+                .map(|(h, a)| (h.to_string(), a.to_string()))
+                .collect();
+        }
+        grid
+    }
+
+    fn results_of(matches: &[(&str, &str)]) -> GridResult {
+        GridResult {
+            game: Some(Game::Lf7),
+            number: 133,
+            date: None,
+            matches: matches
+                .iter()
+                .map(|(h, a)| (h.to_string(), a.to_string(), Outcome::Home))
+                .collect(),
+            ranks: vec![rank(135, 578.0), rank(2393, 39.8)],
+        }
+    }
+
+    /// Un ticket recommandé sur la répartition du relevé `split_fetch_id`.
+    fn recommend(conn: &mut Connection, split_fetch_id: i64, ticket: &Ticket) {
+        let session = NewSession {
+            created_at: at("2026-10-24T03:30:00Z"),
+            model_version: "lotofoot-1",
+            params: "{}",
+            notes: "{}",
+        };
+        let reco = NewReco {
+            game: Game::Lf7,
+            number: 133,
+            ticket,
+            position: 1,
+            ev_base: 11.0,
+            ev_pessimistic: 9.0,
+            paid_probability: 0.3,
+            stakes_estimate: 235_000.0,
+            split_fetch_id,
+            inputs: "{}",
+        };
+        record_session(conn, &session, &[reco]).unwrap();
+    }
+
+    #[test]
+    fn a_changed_composition_voids_earlier_splits_and_tickets() {
+        let mut conn = db();
+        let grid_fetch = |conn: &Connection, when: &str| {
+            record_fetch(conn, at(when), Page::Grid(Game::Lf7), 200, None).unwrap()
+        };
+        let f1 = grid_fetch(&conn, "2026-10-24T03:07:00Z");
+        let first = record_grid_page(
+            &mut conn,
+            f1,
+            Game::Lf7,
+            &composed(&ANNOUNCED, Some(vec![[50, 30, 20]; 7])),
+        )
+        .unwrap();
+        assert!(!first.recomposed);
+        let ticket = Ticket::parse("1111111").unwrap();
+        recommend(&mut conn, f1, &ticket);
+        assert_eq!(current_recos(&conn).unwrap().len(), 1);
+        assert_eq!(recomposition(&conn, Game::Lf7, 133).unwrap(), None);
+
+        // La grille ouvre avec d'autres rencontres : nouvelle composition, rattachée au relevé qui l'a vue.
+        let f2 = grid_fetch(&conn, "2026-10-24T06:07:00Z");
+        let opened = record_grid_page(
+            &mut conn,
+            f2,
+            Game::Lf7,
+            &composed(&OPENED, Some(vec![[40, 30, 30]; 7])),
+        )
+        .unwrap();
+        assert!(opened.recomposed);
+        assert_eq!(opened.splits, 7);
+        let grid = grid(&conn, Game::Lf7, 133).unwrap().unwrap();
+        assert_eq!(grid.matches[5], ("Fribourg".into(), "Bayern Munich".into()));
+        let change = recomposition(&conn, Game::Lf7, 133).unwrap().unwrap();
+        assert_eq!((change.fetch_id, change.played_before), (f2, false));
+        assert_eq!(
+            first_seen(&conn, Game::Lf7, 133).unwrap(),
+            Some(at("2026-10-24T06:07:00Z"))
+        );
+        // La répartition antérieure ne vaut plus : avant le nouveau relevé, il n'y en a aucune.
+        assert_eq!(
+            latest_split(&conn, Game::Lf7, 133, at("2026-10-24T05:00:00Z")).unwrap(),
+            None
+        );
+        let (split_fetch, split) = latest_split(&conn, Game::Lf7, 133, at("2026-10-24T07:00:00Z"))
+            .unwrap()
+            .unwrap();
+        assert_eq!((split_fetch, split[0]), (f2, [40, 30, 30]));
+        // Le ticket calculé sur l'ancienne composition n'est plus en vigueur, mais reste au journal.
+        assert!(current_recos(&conn).unwrap().is_empty());
+        recommend(&mut conn, f2, &ticket);
+        assert_eq!(current_recos(&conn).unwrap().len(), 1);
+
+        // Même composition au relevé suivant : rien de nouveau.
+        let f3 = grid_fetch(&conn, "2026-10-24T07:07:00Z");
+        let again = record_grid_page(&mut conn, f3, Game::Lf7, &composed(&OPENED, None)).unwrap();
+        assert!(!again.recomposed);
+        let revisions: i64 = conn
+            .query_row("SELECT COUNT(*) FROM lotofoot_match_revision", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(revisions, 7);
+        assert!(
+            conn.execute("DELETE FROM lotofoot_match_revision", [])
+                .is_err()
+        );
+
+        // Les résultats s'écrivent par position : seuls ceux de la composition en vigueur sont acceptés.
+        let r = record_fetch(&conn, at("2026-10-26T09:00:00Z"), Page::Results, 200, None).unwrap();
+        let refused = record_results(&mut conn, r, &[results_of(&ANNOUNCED)]).unwrap();
+        assert_eq!(refused.new, 0);
+        assert!(refused.refused[0].contains("LF7 n°133"), "{refused:?}");
+        assert_eq!(results(&conn, Game::Lf7, 133).unwrap(), None);
+        let written = record_results(&mut conn, r, &[results_of(&OPENED)]).unwrap();
+        assert_eq!((written.new, written.refused.len()), (1, 0));
+    }
+
+    #[test]
+    fn a_grid_changed_after_a_declared_ticket_is_blocked() {
+        let mut conn = db();
+        let f1 = record_fetch(
+            &conn,
+            at("2026-10-24T03:07:00Z"),
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        record_grid_page(
+            &mut conn,
+            f1,
+            Game::Lf7,
+            &composed(&ANNOUNCED, Some(vec![[50, 30, 20]; 7])),
+        )
+        .unwrap();
+        let ticket = Ticket::parse("1111111").unwrap();
+        recommend(&mut conn, f1, &ticket);
+        let reco_id = current_recos(&conn).unwrap()[0].id;
+        record_play(
+            &conn,
+            &NewPlay {
+                played_at: at("2026-10-24T04:00:00Z"),
+                game: Game::Lf7,
+                number: 133,
+                ticket: &ticket,
+                stake: Euros::new(1.0).unwrap(),
+                reco_id: Some(reco_id),
+            },
+        )
+        .unwrap();
+        let f2 = record_fetch(
+            &conn,
+            at("2026-10-24T06:07:00Z"),
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        record_grid_page(&mut conn, f2, Game::Lf7, &composed(&OPENED, None)).unwrap();
+        let change = recomposition(&conn, Game::Lf7, 133).unwrap().unwrap();
+        assert!(change.played_before);
+        // Le ticket joué reste suivi ; ses résultats ne sont pas réglés automatiquement.
+        assert_eq!(current_recos(&conn).unwrap().len(), 1);
+        let r = record_fetch(&conn, at("2026-10-26T09:00:00Z"), Page::Results, 200, None).unwrap();
+        let record = record_results(&mut conn, r, &[results_of(&OPENED)]).unwrap();
+        assert_eq!(record.new, 0);
+        assert!(record.refused[0].contains("à la main"), "{record:?}");
+    }
+
     #[test]
     fn results_are_kept_for_lf7_and_lf8_only() {
         let mut conn = db();
@@ -962,11 +1296,13 @@ mod tests {
             ..lf7.clone()
         };
         assert_eq!(
-            record_results(&mut conn, f, &[lf7.clone(), lf15]).unwrap(),
+            record_results(&mut conn, f, &[lf7.clone(), lf15])
+                .unwrap()
+                .new,
             1
         );
         // Un second relevé identique n'écrit rien de nouveau.
-        assert_eq!(record_results(&mut conn, f, &[lf7]).unwrap(), 0);
+        assert_eq!(record_results(&mut conn, f, &[lf7]).unwrap().new, 0);
         assert_eq!(
             results(&conn, Game::Lf7, 132).unwrap(),
             Some(vec![Outcome::Draw; 7])
