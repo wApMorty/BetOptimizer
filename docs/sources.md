@@ -1920,7 +1920,8 @@ rencontre sans score et la page le nomme ; jamais d'appariement approximatif. La
 demande de réinstaller `edge` et de relancer `edge serve`.
 
 **Code couleur.** Par ticket, et par grille à remplir (son meilleur ticket : une rencontre n'y est fausse que si aucune case cochée
-n'est sortie) : gris avant le premier signe connu, vert sans faute, orange à une erreur (2e rang encore possible), rouge au-delà ;
+n'est sortie) : gris avant le premier signe connu, vert sans faute, orange à une erreur (2e rang encore possible), rouge au-delà
+(depuis le 2026-10-24 : rouge seulement à deux erreurs définitives ; une deuxième erreur sur un match en cours reste orange) ;
 « perdu » dès deux erreurs définitives, « gagné » quand tout est définitif. Sous chaque grille multiple : tickets encore en lice,
 c'est-à-dire à une erreur définitive au plus (depuis le 2026-10-24 : une erreur sur un match en cours ne sort pas un ticket).
 

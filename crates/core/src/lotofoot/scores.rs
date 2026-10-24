@@ -419,14 +419,18 @@ impl Standing {
         ticket.signs().iter().map(|&sign| vec![sign]).collect()
     }
 
-    /// Classe CSS du code couleur : gris avant le premier signe connu, vert sans faute, orange à une erreur (2e rang
-    /// encore possible), rouge au-delà.
+    /// Classe CSS du code couleur : gris avant le premier signe connu, vert sans faute, orange tant que le ticket est en
+    /// vie avec au moins une erreur (provisoire ou non), rouge dès la deuxième erreur définitive (choix de Paul du
+    /// 2026-10-24 : une deuxième erreur sur un match en cours reste orange).
     pub fn tone(&self) -> &'static str {
-        match (self.known, self.errors) {
-            (0, _) => "t-wait",
-            (_, 0) => "t-pos",
-            (_, 1) => "t-warn",
-            _ => "t-neg",
+        if self.known == 0 {
+            "t-wait"
+        } else if !self.alive() {
+            "t-neg"
+        } else if self.errors == 0 {
+            "t-pos"
+        } else {
+            "t-warn"
         }
     }
 
@@ -736,11 +740,11 @@ mod tests {
         let dead = Standing::of(&ticket, &[known(Away, true), known(Home, true), pending()]);
         assert_eq!((dead.tone(), dead.label().as_str()), ("t-neg", "perdu"));
         assert!(!dead.alive());
-        // Deux erreurs dont une sur un match en cours : rouge pour l'instant, mais encore en vie.
+        // Deux erreurs dont une sur un match en cours : encore en vie, donc orange.
         let shaky = Standing::of(&ticket, &[known(Away, true), known(Home, false), pending()]);
         assert_eq!(
             (shaky.tone(), shaky.label().as_str()),
-            ("t-neg", "2 erreurs (en cours)")
+            ("t-warn", "2 erreurs (en cours)")
         );
         assert!(shaky.alive());
         let won = Standing::of(
