@@ -455,9 +455,10 @@ impl Standing {
         }
     }
 
-    /// Encore en lice pour un rang payé (au plus une erreur).
+    /// Encore en lice pour un rang payé : au plus une erreur **définitive**. Une erreur sur un match en cours peut encore
+    /// tomber, le ticket reste donc en vie jusqu'au coup de sifflet final (choix de Paul du 2026-10-24).
     pub fn alive(&self) -> bool {
-        self.errors <= 1
+        self.settled_errors <= 1
     }
 }
 
@@ -735,6 +736,13 @@ mod tests {
         let dead = Standing::of(&ticket, &[known(Away, true), known(Home, true), pending()]);
         assert_eq!((dead.tone(), dead.label().as_str()), ("t-neg", "perdu"));
         assert!(!dead.alive());
+        // Deux erreurs dont une sur un match en cours : rouge pour l'instant, mais encore en vie.
+        let shaky = Standing::of(&ticket, &[known(Away, true), known(Home, false), pending()]);
+        assert_eq!(
+            (shaky.tone(), shaky.label().as_str()),
+            ("t-neg", "2 erreurs (en cours)")
+        );
+        assert!(shaky.alive());
         let won = Standing::of(
             &ticket,
             &[known(Home, true), known(Draw, true), known(Home, true)],

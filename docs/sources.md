@@ -1921,7 +1921,8 @@ demande de réinstaller `edge` et de relancer `edge serve`.
 
 **Code couleur.** Par ticket, et par grille à remplir (son meilleur ticket : une rencontre n'y est fausse que si aucune case cochée
 n'est sortie) : gris avant le premier signe connu, vert sans faute, orange à une erreur (2e rang encore possible), rouge au-delà ;
-« perdu » dès deux erreurs définitives, « gagné » quand tout est définitif. Sous chaque grille multiple : tickets encore en lice.
+« perdu » dès deux erreurs définitives, « gagné » quand tout est définitif. Sous chaque grille multiple : tickets encore en lice,
+c'est-à-dire à une erreur définitive au plus (depuis le 2026-10-24 : une erreur sur un match en cours ne sort pas un ticket).
 
 **Essai réel du 2026-10-23** (copie de la base, LF8 n°146 joué, 16 tickets) : les 8 rencontres appariées (Ligue 2, Ligue 1, Serie A,
 Premier League), quatre pages ESPN, page servie en 0,3 s.
