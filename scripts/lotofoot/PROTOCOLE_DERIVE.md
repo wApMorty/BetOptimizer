@@ -23,6 +23,9 @@
 - Dernier relevé au plus 75 minutes avant la clôture ; aucun trou de plus de 3 h dans la série (sinon la grille est écartée, avec la
   raison, et comptée dans le rapport).
 - Répartition de référence `q_ref` : le dernier relevé avant la clôture (la dernière heure n'est pas observable).
+- *Amendement du 2026-10-24 (`docs/sources.md` §52), avant toute analyse :* une grille dont la composition a changé
+  (`lotofoot_match_revision`) n'est étudiée qu'à partir du relevé qui a vu sa dernière composition ; les relevés antérieurs sont exclus,
+  et une grille dont l'ouverture n'est pas observée sous cette composition est écartée, avec la raison. Le LF7 n°133 est donc écarté.
 
 ## Mesures, pour chaque relevé t d'une grille retenue
 - `h` = heures entre `split_at` et la clôture ; `a` = âge ; tranches de `h` : [1, 3), [3, 6), [6, 12), [12, 24), [24, 48), ≥ 48 ;

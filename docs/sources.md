@@ -2092,3 +2092,31 @@ disparaissent aussi (ils restent dans le suivi du modèle).
 **Correctif du soir** (avant la clôture du LF8 n°147) : l'ordre de clôture a d'abord été installé seul, à 17 h 33 ; la séance n°11
 (budget de la semaine, 16 €) a donné 15 tickets au LF8 n°147 (1,80 à 2,25 en S3) et 1 au LF7 n°133 (11,98). Paul a joué les 15 tickets
 du LF8 (déclarés joués, n°151 à 165).
+
+## 52. Loto Foot : composition d'une grille changée après son annonce (LF7 n°133, 2026-10-24)
+
+**Constat** (question de Paul sur des chances jugées trop belles) : le LF7 n°133 a été inscrit le 24 octobre à 2 h 07 (heure de Paris)
+alors qu'il était seulement annoncé, avec PSG – Lyon en rencontre 1. Ouvert, il ne compte plus PSG – Lyon (passé au LF8 n°148) mais
+Fribourg – Bayern en rencontre 6 ; les rencontres 2 à 6 de l'annonce remontent d'un rang (prono-match, `loto-foot-7/`, lu le 24 octobre
+à 22 h). `lotofoot_match` gardait la première composition (`INSERT OR IGNORE`) tandis que la répartition s'écrit par position : sur
+les positions 1 à 6, les cotes d'une rencontre étaient confrontées à la répartition de la suivante (Toulouse – Troyes, favori à 60 %
+selon Pinnacle, face aux 70 % du public sur le Bayern). D'où des espérances de 7 à 15 € par euro et un bulletin faux (PSG – Lyon
+en ligne 1). Aucun ticket du n°133 n'avait été déclaré joué ; les LF8 n°146 à 148 sont cohérents (le public suit les favoris du
+marché, et les noms de la page des résultats du n°146 sont identiques à ceux de la grille).
+
+**Correction** (choix de Paul du 2026-10-24) :
+- Migration 20, `lotofoot_match_revision` (immuable) : à chaque relevé, les rencontres de la page sont comparées à l'identique à la
+  composition en vigueur ; si elles diffèrent, la nouvelle composition est écrite, rattachée au relevé qui l'a vue, et fait foi.
+  `edge lotofoot fetch` le signale (« attention : … »), la page `/lotofoot` aussi. Pas de message Discord.
+- Les répartitions relevées avant la composition en vigueur sont **exclues** (séance, étude de dérive) : rien ne prouve qu'elles
+  suivaient déjà la nouvelle composition, les pages n'étant pas conservées. L'âge d'une grille (âge minimal de 8 h, §51) part du même
+  relevé.
+- Un ticket calculé sur une répartition antérieure n'est plus en vigueur (ni à jouer, ni compté au budget, ni déclarable) ; la séance
+  suivante recalcule la grille sur sa nouvelle composition.
+- Si des tickets ont été déclarés joués avant le changement, la grille est **bloquée** : la séance ne la recalcule pas, et ses résultats
+  ne sont pas écrits (règlement à la main).
+- Résultats : les rencontres de la page des résultats doivent être celles de la composition en vigueur, sinon ils ne sont pas écrits.
+
+**Contrôle** sur une copie de la base (2026-10-24 à 23 h) : la nouvelle composition du n°133 est détectée ; le meilleur ticket passe
+à 2,73 en scénario défavorable (12,57 avant), et la grille, vue depuis moins de 8 h, est évaluée sans ticket jusqu'au 25 octobre au
+matin. Les résultats du LF8 n°147 sont acceptés.
