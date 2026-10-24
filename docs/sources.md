@@ -1997,3 +1997,52 @@ et le seuil ne changent pas.
 le calcul de la répartition finale, sur laquelle le modèle et le seuil τ = 1,7 ont été calibrés. La mesure de la dérive avant la
 clôture (tâche du lundi 26 octobre) dira à partir de combien d'heures l'écart devient gênant ; selon elle, il faudra choisir pour les
 grilles du dimanche entre le trajet jusqu'au guichet ouvert, un seuil plus haut quand on valide tôt, ou ne pas les jouer.
+
+## 49. Loto Foot : abaque du seuil τ selon le budget mensuel (2026-10-24)
+
+**Demande de Paul.** Le τ = 1,7 du §47 a été choisi pour un plafond de 16 € par semaine ; le seuil optimal dépend du budget. Étude en
+trois dimensions (τ, budget mensuel, gain), budgets jusqu'à 400 € par mois. Choix de Paul avant le calcul : critère « espérance, risque
+affiché » (le gain espéré croît toujours avec le budget tant que le dernier ticket vaut plus de 1 €), plafond par **mois calendaire**.
+
+**Constat qui a motivé la demande** (séance n°8 du 24 octobre) : le classement commun des tickets de toutes les grilles ouvertes a donné
+les 16 € au LF7 n°133, calculé 27 h avant sa clôture (meilleur ticket à 10,7 en S3), et remplacé par rien les 16 tickets du LF8 n°147
+(3,19), qui fermait deux heures plus tard. L'étude du §47 alloue grille par grille dans l'ordre d'arrivée ; la production ne le fait pas.
+Décision de Paul : garder la séance n°8 et corriger la règle après la mesure de la dérive (lundi 26 octobre).
+
+**Étude** (`scripts/lotofoot/budget_tau.py`, protocole figé en tête du script ; données et environnement Python dans
+`~/.local/share/edge/etudes/`, hors dépôt, reliés par le lien `scripts/data`) : les 409 grilles LF7/LF8 du §47 (espérances retrouvées
+à l'identique), 16 tickets par grille ; 2 000 tirages par grille des issues et des gagnants concurrents (binomiale négative gelée,
+partage entre nos tickets compris) ; mois simulés au rythme 2025-2026, règle séquentielle, plafond mensuel sans report ; 4 000 années,
+mêmes arrivées et mêmes tirages pour toutes les configurations. Configurations : 31 τ (1,0 à 4,0) × 20 budgets (20 à 400 €), soit 620 ;
+τ* maximise l'espérance S3 sur l'entraînement (319 grilles closes avant 2024) ; test (90 grilles) lu après le choix.
+
+| Budget / mois | τ* | Dépense / mois | Espérance S3 / an | Année en perte | Médiane / an | Repli 9e décile | Test : espérance S3 au τ* | Test : τ* propre |
+|---|---|---|---|---|---|---|---|---|
+| 20 € | 2,0 | 18,7 € | +284 € | 71 % | −206 € | 237 € | +266 € | 2,0 |
+| 60 € | 1,8 | 57,6 € | +727 € | 61 % | −251 € | 697 € | +687 € | 1,8 |
+| 100 € | 1,7 | 94,7 € | +1 098 € | 56 % | −224 € | 1 092 € | +1 018 € | 1,6 |
+| 160 € | 1,6 | 148,6 € | +1 562 € | 52 % | −101 € | 1 566 € | +1 378 € | 1,5 |
+| 200 € | 1,5 | 190,4 € | +1 829 € | 49 % | +68 € | 1 867 € | +1 586 € | 1,4 |
+| 300 € | 1,4 | 271,3 € | +2 360 € | 44 % | +578 € | 2 419 € | +1 878 € | 1,3 |
+| 400 € | 1,2 | 359,0 € | +2 715 € | 40 % | +1 052 € | 2 862 € | +2 254 € | 1,1 |
+
+Tableau complet (20 budgets) et carte de chaleur : artefact « Abaque Loto Foot » (privé, https://claude.ai/artifact/6a3fyt8PqoNhuhHxxeAx9b).
+
+**Lecture.**
+- τ* descend régulièrement avec le budget ; le maximum est étroit (à 3 % près, un ou deux pas de τ autour de τ*).
+- τ = 1,7 reste à moins de 3 % de l'optimum de 80 à 120 € par mois ; au-delà, il plafonne la dépense vers 128 € par mois et l'espérance
+  vers +1 476 € par an (54 % de l'optimum à 400 €).
+- Le test confirme la forme : τ* propre au test à 0,1 ou 0,2 près du τ* d'entraînement, espérance au τ* de 80 à 94 % de celle de
+  l'entraînement ; les grilles récentes offrent moins de tickets au-dessus de τ (dépense plus faible à même τ).
+- Rendement marginal décroissant : de 20 à 40 € par mois, chaque euro de plus rapporte environ 1 € d'espérance ; de 380 à 400 €,
+  environ 0,17 €.
+- Risque sous le modèle : la probabilité d'une année en perte baisse quand le budget monte (71 % à 20 € par mois, 40 % à 400 €), la
+  médiane annuelle devient positive vers 180 € par mois, mais le repli dans l'année croît presque comme la dépense annuelle.
+
+**Limites** : répartition finale et non celle de l'heure du calcul ; coupes et sélections absentes ; 16 tickets au plus par grille
+(aux gros budgets, τ* ≈ 1,2 en tient compte sans lever la contrainte) ; mois réels non indépendants ; espérances et risques du modèle,
+aucun gain démontré (le test figé du §37 a échoué). La moyenne simulée dépasse l'espérance analytique de 10 à 25 % (dispersion des
+concurrents) : le critère reste l'espérance analytique, plus prudente.
+
+**Aucune règle de production ne change ici.** Passer à un plafond mensuel, changer τ ou l'allocation entre grilles demande un plan
+séparé et le go de Paul, après la mesure de la dérive.
