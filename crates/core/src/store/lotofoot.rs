@@ -185,6 +185,39 @@ pub fn record_alert(
     Ok(())
 }
 
+/// Enregistre un budget mensuel saisi (migration 19, historique immuable).
+pub fn record_budget(conn: &Connection, set_at: DateTime<Utc>, monthly_euros: u32) -> Result<()> {
+    conn.execute(
+        "INSERT INTO lotofoot_budget (set_at, monthly_euros) VALUES (?1, ?2)",
+        params![timestamp(set_at), monthly_euros],
+    )?;
+    Ok(())
+}
+
+/// Budget mensuel en vigueur à `at` : la dernière saisie antérieure, `None` si rien n'a encore été saisi.
+pub fn budget_at(conn: &Connection, at: DateTime<Utc>) -> Result<Option<u32>> {
+    Ok(conn
+        .query_row(
+            "SELECT monthly_euros FROM lotofoot_budget WHERE set_at <= ?1 ORDER BY set_at DESC, id DESC LIMIT 1",
+            [timestamp(at)],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
+/// Première apparition d'une grille dans un relevé (le relevé qui l'a inscrite) : sert à son âge.
+pub fn first_seen(conn: &Connection, game: Game, number: u32) -> Result<Option<DateTime<Utc>>> {
+    let seen: Option<String> = conn
+        .query_row(
+            "SELECT f.fetched_at FROM lotofoot_grid g JOIN lotofoot_fetch f ON f.id = g.fetch_id
+             WHERE g.game = ?1 AND g.number = ?2",
+            params![game.code(), number],
+            |row| row.get(0),
+        )
+        .optional()?;
+    seen.map(|s| parse_timestamp(&s)).transpose()
+}
+
 /// Grilles qui ferment après `after`, dans l'ordre de clôture.
 pub fn grids_closing_after(conn: &Connection, after: DateTime<Utc>) -> Result<Vec<GridRow>> {
     let mut stmt = conn.prepare(
@@ -441,6 +474,17 @@ pub fn last_session(conn: &Connection) -> Result<Option<(i64, DateTime<Utc>, Str
         .optional()?;
     row.map(|(id, at, notes)| Ok((id, parse_timestamp(&at)?, notes)))
         .transpose()
+}
+
+/// Paramètres d'une séance (JSON), `None` si elle n'existe pas.
+pub fn session_params(conn: &Connection, id: i64) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT params FROM lotofoot_session WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()?)
 }
 
 /// Les tickets en vigueur de la semaine de la dernière séance : ceux des séances écrites au plus 6 jours avant elle.

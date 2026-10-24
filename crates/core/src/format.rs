@@ -86,6 +86,22 @@ pub fn kickoff_label(at: DateTime<Utc>) -> String {
     )
 }
 
+/// Noms des mois, en minuscules.
+pub const MONTHS: [&str; 12] = [
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "novembre",
+    "décembre",
+];
+
 /// Date en toutes lettres, en heure de Paris : `lundi 19 octobre`.
 pub fn long_date(at: DateTime<Utc>) -> String {
     let local = at.with_timezone(&Paris);
@@ -98,20 +114,7 @@ pub fn long_date(at: DateTime<Utc>) -> String {
         Weekday::Sat => "samedi",
         Weekday::Sun => "dimanche",
     };
-    let month = [
-        "janvier",
-        "février",
-        "mars",
-        "avril",
-        "mai",
-        "juin",
-        "juillet",
-        "août",
-        "septembre",
-        "octobre",
-        "novembre",
-        "décembre",
-    ][local.month0() as usize];
+    let month = MONTHS[local.month0() as usize];
     format!("{day} {} {month}", local.day())
 }
 

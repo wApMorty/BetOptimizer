@@ -9,11 +9,12 @@ use serde::Serialize;
 
 use crate::error::Result;
 use crate::format::{chance, decimal, kickoff_label, long_date, rough_euros};
+use crate::lotofoot::abaque;
 use crate::lotofoot::alert::Listed;
 use crate::lotofoot::bulletin::{Line, session_lines};
 use crate::lotofoot::model::{FROZEN, GridModel, RankOdds};
 use crate::lotofoot::outlets::Outlet;
-use crate::lotofoot::session::{SessionReport, WeekBudget};
+use crate::lotofoot::session::{self, MonthBudget, SessionReport};
 use crate::lotofoot::settle::{self, Ledger};
 use crate::lotofoot::verify::{self, Verdict, Verification};
 use crate::lotofoot::{Game, TICKET_PRICE, sign_char};
@@ -57,15 +58,48 @@ pub struct RankView {
     pub gain: String,
 }
 
-/// Une grille de la séance, avec l'ordre de ses rencontres (celui du bulletin).
+/// Une grille du Loto Foot à jouer ou en cours, avec l'ordre de ses rencontres (celui du bulletin).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GridView {
     /// Grille.
     pub grid: String,
+    /// Formule et numéro, pour le bouton « J'ai joué cette grille » (`lf7-133`).
+    pub key: String,
     /// Clôture, heure de Paris.
     pub closes: String,
+    /// Séance qui a choisi ses tickets (« séance n°11, samedi 24 octobre »).
+    pub session: String,
     /// Rencontres numérotées.
     pub matches: Vec<String>,
+}
+
+/// Un groupe de tickets : ceux à jouer (grille ouverte, pas encore déclarés joués) ou ceux en cours (joués, résultats
+/// pas tous connus). Un ticket joué dont la grille a tous ses résultats n'est plus suivi : il ne compte que dans le bilan.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct Group {
+    /// Grilles du groupe, par clôture.
+    pub grids: Vec<GridView>,
+    /// Tickets.
+    pub tickets: Vec<TicketView>,
+    /// Les mêmes tickets regroupés en grilles à remplir.
+    pub lines: Vec<LineView>,
+    /// Mise du groupe (« 16 € »).
+    pub stake: String,
+}
+
+/// Le budget du mois en cours et le seuil qu'il donne.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BudgetView {
+    /// Budget mensuel en vigueur (euros).
+    pub monthly: u32,
+    /// Seuil τ tiré de l'abaque (« 1,8 »), vide si le budget sort de l'abaque.
+    pub threshold: String,
+    /// Mois en cours (« octobre 2026 »).
+    pub month: String,
+    /// Tickets en vigueur des grilles qui ferment ce mois (depuis l'entrée en vigueur du budget).
+    pub spent: u32,
+    /// Ce qui reste.
+    pub left: u32,
 }
 
 /// Une grille à remplir au guichet : des tickets de la séance regroupés sans perte en une grille simple ou multiple
@@ -124,17 +158,19 @@ pub struct BandView {
 /// La page `/lotofoot`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LotofootPage {
-    /// Dernière séance (date), vide s'il n'y en a pas.
+    /// Budget du mois et seuil.
+    pub budget: BudgetView,
+    /// Tickets à jouer : grille ouverte, pas encore déclarés joués.
+    pub to_play: Group,
+    /// Tickets en cours : joués, résultats pas tous connus.
+    pub in_play: Group,
+    /// Dernière séance (« n°11, samedi 24 octobre à 17:34 »), vide s'il n'y en a pas.
     pub session: String,
-    /// Grilles de la dernière séance.
-    pub grids: Vec<GridView>,
-    /// Tickets de la dernière séance.
-    pub tickets: Vec<TicketView>,
-    /// Les mêmes tickets regroupés en grilles à remplir, grille du Loto Foot par grille du Loto Foot.
-    pub lines: Vec<LineView>,
-    /// Mise totale de la dernière séance.
-    pub stake: String,
-    /// Grilles écartées (« LF7 n°133 : répartition pas encore publiée »).
+    /// Seuil et budget de la dernière séance (« τ = 1,7, budget de 60 € par mois »), vide s'ils ne sont pas notés.
+    pub session_rule: String,
+    /// Grilles évaluées par la dernière séance (« LF8 n°147 : meilleur ticket à 2,25 »).
+    pub evaluated: Vec<String>,
+    /// Grilles écartées par la dernière séance (« LF7 n°133 : répartition pas encore publiée »).
     pub skipped: Vec<String>,
     /// Noms d'équipes inconnus.
     pub unknown_names: Vec<String>,
@@ -152,17 +188,23 @@ pub struct LotofootPage {
     pub frequency: String,
 }
 
-/// Construit la page à partir du journal.
-pub fn page(conn: &Connection, now: DateTime<Utc>) -> Result<LotofootPage> {
+/// Construit la page à partir du journal ; `monthly_budget` est le budget en vigueur ([`crate::lotofoot::session::monthly_budget`]).
+pub fn page(conn: &Connection, now: DateTime<Utc>, monthly_budget: u32) -> Result<LotofootPage> {
     let verification = verify::verify(conn, now)?;
     let recommended = settle::recommended(conn)?;
     let (played_model, played_off) = settle::played_ledgers(conn)?;
+    let recos = store::current_recos(conn)?;
+    let followed = followed(conn, now)?;
+    let to_play: Vec<&RecoRow> = followed.to_play.iter().collect();
+    let in_play: Vec<&RecoRow> = followed.in_play.iter().collect();
+    let played = followed.played;
     let mut page = LotofootPage {
+        budget: budget_view(conn, &recos, now, monthly_budget)?,
+        to_play: group(conn, &to_play, &played)?,
+        in_play: group(conn, &in_play, &played)?,
         session: String::new(),
-        grids: Vec::new(),
-        tickets: Vec::new(),
-        lines: Vec::new(),
-        stake: String::new(),
+        session_rule: String::new(),
+        evaluated: Vec::new(),
         skipped: Vec::new(),
         unknown_names: Vec::new(),
         ledgers: vec![
@@ -205,45 +247,127 @@ pub fn page(conn: &Connection, now: DateTime<Utc>) -> Result<LotofootPage> {
             decimal(verification.frequency.p_low, 3)
         ),
     };
-    let Some((_, created_at, notes)) = store::last_session(conn)? else {
+    let Some((id, created_at, notes)) = store::last_session(conn)? else {
         return Ok(page);
     };
-    page.session = long_date(created_at);
-    if let Ok(notes) = serde_json::from_str::<serde_json::Value>(&notes) {
-        page.skipped = notes
-            .get("skipped")
-            .and_then(|s| s.as_array())
-            .map(|list| {
-                list.iter()
-                    .filter_map(|s| {
-                        Some(format!(
-                            "{} : {}",
-                            s.get("grid")?.as_str()?,
-                            s.get("reason")?.as_str()?
-                        ))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        page.unknown_names = notes
-            .get("unknown_names")
-            .and_then(|s| s.as_array())
-            .map(|list| {
-                list.iter()
-                    .filter_map(|n| n.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default();
+    page.session = format!("n°{id}, {} à {}", long_date(created_at), clock(created_at));
+    if let Some(params) = store::session_params(conn, id)?
+        && let Ok(params) = serde_json::from_str::<serde_json::Value>(&params)
+        && let (Some(tau), Some(budget)) = (
+            params.get("threshold").and_then(|t| t.as_f64()),
+            params.get("monthly_budget").and_then(|b| b.as_u64()),
+        )
+    {
+        page.session_rule = format!("τ = {}, budget de {budget} € par mois", decimal(tau, 1));
     }
-    // Les tickets en vigueur de la semaine, pas seulement ceux de la dernière séance : après un clic le matin, le timer
-    // de midi peut écrire une séance pour une seule nouvelle grille.
-    let recos = store::week_recos(conn)?;
+    if let Ok(notes) = serde_json::from_str::<serde_json::Value>(&notes) {
+        let list = |key: &str| -> Vec<serde_json::Value> {
+            notes
+                .get(key)
+                .and_then(|s| s.as_array())
+                .cloned()
+                .unwrap_or_default()
+        };
+        page.evaluated = list("evaluated")
+            .iter()
+            .filter_map(|e| {
+                Some(format!(
+                    "{} : meilleur ticket à {}",
+                    e.get("grid")?.as_str()?,
+                    decimal(e.get("best_pessimistic")?.as_f64()?, 2)
+                ))
+            })
+            .collect();
+        page.skipped = list("skipped")
+            .iter()
+            .filter_map(|s| {
+                Some(format!(
+                    "{} : {}",
+                    s.get("grid")?.as_str()?,
+                    s.get("reason")?.as_str()?
+                ))
+            })
+            .collect();
+        page.unknown_names = list("unknown_names")
+            .iter()
+            .filter_map(|n| n.as_str().map(str::to_string))
+            .collect();
+    }
+    Ok(page)
+}
+
+/// Tickets suivis par la page : à jouer (grille ouverte, pas déclarés joués) et en cours (joués, résultats pas tous
+/// connus). Les autres (joués et finis, ou jamais joués d'une grille close) ne comptent plus que dans le bilan.
+pub struct Followed {
+    /// À jouer, par séance puis position.
+    pub to_play: Vec<RecoRow>,
+    /// En cours.
+    pub in_play: Vec<RecoRow>,
+    /// Numéros des recommandations déclarées jouées.
+    pub played: Vec<i64>,
+}
+
+/// Répartit les tickets en vigueur entre « à jouer » et « en cours » ([`Followed`]).
+pub fn followed(conn: &Connection, now: DateTime<Utc>) -> Result<Followed> {
     let played: Vec<i64> = store::plays(conn)?
         .iter()
         .filter_map(|p| p.reco_id)
         .collect();
+    let mut out = Followed {
+        to_play: Vec::new(),
+        in_play: Vec::new(),
+        played: Vec::new(),
+    };
+    for reco in store::current_recos(conn)? {
+        if played.contains(&reco.id) {
+            if store::results(conn, reco.game, reco.number)?.is_none() {
+                out.in_play.push(reco);
+            }
+        } else if store::grid(conn, reco.game, reco.number)?.is_some_and(|g| g.closes_at > now) {
+            out.to_play.push(reco);
+        }
+    }
+    out.played = played;
+    Ok(out)
+}
+
+/// « 17:34 », heure de Paris.
+fn clock(at: DateTime<Utc>) -> String {
+    at.with_timezone(&chrono_tz::Europe::Paris)
+        .format("%H:%M")
+        .to_string()
+}
+
+/// Budget du mois en cours : tickets en vigueur des grilles qui ferment ce mois, recommandés depuis l'entrée en vigueur.
+fn budget_view(
+    conn: &Connection,
+    recos: &[RecoRow],
+    now: DateTime<Utc>,
+    monthly: u32,
+) -> Result<BudgetView> {
+    let month = session::month_of(now);
+    let since = session::budget_since();
+    let mut spent = 0u32;
+    for reco in recos.iter().filter(|r| r.created_at >= since) {
+        let closes = store::grid(conn, reco.game, reco.number)?.map(|g| g.closes_at);
+        if closes.is_some_and(|at| session::month_of(at) == month) {
+            spent += 1;
+        }
+    }
+    Ok(BudgetView {
+        monthly,
+        threshold: abaque::threshold(monthly).map_or(String::new(), |t| decimal(t, 1)),
+        month: month_label(month),
+        spent,
+        left: monthly.saturating_sub(spent),
+    })
+}
+
+/// Un groupe de tickets prêt à afficher : grilles par clôture, tickets, grilles à remplir.
+fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group> {
+    let mut out = Group::default();
     let mut seen: Vec<(Game, u32)> = Vec::new();
-    for reco in &recos {
+    for reco in recos {
         let grid = store::grid(conn, reco.game, reco.number)?;
         let closes = grid
             .as_ref()
@@ -251,9 +375,16 @@ pub fn page(conn: &Connection, now: DateTime<Utc>) -> Result<LotofootPage> {
             .unwrap_or_default();
         if !seen.contains(&(reco.game, reco.number)) {
             seen.push((reco.game, reco.number));
-            page.grids.push(GridView {
+            out.grids.push(GridView {
                 grid: format!("{} n°{}", reco.game, reco.number),
+                key: format!("{}-{}", reco.game.code(), reco.number),
                 closes: closes.clone(),
+                session: format!(
+                    "séance n°{}, {} à {}",
+                    reco.session_id,
+                    long_date(reco.created_at),
+                    clock(reco.created_at)
+                ),
                 matches: grid
                     .as_ref()
                     .map(|g| {
@@ -287,7 +418,7 @@ pub fn page(conn: &Connection, now: DateTime<Utc>) -> Result<LotofootPage> {
                 }
             }
         };
-        page.tickets.push(TicketView {
+        out.tickets.push(TicketView {
             id: reco.id,
             grid: format!("{} n°{}", reco.game, reco.number),
             closes,
@@ -301,9 +432,9 @@ pub fn page(conn: &Connection, now: DateTime<Utc>) -> Result<LotofootPage> {
             played: played.contains(&reco.id),
         });
     }
-    page.lines = line_views(&recos, &played);
-    page.stake = format!("{} €", decimal(recos.len() as f64 * TICKET_PRICE, 0));
-    Ok(page)
+    out.lines = line_views(recos, played);
+    out.stake = format!("{} €", decimal(recos.len() as f64 * TICKET_PRICE, 0));
+    Ok(out)
 }
 
 /// Chance et gain moyen de chaque rang d'un ticket, recalculés par le modèle à partir de ses entrées figées au journal.
@@ -345,7 +476,7 @@ pub fn ranks_text(ranks: &[RankView]) -> String {
 }
 
 /// Grilles à remplir pour les tickets de la séance ; `played` : numéros des tickets déclarés joués.
-fn line_views(recos: &[RecoRow], played: &[i64]) -> Vec<LineView> {
+fn line_views(recos: &[&RecoRow], played: &[i64]) -> Vec<LineView> {
     let keyed: Vec<_> = recos
         .iter()
         .map(|r| ((r.game, r.number), &r.ticket))
@@ -494,30 +625,44 @@ fn last_chances(outlets: &[Outlet], closes_at: DateTime<Utc>, now: DateTime<Utc>
     text
 }
 
-/// Budget restant de chaque semaine après la séance : « semaine du lun. 26/10 : 11 € restant(s) sur 16 € ».
-pub fn weeks_text(weeks: &[WeekBudget]) -> String {
-    weeks
+/// Budget restant de chaque mois après la séance : « octobre 2026 : 44 € restant(s) sur 60 € ».
+pub fn months_text(months: &[MonthBudget]) -> String {
+    months
         .iter()
-        .map(|w| {
+        .map(|m| {
             format!(
-                "semaine du {} : {} € restant(s) sur {} €",
-                monday_label(w.monday),
-                w.left(),
-                w.budget
+                "{} : {} € restant(s) sur {} €",
+                month_label(m.month),
+                m.left(),
+                m.budget
             )
         })
         .collect::<Vec<_>>()
         .join(" ; ")
 }
 
-/// « lun. 26/10 ».
-fn monday_label(day: chrono::NaiveDate) -> String {
-    format!("lun. {}", day.format("%d/%m"))
+/// « octobre 2026 ».
+pub fn month_label(first_day: chrono::NaiveDate) -> String {
+    use chrono::Datelike;
+    format!(
+        "{} {}",
+        crate::format::MONTHS[first_day.month0() as usize],
+        first_day.year()
+    )
+}
+
+/// Seuil de la séance et budget qui le donne : « τ = 1,8 (budget de 60 € par mois, abaque §49) ».
+pub fn threshold_text(report: &SessionReport) -> String {
+    format!(
+        "τ = {} (budget de {} € par mois, abaque §49)",
+        decimal(report.threshold, 1),
+        report.monthly_budget
+    )
 }
 
 /// Texte du message Discord d'une séance : pour chaque grille, l'ordre des rencontres puis les tickets à remplir.
 pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
-    let mut text = String::from("**edge · Loto Foot** — séance du samedi\n");
+    let mut text = String::from("**edge · Loto Foot** — séance\n");
     if report.chosen.is_empty() {
         text.push_str("Aucun nouveau ticket : rien de plus à jouer.\n");
         // Sans ticket, les raisons comptent : grille déjà recommandée, répartition pas encore publiée…
@@ -560,8 +705,12 @@ pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
             ));
         }
     }
-    if !report.weeks.is_empty() {
-        text.push_str(&format!("\nBudget : {}.\n", weeks_text(&report.weeks)));
+    if !report.months.is_empty() {
+        text.push_str(&format!(
+            "\nBudget : {} ; {}.\n",
+            months_text(&report.months),
+            threshold_text(report)
+        ));
     }
     if !report.unknown_names.is_empty() {
         text.push_str(&format!(
@@ -628,12 +777,14 @@ mod tests {
                 pessimistic: value(2.0),
             }],
             session_id: Some(1),
-            weeks: vec![WeekBudget {
-                monday: chrono::NaiveDate::from_ymd_opt(2026, 10, 26).unwrap(),
-                budget: 16,
+            months: vec![MonthBudget {
+                month: chrono::NaiveDate::from_ymd_opt(2026, 10, 1).unwrap(),
+                budget: 60,
                 spent_before: 4,
                 chosen: 1,
             }],
+            monthly_budget: 60,
+            threshold: 1.8,
         };
         let text = discord_text(&report, Some("http://portable.local:8737/"));
         assert!(text.contains("1 ticket(s) à 1 €"));
@@ -648,7 +799,7 @@ mod tests {
         assert!(text.contains("une erreur 1 sur 410 (≈ "), "{text}");
         assert!(text.contains("Inconnu FC"));
         assert!(
-            text.contains("semaine du lun. 26/10 : 11 € restant(s) sur 16 €"),
+            text.contains("octobre 2026 : 55 € restant(s) sur 60 € ; τ = 1,8"),
             "{text}"
         );
         assert!(text.contains("<http://portable.local:8737/lotofoot>"));
@@ -717,8 +868,12 @@ mod tests {
     fn an_empty_journal_gives_an_empty_page() {
         let mut conn = Connection::open_in_memory().unwrap();
         migrate(&mut conn).unwrap();
-        let page = page(&conn, Utc::now()).unwrap();
-        assert!(page.tickets.is_empty());
+        let page = page(&conn, Utc::now(), 60).unwrap();
+        assert!(
+            page.to_play.tickets.is_empty()
+                && page.in_play.tickets.is_empty()
+                && page.budget.threshold == "1,8"
+        );
         assert_eq!(page.verdict, "Aucune séance enregistrée.");
     }
 }

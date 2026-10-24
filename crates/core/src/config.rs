@@ -193,16 +193,9 @@ pub struct Config {
     /// Valeur supposée d'un euro de freebet converti par couverture, pour le calcul d'un premier pari remboursé en freebet
     /// (`edge bonus`). Défaut : 0,53, bas de la fourchette mesurée sur l'archive (`docs/bonus-bienvenue.md` §4).
     pub bonus_freebet_value: f64,
-    /// Loto Foot : nombre maximal de tickets d'un euro par séance (budget plafond, pas une obligation ; choix de Paul du
-    /// 2026-10-22 : 16 €).
-    pub lotofoot_max_tickets: u32,
-    /// Loto Foot : espérance minimale d'un ticket dans le scénario défavorable pour qu'il soit joué. τ = 1,7 depuis le
-    /// 2026-10-24 : meilleur gain espéré sous un budget de 16 € par semaine sur toutes les grilles (`docs/sources.md` §47 ;
-    /// 1,2 auparavant, pour une seule séance le samedi).
-    pub lotofoot_threshold: f64,
-    /// Loto Foot : budget de la semaine, du lundi au dimanche selon la clôture des grilles, en tickets d'un euro (16 €,
-    /// choix de Paul du 2026-10-24). Compte les tickets recommandés en vigueur depuis le 2026-10-24.
-    pub lotofoot_weekly_budget: u32,
+    /// Loto Foot : budget mensuel initial, en tickets d'un euro, tant qu'aucun budget n'a été saisi dans l'application
+    /// (§51). Le seuil τ en découle par l'abaque du §49 ; de 20 à 400 €. 60 € par défaut (≈ 16 € par semaine).
+    pub lotofoot_monthly_budget: u32,
     /// Loto Foot : poids μ de la probabilité de gain dans la recherche des tickets (10).
     pub lotofoot_frequency_weight: f64,
     /// Loto Foot : minutes minimales entre la séance et la clôture d'une grille. 10 depuis le 2026-10-24 : la séance se
@@ -339,9 +332,7 @@ impl Default for Config {
             serve_token: None,
             site_url: None,
             bonus_freebet_value: crate::bonus::DEFAULT_FREEBET_VALUE,
-            lotofoot_max_tickets: 16,
-            lotofoot_threshold: 1.7,
-            lotofoot_weekly_budget: 16,
+            lotofoot_monthly_budget: 60,
             lotofoot_frequency_weight: 10.0,
             lotofoot_min_minutes_before_close: 10,
             lotofoot_max_odds_age_hours: 30,
@@ -456,22 +447,8 @@ impl Config {
                 "min_stake doit être un montant positif ou nul".to_string(),
             ));
         }
-        if self.lotofoot_weekly_budget == 0 {
-            return Err(Error::InvalidConfig(
-                "lotofoot_weekly_budget doit être supérieur à 0".to_string(),
-            ));
-        }
-        if self.lotofoot_max_tickets == 0 {
-            return Err(Error::InvalidConfig(
-                "lotofoot_max_tickets doit être supérieur à 0".to_string(),
-            ));
-        }
-        if !(self.lotofoot_threshold.is_finite() && self.lotofoot_threshold >= 1.0) {
-            return Err(Error::InvalidConfig(
-                "lotofoot_threshold doit être au moins 1 (un ticket d'espérance inférieure à la mise perd en moyenne)"
-                    .to_string(),
-            ));
-        }
+        crate::lotofoot::abaque::threshold(self.lotofoot_monthly_budget)
+            .map_err(|e| Error::InvalidConfig(format!("lotofoot_monthly_budget : {e}")))?;
         if !(self.lotofoot_frequency_weight.is_finite() && self.lotofoot_frequency_weight >= 0.0) {
             return Err(Error::InvalidConfig(
                 "lotofoot_frequency_weight doit être positif ou nul".to_string(),

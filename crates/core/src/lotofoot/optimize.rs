@@ -4,9 +4,9 @@
 //! 1. sur chaque grille, 16 tickets distincts choisis un à un, chacun maximisant `EV(t) + μ · P(t payé)` avec `μ = 10`
 //!    (le terme en `μ` achète un peu de fréquence de gain au prix d'un peu d'espérance) ;
 //! 2. chaque ticket est réévalué dans le scénario défavorable (« S3 ») ;
-//! 3. sur toutes les grilles de la séance, on garde les tickets dont l'espérance défavorable atteint le seuil τ
-//!    (`lotofoot_threshold`, 1,7), les meilleurs d'abord, dans la limite de la mise de la séance et du budget restant de
-//!    la semaine (`lotofoot::session`).
+//! 3. on garde les tickets dont l'espérance défavorable atteint le seuil τ, que l'abaque tire du budget mensuel
+//!    (`lotofoot::abaque`, §49) ; la séance les répartit grille par grille dans l'ordre de clôture, dans le budget restant
+//!    du mois (`lotofoot::session`, §51).
 
 use crate::domain::Outcome;
 

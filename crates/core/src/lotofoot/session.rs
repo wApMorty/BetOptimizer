@@ -3,9 +3,10 @@
 //!
 //! Déroulé : grilles LF7 et LF8 qui ferment au moins `lotofoot_min_minutes_before_close` minutes après la séance ; pour
 //! chacune, la dernière répartition FDJ relevée, les mises estimées, les probabilités du marché (avec, au besoin, un
-//! relevé des compétitions manquantes) ; puis les meilleurs tickets de chaque grille, le seuil, la mise de la séance et
-//! le budget restant de la semaine sur l'ensemble. Une grille incomplète est écartée avec la raison, jamais devinée. Aucune donnée postérieure à la séance
-//! n'est lue (CLAUDE.md, invariant 1).
+//! relevé des compétitions manquantes) ; puis les meilleurs tickets de chaque grille et leur répartition dans le budget
+//! du mois, grille par grille dans l'ordre de clôture, au-dessus du seuil τ que l'abaque tire du budget (§49, §51). Une
+//! grille incomplète est écartée avec la raison, jamais devinée ; une grille trop jeune est évaluée mais n'engage pas de
+//! budget. Aucune donnée postérieure à la séance n'est lue (CLAUDE.md, invariant 1).
 
 use chrono::{DateTime, Datelike, Duration, NaiveDate, TimeZone, Utc};
 use chrono_tz::Europe::Paris;
@@ -13,6 +14,7 @@ use rusqlite::Connection;
 use serde_json::json;
 
 use super::Game;
+use super::abaque;
 use super::model::{FROZEN, GridModel, PESSIMISTIC_LOW_MULT, PESSIMISTIC_SHRINK, public_split};
 use super::odds::{self, LeagueSearch, MatchMarket};
 use super::optimize::{self, Candidate};
@@ -34,6 +36,11 @@ const STAKES_WINDOW: usize = 8;
 
 /// Les rencontres d'une grille se jouent dans les jours qui suivent sa clôture.
 const MATCH_WINDOW_DAYS: i64 = 5;
+
+/// Âge minimal d'une grille (heures depuis sa première apparition dans un relevé) pour engager du budget : en deçà, sa
+/// répartition bouge encore beaucoup (de 2 à 14 points en moyenne sur les trois premières grilles relevées). Valeur
+/// provisoire, choisie par Paul le 2026-10-24, à revoir avec l'étude de dérive (`scripts/lotofoot/PROTOCOLE_DERIVE.md`).
+pub const MIN_GRID_AGE_HOURS: i64 = 8;
 
 /// Une grille écartée et pourquoi.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,34 +85,39 @@ pub struct SessionReport {
     pub chosen: Vec<Candidate>,
     /// Séance enregistrée (`None` à blanc).
     pub session_id: Option<i64>,
-    /// Budget de chaque semaine concernée par les grilles évaluées.
-    pub weeks: Vec<WeekBudget>,
+    /// Budget de chaque mois concerné par les grilles évaluées.
+    pub months: Vec<MonthBudget>,
+    /// Budget mensuel de la séance (euros) et seuil τ qu'en tire l'abaque.
+    pub monthly_budget: u32,
+    /// Seuil τ de la séance.
+    pub threshold: f64,
 }
 
-/// Budget d'une semaine (lundi-dimanche à Paris, selon la clôture des grilles), en tickets d'un euro.
+/// Budget d'un mois calendaire (heure de Paris, selon la clôture des grilles), en tickets d'un euro.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WeekBudget {
-    /// Lundi de la semaine.
-    pub monday: NaiveDate,
-    /// Budget de la semaine (`lotofoot_weekly_budget`).
+pub struct MonthBudget {
+    /// Premier jour du mois.
+    pub month: NaiveDate,
+    /// Budget du mois (budget mensuel en vigueur à la séance).
     pub budget: u32,
-    /// Tickets déjà recommandés en vigueur cette semaine avant la séance (hors grilles que la séance remplace).
+    /// Tickets déjà recommandés en vigueur ce mois avant la séance (hors grilles que la séance remplace).
     pub spent_before: u32,
-    /// Tickets retenus par la séance pour cette semaine.
+    /// Tickets retenus par la séance pour ce mois.
     pub chosen: u32,
 }
 
-impl WeekBudget {
+impl MonthBudget {
     /// Ce qui reste après la séance.
     pub fn left(&self) -> u32 {
         self.budget.saturating_sub(self.spent_before + self.chosen)
     }
 }
 
-/// Entrée en vigueur du budget hebdomadaire : le 2026-10-24 à minuit, heure de Paris. Les recommandations plus anciennes
-/// restent suivies (bilan, vérification) mais ne comptent dans aucun budget : exception voulue par Paul pour les 16 tickets
-/// du LF8 n°146 joués le 23 octobre (`docs/sources.md` §47).
-pub fn weekly_budget_since() -> DateTime<Utc> {
+/// Entrée en vigueur du budget (hebdomadaire le 2026-10-24, mensuel depuis le §51, appliqué tout de suite) : le
+/// 2026-10-24 à minuit, heure de Paris. Les recommandations plus anciennes restent suivies (bilan, vérification) mais ne
+/// comptent dans aucun budget : exception voulue par Paul pour les 16 tickets du LF8 n°146 joués le 23 octobre
+/// (`docs/sources.md` §47).
+pub fn budget_since() -> DateTime<Utc> {
     // Date fixe et valide : `single` ne peut renvoyer `None` (pas de changement d'heure à minuit le 24 octobre).
     Paris
         .with_ymd_and_hms(2026, 10, 24, 0, 0, 0)
@@ -114,10 +126,16 @@ pub fn weekly_budget_since() -> DateTime<Utc> {
         .with_timezone(&Utc)
 }
 
-/// Lundi de la semaine (heure de Paris) où tombe un instant.
-pub fn week_of(at: DateTime<Utc>) -> NaiveDate {
+/// Premier jour du mois (heure de Paris) où tombe un instant.
+pub fn month_of(at: DateTime<Utc>) -> NaiveDate {
     let day = at.with_timezone(&Paris).date_naive();
-    day - Duration::days(i64::from(day.weekday().num_days_from_monday()))
+    day.with_day(1)
+        .expect("le premier jour d'un mois existe toujours")
+}
+
+/// Budget mensuel en vigueur à `at` : la dernière saisie de l'application, sinon `lotofoot_monthly_budget`.
+pub fn monthly_budget(conn: &Connection, config: &Config, at: DateTime<Utc>) -> Result<u32> {
+    Ok(store::budget_at(conn, at)?.unwrap_or(config.lotofoot_monthly_budget))
 }
 
 /// Une grille candidate après la première étape : répartition, mises et noms canoniques connus, cotes encore à trouver.
@@ -136,19 +154,34 @@ struct Ready {
     split_fetch_id: i64,
     markets: Vec<MatchMarket>,
     model: GridModel,
+    /// Grille vue depuis moins de [`MIN_GRID_AGE_HOURS`] : évaluée, sans engager de budget.
+    young: bool,
 }
 
 /// Ce que demande une séance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Request {
-    /// Mise plafond en euros (un ticket coûte 1 €), ramenée au plafond de la configuration (`lotofoot_max_tickets`,
-    /// 16 € gelés au `docs/sources.md` §37) s'il le dépasse.
-    pub max_tickets: u32,
+    /// Budget mensuel en euros (un ticket coûte 1 €).
+    pub monthly_budget: u32,
+    /// Seuil τ : celui de l'abaque pour ce budget ([`Request::from_budget`]) ; les tests en fixent d'autres.
+    pub threshold: f64,
     /// Recalculer aussi les grilles déjà recommandées (bouton de l'application) : la nouvelle séance remplace alors leur
     /// recommandation, sauf pour une grille dont des tickets sont déjà déclarés joués. Le timer ne remplace jamais.
     pub replace: bool,
     /// Rien n'est écrit et aucune compétition n'est relevée (aucun crédit).
     pub dry_run: bool,
+}
+
+impl Request {
+    /// Demande au seuil de l'abaque pour ce budget mensuel ; refusée si le budget sort de l'abaque.
+    pub fn from_budget(monthly_budget: u32, replace: bool, dry_run: bool) -> Result<Request> {
+        Ok(Request {
+            monthly_budget,
+            threshold: abaque::threshold(monthly_budget)?,
+            replace,
+            dry_run,
+        })
+    }
 }
 
 /// Lance la séance.
@@ -165,7 +198,6 @@ pub fn run(
     fetch: Fetch,
     request: Request,
 ) -> Result<SessionReport> {
-    let max_tickets = request.max_tickets.min(config.lotofoot_max_tickets);
     let dry_run = request.dry_run;
     let started = now();
     let min_close =
@@ -178,7 +210,9 @@ pub fn run(
         leagues: LeagueSearch::default(),
         chosen: Vec::new(),
         session_id: None,
-        weeks: Vec::new(),
+        months: Vec::new(),
+        monthly_budget: request.monthly_budget,
+        threshold: request.threshold,
     };
 
     // 1. Grilles candidates, pas encore recommandées, avec répartition récente, noms connus et mises estimables.
@@ -336,12 +370,26 @@ pub fn run(
             });
             continue;
         };
+        // Âge depuis la première apparition (une grille jamais inscrite, impossible ici, compte comme neuve).
+        let age = store::first_seen(conn, row.game, row.number)?
+            .map_or(Duration::zero(), |seen| started - seen);
+        let young = age < Duration::hours(MIN_GRID_AGE_HOURS);
+        if young {
+            report.skipped.push(Skipped {
+                grid: label,
+                reason: format!(
+                    "grille trop jeune (vue depuis {} h, {MIN_GRID_AGE_HOURS} h au moins) : évaluée, sans ticket",
+                    age.num_hours()
+                ),
+            });
+        }
         ready.push(Ready {
             row,
             stakes,
             split_fetch_id,
             markets,
             model,
+            young,
         });
     }
 
@@ -366,18 +414,27 @@ pub fn run(
             // Même raison pour le modèle : le message de la séance s'en sert après la fin de `ready`.
             model: grid.model.clone(),
         });
-        all.extend(candidates);
+        if !grid.young {
+            all.extend(candidates);
+        }
     }
-    // Grilles recalculées qui avaient une recommandation : la séance la remplace, tickets retenus ou non.
+    // Grilles recalculées qui avaient une recommandation : la séance la remplace, tickets retenus ou non (une grille trop
+    // jeune garde la sienne : elle n'est pas en état d'être recalculée).
     let replaced: Vec<(Game, u32)> = ready
         .iter()
+        .filter(|g| !g.young)
         .map(|g| (g.row.game, g.row.number))
         .filter(|key| recommended.iter().any(|r| (r.game, r.number) == *key))
         .collect();
-    report.weeks = week_budgets(conn, config, &recommended, &replaced, &ready)?;
-    let budget = usize::try_from(max_tickets).unwrap_or(usize::MAX);
-    let ranked = optimize::select(all, config.lotofoot_threshold, usize::MAX);
-    report.chosen = within_budget(ranked, budget, &mut report.weeks, &ready);
+    report.months = month_budgets(
+        conn,
+        request.monthly_budget,
+        &recommended,
+        &replaced,
+        &ready,
+    )?;
+    let ranked = optimize::select(all, request.threshold, usize::MAX);
+    report.chosen = within_budget(ranked, &mut report.months, &ready);
 
     // 4. Journal immuable : la séance, ses paramètres, et chaque ticket avec tout ce qui a servi à le choisir.
     let replaces: Vec<(&str, u32)> = replaced
@@ -387,9 +444,10 @@ pub fn run(
     if !dry_run && (!report.chosen.is_empty() || !replaces.is_empty()) {
         let params = json!({
             "kappa": FROZEN.kappa, "beta": FROZEN.beta, "phi": FROZEN.phi,
-            "frequency_weight": config.lotofoot_frequency_weight, "threshold": config.lotofoot_threshold,
-            "max_tickets": max_tickets, "weekly_budget": config.lotofoot_weekly_budget,
-            "weekly_budget_since": weekly_budget_since().to_rfc3339(), "replace": request.replace, "replaces": replaces,
+            "frequency_weight": config.lotofoot_frequency_weight, "threshold": request.threshold,
+            "monthly_budget": request.monthly_budget, "abaque": abaque::VERSION,
+            "allocation": "ordre de clôture", "min_grid_age_hours": MIN_GRID_AGE_HOURS,
+            "budget_since": budget_since().to_rfc3339(), "replace": request.replace, "replaces": replaces,
             "pessimistic_shrink": PESSIMISTIC_SHRINK,
             "pessimistic_low_mult": PESSIMISTIC_LOW_MULT, "margin_method": config.margin_method.name(),
         })
@@ -447,20 +505,20 @@ pub fn run(
     Ok(report)
 }
 
-/// Budget de chaque semaine où ferme une grille évaluée : tickets déjà recommandés en vigueur depuis
-/// [`weekly_budget_since`], sans compter ceux des grilles que la séance remplace.
-fn week_budgets(
+/// Budget de chaque mois où ferme une grille évaluée : tickets déjà recommandés en vigueur depuis [`budget_since`],
+/// sans compter ceux des grilles que la séance remplace.
+fn month_budgets(
     conn: &Connection,
-    config: &Config,
+    monthly_budget: u32,
     recommended: &[RecoRow],
     replaced: &[(Game, u32)],
     ready: &[Ready],
-) -> Result<Vec<WeekBudget>> {
-    let since = weekly_budget_since();
-    let mut weeks: Vec<WeekBudget> = Vec::new();
+) -> Result<Vec<MonthBudget>> {
+    let since = budget_since();
+    let mut months: Vec<MonthBudget> = Vec::new();
     for grid in ready {
-        let monday = week_of(grid.row.closes_at);
-        if weeks.iter().any(|w| w.monday == monday) {
+        let month = month_of(grid.row.closes_at);
+        if months.iter().any(|m| m.month == month) {
             continue;
         }
         let mut spent = 0u32;
@@ -469,44 +527,50 @@ fn week_budgets(
                 continue;
             }
             let closes = store::grid(conn, reco.game, reco.number)?.map(|g| g.closes_at);
-            if closes.is_some_and(|at| week_of(at) == monday) {
+            if closes.is_some_and(|at| month_of(at) == month) {
                 spent += 1;
             }
         }
-        weeks.push(WeekBudget {
-            monday,
-            budget: config.lotofoot_weekly_budget,
+        months.push(MonthBudget {
+            month,
+            budget: monthly_budget,
             spent_before: spent,
             chosen: 0,
         });
     }
-    Ok(weeks)
+    Ok(months)
 }
 
-/// Tickets classés du meilleur au moins bon : on les prend dans l'ordre tant que la séance a de la mise (`budget`) et que
-/// la semaine de leur grille (clôture lue dans `ready`) a du budget ; `weeks` compte les tickets retenus.
+/// Tickets au-dessus du seuil, grille par grille dans l'ordre de clôture : chacun est pris tant que le mois de sa grille
+/// (clôture lue dans `ready`) a du budget ; `months` compte les tickets retenus.
 fn within_budget(
     ranked: Vec<Candidate>,
-    budget: usize,
-    weeks: &mut [WeekBudget],
+    months: &mut [MonthBudget],
     ready: &[Ready],
 ) -> Vec<Candidate> {
+    // Ordre de clôture (règle séquentielle de l'étude du §47) : la grille qui ferme la première prend d'abord ses tickets
+    // au-dessus du seuil ; le tri est stable, donc chaque grille garde l'ordre de ses tickets (espérance S3 décroissante).
+    let closes = |c: &Candidate| {
+        ready
+            .iter()
+            .find(|g| (g.row.game, g.row.number) == c.grid)
+            .map(|g| g.row.closes_at)
+    };
+    let mut ranked = ranked;
+    ranked.sort_by_key(|c| closes(c));
     let mut chosen = Vec::new();
     for candidate in ranked {
-        if chosen.len() >= budget {
-            break;
-        }
-        let Some(monday) = ready
+        let Some(month) = ready
             .iter()
             .find(|g| (g.row.game, g.row.number) == candidate.grid)
-            .map(|g| week_of(g.row.closes_at))
+            .map(|g| month_of(g.row.closes_at))
         else {
             continue;
         };
-        if let Some(week) = weeks.iter_mut().find(|w| w.monday == monday)
-            && week.left() > 0
+        if let Some(budget) = months.iter_mut().find(|m| m.month == month)
+            && budget.left() > 0
         {
-            week.chosen += 1;
+            budget.chosen += 1;
             chosen.push(candidate);
         }
     }
@@ -557,10 +621,11 @@ mod tests {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
 
-    /// Demande de séance : mise plafond, remplacement, à blanc.
-    fn ask(max_tickets: u32, replace: bool, dry_run: bool) -> Request {
+    /// Demande de séance : budget du mois, seuil, remplacement, à blanc.
+    fn ask(monthly_budget: u32, threshold: f64, replace: bool, dry_run: bool) -> Request {
         Request {
-            max_tickets,
+            monthly_budget,
+            threshold,
             replace,
             dry_run,
         }
@@ -571,20 +636,43 @@ mod tests {
         let teams: Vec<(String, String)> = (1..=7)
             .map(|i| (format!("H{i}"), format!("A{i}")))
             .collect();
-        let fetch_id = record_fetch(
+        // Grille vue pour la première fois à 1 h 30 (8 h 30 avant la séance de 10 h), relevée de nouveau à 9 h 30.
+        record_grid(
             conn,
+            133,
+            at("2026-10-25T16:10:00Z"),
+            at("2026-10-24T01:30:00Z"),
+        );
+        record_grid(
+            conn,
+            133,
+            at("2026-10-25T16:10:00Z"),
             at("2026-10-24T09:30:00Z"),
-            Page::Grid(Game::Lf7),
-            200,
-            None,
-        )
-        .unwrap();
+        );
+        aliases_text.push_str("[LOTOFOOT]\n");
+        for (h, a) in &teams {
+            aliases_text.push_str(&format!("\"{h}\" = []\n\"{a}\" = []\n"));
+        }
+        record_odds(conn, &teams);
+    }
+
+    /// Une grille LF7 des rencontres « Hi – Ai », relevée à `fetched`.
+    fn record_grid(
+        conn: &mut Connection,
+        number: u32,
+        closes_at: DateTime<Utc>,
+        fetched: DateTime<Utc>,
+    ) {
+        let teams: Vec<(String, String)> = (1..=7)
+            .map(|i| (format!("H{i}"), format!("A{i}")))
+            .collect();
+        let fetch_id = record_fetch(conn, fetched, Page::Grid(Game::Lf7), 200, None).unwrap();
         let page = GridPage {
             open: Some(OpenGrid {
                 game: Game::Lf7,
                 accepting: true,
-                number: 133,
-                closes_at: at("2026-10-25T16:10:00Z"),
+                number,
+                closes_at,
                 jackpot: Euros::new(100_000.0),
                 matches: teams.clone(),
                 split: Some(vec![
@@ -615,11 +703,10 @@ mod tests {
             }],
         };
         record_grid_page(conn, fetch_id, Game::Lf7, &page).unwrap();
-        aliases_text.push_str("[LOTOFOOT]\n");
-        for (h, a) in &teams {
-            aliases_text.push_str(&format!("\"{h}\" = []\n\"{a}\" = []\n"));
-        }
-        // Cotes Pinnacle archivées pour les 7 rencontres, relevées la veille à midi.
+    }
+
+    /// Cotes Pinnacle archivées pour les 7 rencontres, relevées la veille à midi.
+    fn record_odds(conn: &mut Connection, teams: &[(String, String)]) {
         let body: Vec<String> = teams
             .iter()
             .enumerate()
@@ -658,10 +745,8 @@ mod tests {
         let mut aliases_text = String::new();
         setup(&mut conn, &mut aliases_text);
         let aliases = Aliases::parse(&aliases_text).unwrap();
-        let config = Config {
-            lotofoot_threshold: 1.0,
-            ..Config::default()
-        };
+        let config = Config::default();
+        let tau_config = 1.0;
         let mut clock = || at("2026-10-24T10:00:00Z");
         let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
             panic!("aucun appel attendu : {path}")
@@ -672,7 +757,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
-            ask(16, false, false),
+            ask(16, tau_config, false, false),
         )
         .unwrap();
         assert!(report.skipped.is_empty(), "{:?}", report.skipped);
@@ -696,22 +781,20 @@ mod tests {
         let mut aliases_text = String::new();
         setup(&mut conn, &mut aliases_text);
         let aliases = Aliases::parse(&aliases_text).unwrap();
-        let config = Config {
-            lotofoot_threshold: 1.0,
-            ..Config::default()
-        };
+        let config = Config::default();
+        let tau_config = 1.0;
         let mut clock = || at("2026-10-24T10:00:00Z");
         let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
             panic!("aucun appel attendu : {path}")
         };
-        // Mise de 3 € : 3 tickets au plus ; une mise au-delà du plafond gelé (16 €) y est ramenée.
+        // Budget de 3 € pour le mois : 3 tickets au plus.
         let first = run(
             &mut conn,
             &config,
             &aliases,
             &mut clock,
             &mut fetch,
-            ask(3, false, false),
+            ask(3, tau_config, false, false),
         )
         .unwrap();
         assert_eq!(first.chosen.len(), 3);
@@ -723,7 +806,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
-            ask(100, false, false),
+            ask(100, tau_config, false, false),
         )
         .unwrap();
         assert!(again.chosen.is_empty());
@@ -750,10 +833,8 @@ mod tests {
         let mut aliases_text = String::new();
         setup(&mut conn, &mut aliases_text);
         let aliases = Aliases::parse(&aliases_text).unwrap();
-        let config = Config {
-            lotofoot_threshold: 1.0,
-            ..Config::default()
-        };
+        let config = Config::default();
+        let tau_config = 1.0;
         let mut clock = || at("2026-10-24T10:00:00Z");
         let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
             panic!("aucun appel attendu : {path}")
@@ -764,7 +845,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
-            ask(16, false, false),
+            ask(16, tau_config, false, false),
         )
         .unwrap();
         assert!(first.chosen.len() > 3);
@@ -775,7 +856,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
-            ask(3, true, false),
+            ask(3, tau_config, true, false),
         )
         .unwrap();
         assert_eq!(second.chosen.len(), 3);
@@ -801,7 +882,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
-            ask(16, true, false),
+            ask(16, tau_config, true, false),
         )
         .unwrap();
         assert!(
@@ -814,63 +895,147 @@ mod tests {
     }
 
     #[test]
-    fn the_weekly_budget_caps_the_session_and_a_replaced_grid_frees_its_share() {
+    fn the_monthly_budget_caps_the_session_and_a_replaced_grid_frees_its_share() {
         let mut conn = Connection::open_in_memory().unwrap();
         migrate(&mut conn).unwrap();
         let mut aliases_text = String::new();
         setup(&mut conn, &mut aliases_text);
         let aliases = Aliases::parse(&aliases_text).unwrap();
-        let config = Config {
-            lotofoot_threshold: 1.0,
-            lotofoot_weekly_budget: 5,
-            ..Config::default()
-        };
+        let config = Config::default();
+        let tau_config = 1.0;
         let mut clock = || at("2026-10-24T10:00:00Z");
         let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
             panic!("aucun appel attendu : {path}")
         };
-        // Mise de 16 € demandée, mais 5 € de budget pour la semaine du lundi 19 octobre (clôture le dimanche 25).
+        // 5 € de budget pour octobre (clôture le dimanche 25).
         let first = run(
             &mut conn,
             &config,
             &aliases,
             &mut clock,
             &mut fetch,
-            ask(16, false, false),
+            ask(5, tau_config, false, false),
         )
         .unwrap();
         assert_eq!(first.chosen.len(), 5);
-        let week = first.weeks[0];
-        assert_eq!(week.monday, NaiveDate::from_ymd_opt(2026, 10, 19).unwrap());
-        assert_eq!((week.spent_before, week.chosen, week.left()), (0, 5, 0));
-        // Recalcul par le bouton : les 5 tickets remplacés ne comptent plus, la semaine a de nouveau ses 5 €.
+        let month = first.months[0];
+        assert_eq!(month.month, NaiveDate::from_ymd_opt(2026, 10, 1).unwrap());
+        assert_eq!((month.spent_before, month.chosen, month.left()), (0, 5, 0));
+        // Recalcul par le bouton : les 5 tickets remplacés ne comptent plus, le mois a de nouveau ses 5 €.
         let again = run(
             &mut conn,
             &config,
             &aliases,
             &mut clock,
             &mut fetch,
-            ask(16, true, false),
+            ask(5, tau_config, true, false),
         )
         .unwrap();
         assert_eq!(again.chosen.len(), 5);
-        assert_eq!(again.weeks[0].spent_before, 0);
+        assert_eq!(again.months[0].spent_before, 0);
     }
 
     #[test]
-    fn weeks_run_from_monday_in_paris_and_the_budget_starts_on_24_october() {
-        // Dimanche 25 octobre 23 h 30 à Paris = 22 h 30 UTC (heure d'hiver) : semaine du lundi 19.
+    fn months_follow_paris_time_and_the_budget_starts_on_24_october() {
+        // 31 octobre 23 h 30 UTC = 1er novembre 0 h 30 à Paris (heure d'hiver) : novembre.
         assert_eq!(
-            week_of(at("2026-10-25T22:30:00Z")),
-            NaiveDate::from_ymd_opt(2026, 10, 19).unwrap()
+            month_of(at("2026-10-31T23:30:00Z")),
+            NaiveDate::from_ymd_opt(2026, 11, 1).unwrap()
         );
-        // Dimanche 25 octobre 23 h 30 UTC = lundi 26 à 0 h 30 à Paris : semaine suivante.
         assert_eq!(
-            week_of(at("2026-10-25T23:30:00Z")),
-            NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()
+            month_of(at("2026-10-31T22:30:00Z")),
+            NaiveDate::from_ymd_opt(2026, 10, 1).unwrap()
         );
         // Minuit le 24 octobre à Paris (heure d'été) = 22 h UTC la veille : la séance n°6 du 23 à 13 h 16 UTC est avant.
-        assert_eq!(weekly_budget_since(), at("2026-10-23T22:00:00Z"));
+        assert_eq!(budget_since(), at("2026-10-23T22:00:00Z"));
+    }
+
+    #[test]
+    fn the_grid_closing_first_takes_the_budget_first() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let mut aliases_text = String::new();
+        setup(&mut conn, &mut aliases_text);
+        // Même grille sous un autre numéro, qui ferme plus tôt : mêmes tickets, mêmes espérances.
+        record_grid(
+            &mut conn,
+            134,
+            at("2026-10-25T12:00:00Z"),
+            at("2026-10-24T01:30:00Z"),
+        );
+        record_grid(
+            &mut conn,
+            134,
+            at("2026-10-25T12:00:00Z"),
+            at("2026-10-24T09:30:00Z"),
+        );
+        let aliases = Aliases::parse(&aliases_text).unwrap();
+        let mut clock = || at("2026-10-24T10:00:00Z");
+        let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
+            panic!("aucun appel attendu : {path}")
+        };
+        let report = run(
+            &mut conn,
+            &Config::default(),
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            ask(5, 1.0, false, false),
+        )
+        .unwrap();
+        assert_eq!(report.chosen.len(), 5);
+        assert!(
+            report.chosen.iter().all(|c| c.grid == (Game::Lf7, 134)),
+            "{:?}",
+            report.chosen
+        );
+    }
+
+    #[test]
+    fn a_young_grid_is_evaluated_without_tickets() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let mut aliases_text = String::new();
+        setup(&mut conn, &mut aliases_text);
+        // Grille n°135, vue pour la première fois à 8 h : 2 h d'âge à la séance de 10 h.
+        record_grid(
+            &mut conn,
+            135,
+            at("2026-10-25T12:00:00Z"),
+            at("2026-10-24T08:00:00Z"),
+        );
+        record_grid(
+            &mut conn,
+            135,
+            at("2026-10-25T12:00:00Z"),
+            at("2026-10-24T09:30:00Z"),
+        );
+        let aliases = Aliases::parse(&aliases_text).unwrap();
+        let mut clock = || at("2026-10-24T10:00:00Z");
+        let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
+            panic!("aucun appel attendu : {path}")
+        };
+        let report = run(
+            &mut conn,
+            &Config::default(),
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            ask(16, 1.0, false, false),
+        )
+        .unwrap();
+        // Les deux grilles sont évaluées ; la jeune, qui ferme pourtant la première, ne prend aucun ticket.
+        assert_eq!(report.evaluated.len(), 2);
+        assert!(!report.chosen.is_empty());
+        assert!(report.chosen.iter().all(|c| c.grid == (Game::Lf7, 133)));
+        assert!(
+            report
+                .skipped
+                .iter()
+                .any(|s| s.grid == "LF7 n°135" && s.reason.contains("trop jeune")),
+            "{:?}",
+            report.skipped
+        );
     }
 
     #[test]
@@ -884,31 +1049,27 @@ mod tests {
         let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
             panic!("aucun appel attendu : {path}")
         };
-        let easy = Config {
-            lotofoot_threshold: 1.0,
-            ..Config::default()
-        };
+        let easy = Config::default();
+        let tau_easy = 1.0;
         run(
             &mut conn,
             &easy,
             &aliases,
             &mut clock,
             &mut fetch,
-            ask(16, false, false),
+            ask(16, tau_easy, false, false),
         )
         .unwrap();
         // Recalcul où plus rien ne passe le seuil : la séance est écrite pour remplacer, sans ticket.
-        let strict = Config {
-            lotofoot_threshold: 1e9,
-            ..Config::default()
-        };
+        let strict = Config::default();
+        let tau_strict = 1e9;
         let report = run(
             &mut conn,
             &strict,
             &aliases,
             &mut clock,
             &mut fetch,
-            ask(16, true, false),
+            ask(16, tau_strict, true, false),
         )
         .unwrap();
         assert!(report.chosen.is_empty());
@@ -956,10 +1117,8 @@ mod tests {
             history: vec![],
         };
         record_grid_page(&mut conn, fetch_id, Game::Lf7, &fresh).unwrap();
-        let config = Config {
-            lotofoot_threshold: 1.0,
-            ..Config::default()
-        };
+        let config = Config::default();
+        let tau_config = 1.0;
         let mut clock = || at("2026-10-24T10:00:00Z");
         let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
             panic!("aucun appel attendu : {path}")
@@ -970,7 +1129,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
-            ask(16, false, false),
+            ask(16, tau_config, false, false),
         )
         .unwrap();
         assert!(report.chosen.is_empty());
@@ -991,10 +1150,8 @@ mod tests {
         setup(&mut conn, &mut aliases_text);
         let aliases = Aliases::parse(&aliases_text).unwrap();
         // Seuil inatteignable : la grille est évaluée, aucun ticket ne passe.
-        let config = Config {
-            lotofoot_threshold: 1e9,
-            ..Config::default()
-        };
+        let config = Config::default();
+        let tau_config = 1e9;
         let mut clock = || at("2026-10-24T10:00:00Z");
         let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
             panic!("aucun appel attendu : {path}")
@@ -1005,7 +1162,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
-            ask(16, false, false),
+            ask(16, tau_config, false, false),
         )
         .unwrap();
         assert_eq!(report.evaluated.len(), 1);
@@ -1033,7 +1190,7 @@ mod tests {
             &empty,
             &mut clock,
             &mut fetch,
-            ask(16, false, true),
+            ask(16, 1.7, false, true),
         )
         .unwrap();
         assert_eq!(report.unknown_names.len(), 14);
@@ -1048,7 +1205,7 @@ mod tests {
             &aliases,
             &mut late,
             &mut fetch,
-            ask(16, false, true),
+            ask(16, 1.7, false, true),
         )
         .unwrap();
         assert!(report.skipped[0].reason.contains("plus de 3 h"));

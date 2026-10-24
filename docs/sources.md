@@ -2062,3 +2062,31 @@ aucune copie (88 copies du site en tout, aucune de Loto Foot).
 **Conclusion** : aucun historique de la dérive n'existe dans la Wayback Machine. La seule source est notre propre relevé horaire de
 prono-match (`lotofoot_split`, depuis le 22 octobre 2026 : 3 grilles, 18 à 32 relevés chacune) ; au rythme d'environ 6,6 grilles par
 semaine, il faudra plusieurs semaines pour une courbe de dérive par heure avant la clôture.
+
+## 51. Loto Foot : budget mensuel saisi dans l'application, seuil τ tiré de l'abaque, allocation par ordre de clôture (2026-10-24)
+
+**Demande de Paul** : saisir seulement un budget mensuel dans l'application et obtenir la sélection, sans les problèmes de
+chevauchement constatés le 24 octobre (séance n°8 : le LF7 n°133, calculé 27 h avant sa clôture, avait pris tout le budget au LF8
+n°147). Choix de Paul, tous validés le 2026-10-24 :
+- **Budget mensuel** (mois calendaire, heure de Paris, selon la clôture des grilles), de 20 à 400 €, saisi dans l'application
+  (« Enregistrer le budget », ou avec « Optimiser maintenant ») ; historique immuable (migration 19, `lotofoot_budget`) ;
+  `lotofoot_monthly_budget` (60 € par défaut) sert tant que rien n'est saisi. Entrée en vigueur **tout de suite** : octobre compte
+  les tickets en vigueur recommandés depuis le 24 octobre (le LF8 n°146 du 23 reste hors budget, §47).
+- **Seuil τ** = τ* de l'abaque du §49 au **palier inférieur** (70 € → τ* de 60 €), table gelée `lotofoot::abaque` (version
+  `abaque-2026-10-24`) ; les réglages `lotofoot_threshold`, `lotofoot_weekly_budget` et `lotofoot_max_tickets` disparaissent.
+- **Ordre de clôture** : à chaque séance, toutes les grilles ouvertes non jouées sont recalculées ; la plus proche de la clôture
+  prend d'abord ses tickets au-dessus de τ (16 au plus par grille), la suivante le reste du mois. Les tickets déclarés joués ne sont
+  jamais recalculés. C'est la règle séquentielle simulée au §47 et au §49.
+- **Âge minimal provisoire de 8 h** (`MIN_GRID_AGE_HOURS`) : une grille vue depuis moins de 8 h est évaluée mais n'engage pas de
+  budget. À revoir avec l'étude de dérive (`scripts/lotofoot/PROTOCOLE_DERIVE.md`, bilan vers le 5 décembre).
+- Chaque séance note au journal le budget, τ, la version de l'abaque, la règle d'allocation et l'âge minimal.
+
+**Application** (`/lotofoot`) : la séance et les tickets sont séparés. En tête, le budget du mois (engagé, restant) et τ ; puis
+**À jouer** (grilles ouvertes, tickets pas encore déclarés joués, bouton « J'ai joué cette grille » par grille), **En cours**
+(tickets joués, résultats attendus, suivi des scores), et **Dernière séance** (grilles évaluées, écartées et pourquoi). Un ticket joué
+dont la grille a tous ses résultats n'est plus affiché : il ne compte plus que dans le bilan. Les tickets jamais joués d'une grille close
+disparaissent aussi (ils restent dans le suivi du modèle).
+
+**Correctif du soir** (avant la clôture du LF8 n°147) : l'ordre de clôture a d'abord été installé seul, à 17 h 33 ; la séance n°11
+(budget de la semaine, 16 €) a donné 15 tickets au LF8 n°147 (1,80 à 2,25 en S3) et 1 au LF7 n°133 (11,98). Paul a joué les 15 tickets
+du LF8 (déclarés joués, n°151 à 165).

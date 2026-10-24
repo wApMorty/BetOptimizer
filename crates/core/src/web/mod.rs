@@ -272,8 +272,16 @@ fn post(
         "/bonus/operation" => entry::bonus_operation(app, &empty, Some(form), now)?,
         "/bonus/offre" => entry::offer(app, &empty, Some(form), now)?,
         "/bonus/regler" => act(app, &Action::SettleBonusAuto, "/bonus", now),
-        "/lotofoot/jouee" => act(app, &Action::LotofootPlayedSession, "/lotofoot", now),
-        "/lotofoot/optimiser" => pages::lotofoot::optimize(app, form),
+        "/lotofoot/jouee" => match lotofoot_grid(form.get("grille")) {
+            Some((game, number)) => act(
+                app,
+                &Action::LotofootPlayedGrid { game, number },
+                "/lotofoot",
+                now,
+            ),
+            None => act(app, &Action::LotofootPlayedSession, "/lotofoot", now),
+        },
+        "/lotofoot/optimiser" => pages::lotofoot::optimize(app, form, now),
         "/loto/jouee" => act(app, &Action::LotoPlayedSession, "/loto", now),
         "/loto/grille" => match crate::web::forms::LotoGridForm::from_form(form).to_action() {
             Ok(action) => act(app, &action, "/loto", now),
@@ -439,6 +447,15 @@ fn message(status: u16, title: &str, text: &str) -> Response {
     };
     let html = render("message.html", MESSAGE_TEMPLATE, &page).unwrap_or_else(|_| text.to_string());
     Response::html(status, html)
+}
+
+/// Grille d'un bouton « J'ai joué cette grille » (`lf7-133`), `None` si le champ est absent ou illisible.
+fn lotofoot_grid(text: &str) -> Option<(crate::lotofoot::Game, u32)> {
+    let (game, number) = text.trim().split_once('-')?;
+    Some((
+        crate::lotofoot::Game::from_code(game)?,
+        number.parse().ok()?,
+    ))
 }
 
 #[cfg(test)]
@@ -717,7 +734,12 @@ mod tests {
         let declared = sample.post("/lotofoot/jouee", "");
         assert_eq!(declared.location.as_deref(), Some("/lotofoot"));
         assert!(flash_of(&declared).text.starts_with("2 ticket(s)"));
-        assert!(sample.html("/lotofoot").contains("séance déclarée jouée"));
+        // Les tickets joués passent de « À jouer » à « En cours ».
+        let html = sample.html("/lotofoot");
+        assert!(
+            html.contains("Rien à jouer") && html.contains("En cours"),
+            "{html}"
+        );
     }
 
     #[test]
@@ -764,13 +786,21 @@ mod tests {
     }
 
     #[test]
-    fn a_wrong_stake_is_refused_before_any_fetch() {
+    fn a_wrong_budget_is_refused_before_any_fetch_and_a_budget_can_be_saved_alone() {
         let sample = sample();
-        // Mise hors bornes : refus immédiat, sans relevé ni séance (le test n'a pas de réseau).
-        let refused = sample.post("/lotofoot/optimiser", "mise=40&discord=on");
+        // Budget hors de l'abaque : refus immédiat, sans relevé ni séance (le test n'a pas de réseau).
+        let refused = sample.post("/lotofoot/optimiser", "budget=500&discord=on");
         assert_eq!(refused.location.as_deref(), Some("/lotofoot"));
         let flash = flash_of(&refused);
-        assert!(flash.text.contains("entre 1 et 16"), "{flash:?}");
+        assert!(flash.text.contains("de 20 à 400"), "{flash:?}");
+        // « Enregistrer le budget » : écrit sans séance.
+        let saved = sample.post("/lotofoot/optimiser", "budget=120&action=budget");
+        assert!(
+            flash_of(&saved).text.contains("120 € par mois"),
+            "{:?}",
+            flash_of(&saved)
+        );
+        assert!(sample.html("/lotofoot").contains("τ = 1,7"));
         let conn = crate::store::open_migrated(&sample.app.paths.db_file).unwrap();
         assert_eq!(
             crate::store::lotofoot::current_recos(&conn).unwrap().len(),

@@ -2,34 +2,10 @@
 {% block title %}Loto Foot{% endblock %}
 {% block head %}{% if auto_refresh %}<meta http-equiv="refresh" content="60">{% endif %}{% endblock %}
 {% block content %}
-<div class="head"><h1>Loto Foot</h1><div class="sub">LF7 et LF8, validés au point de vente : tickets à 1 € (regroupés sans perte en grilles multiples), joués si leur espérance dans le scénario défavorable atteint le seuil (<code>docs/sources.md</code> §37 et §38). Aucun pari n'est placé par le programme.</div></div>
-
-<div class="card"><span class="chip {% if verdict_class == "bad" %}t-neg{% elif verdict_class %}t-warn{% else %}t-pos{% endif %}">Verdict</span> {{ verdict }}</div>
-
-<div class="tiles">
-  <div class="tile"><div class="label">Grilles</div><div class="figure">{{ grids|length }}</div><div class="note">{% if session %}séance du {{ session }}{% else %}aucune séance{% endif %}</div></div>
-  <div class="tile"><div class="label">Tickets</div><div class="figure acc">{{ tickets|length }}</div><div class="note">mise de la séance : {% if tickets %}{{ stake }}{% else %}0 €{% endif %}</div></div>
-  <div class="tile"><div class="label">À déclarer</div><div class="figure {% if to_declare %}wrn{% endif %}">{{ to_declare }}</div><div class="note">tickets pas encore déclarés joués</div></div>
-</div>
-
-<form class="card form" method="post" action="/lotofoot/optimiser">
-  <div class="actions" style="align-items: flex-end">
-    <label class="field" style="margin: 0"><span>Mise maximale de la séance (€, de 1 à {{ max_stake }})</span><input type="text" name="mise" value="{{ max_stake }}" inputmode="numeric"></label>
-    <label style="padding: 8px 0"><input type="checkbox" name="discord"> Envoyer sur Discord</label>
-    <button class="btn" type="submit" title="Relève prono-match et les cotes manquantes (1 crédit par compétition, 8 au plus), choisit les tickets au-dessus du seuil dans la mise, et écrit la séance au journal.">Optimiser maintenant</button>
-  </div>
-  <p class="meta" style="margin: 8px 0 0">À lancer au guichet, juste avant de valider : relevé frais (une vingtaine de secondes), tickets au-dessus du seuil dans la mise et dans le budget restant de la semaine (16 €, lundi-dimanche), séance écrite au journal. Les grilles déjà recommandées sont recalculées sur la répartition du moment et leur recommandation est remplacée, sauf si tu as déjà déclaré leurs tickets joués.</p>
-</form>
-<h2>{% if session %}Séance du {{ session }}{% else %}Dernière séance{% endif %}</h2>
-{% if tickets %}
-<p class="meta">Chaque colonne est une grille à remplir : coche toutes les cases indiquées pour chaque rencontre, dans l'ordre de la grille (deux cases : double, trois : triple). Les multiples regroupent sans perte les tickets choisis : mêmes tickets, même mise, mêmes gains (<code>docs/sources.md</code> §39).<br>Chances : probabilités du marché (Pinnacle, sans marge). Gains : moyenne sur les issues qui atteignent ce rang, une fois la masse partagée avec les autres gagnants attendus ; le gain réel varie beaucoup selon le nombre de gagnants. Pour une multiple, « sans faute » veut dire qu'un de ses tickets est parfait, et le gain compte aussi ses tickets à une erreur.</p>
-<div class="actions">
-{% if to_declare %}<form method="post" action="/lotofoot/jouee" class="inline"><button class="btn" type="submit" title="Déclare joués tous les tickets de la séance (comme edge lotofoot played --last-session). Un ticket déjà déclaré est ignoré, jamais doublé.">J'ai joué la séance</button></form>
-{% else %}<span class="chip t-pos">séance déclarée jouée</span>{% endif %}
-</div>
-{% for b in bulletins %}
+{% macro bulletin(b, playable) %}
 <div class="card">
-  <div class="split"><div><b style="font-size: 1.1rem">{{ b.grid }}</b> <span class="chip">clôture {{ b.closes }}</span></div></div>
+  <div class="split"><div><b style="font-size: 1.1rem">{{ b.grid }}</b> <span class="chip">clôture {{ b.closes }}</span> <span class="meta">{{ b.session }}</span></div>
+  {% if playable and b.to_declare %}<form method="post" action="/lotofoot/jouee" class="inline"><input type="hidden" name="grille" value="{{ b.key }}"><button class="btn" type="submit" title="Déclare joués les tickets de cette grille. Un ticket déjà déclaré est ignoré, jamais doublé.">J'ai joué cette grille</button></form>{% endif %}</div>
   <div class="scroll">
   <table class="bulletin">
     <thead><tr><th>Rencontre</th>{% for c in b.columns %}<th class="sign-cell live {{ c.tone }}">{{ c.price }}</th>{% endfor %}</tr></thead>
@@ -43,6 +19,7 @@
     </tbody>
   </table>
   </div>
+  <details><summary class="meta">Détail des {{ b.details|length }} ticket(s)</summary>
   <div class="scroll">
   <table>
     <thead><tr><th>Ticket</th><th>Signes</th><th>Sans faute</th><th>Une erreur</th><th>Chance de gain</th><th class="num" title="Euros rendus en moyenne pour 1 € misé ; entre parenthèses, le scénario défavorable qui sert au seuil.">Espérance</th><th>En direct</th><th>État</th></tr></thead>
@@ -52,16 +29,55 @@
     </tbody>
   </table>
   </div>
+  </details>
 </div>
-{% endfor %}
-{% elif session %}
-<div class="card empty"><b>Rien à jouer cette semaine</b><span>Aucun ticket ne passait le seuil.</span></div>
+{% endmacro %}
+<div class="head"><h1>Loto Foot</h1><div class="sub">LF7 et LF8, validés au point de vente : tickets à 1 € (regroupés sans perte en grilles multiples), joués si leur espérance dans le scénario défavorable atteint le seuil τ que l'abaque tire de ton budget mensuel (<code>docs/sources.md</code> §49 et §51). Aucun pari n'est placé par le programme.</div></div>
+
+<div class="card"><span class="chip {% if verdict_class == "bad" %}t-neg{% elif verdict_class %}t-warn{% else %}t-pos{% endif %}">Verdict</span> {{ verdict }}</div>
+
+<div class="tiles">
+  <div class="tile"><div class="label">Budget de {{ budget.month }}</div><div class="figure acc">{{ budget.left }} €</div><div class="note">restant sur {{ budget.monthly }} € ({{ budget.spent }} € engagés)</div></div>
+  <div class="tile"><div class="label">Seuil τ</div><div class="figure">{{ budget.threshold }}</div><div class="note">abaque, budget de {{ budget.monthly }} € par mois</div></div>
+  <div class="tile"><div class="label">À jouer</div><div class="figure {% if to_play.tickets %}wrn{% endif %}">{{ to_play.tickets|length }}</div><div class="note">{% if to_play.tickets %}{{ to_play.stake }} sur {{ to_play.grids|length }} grille(s){% else %}aucun ticket en attente{% endif %}</div></div>
+  <div class="tile"><div class="label">En cours</div><div class="figure">{{ in_play.tickets|length }}</div><div class="note">tickets joués, résultats attendus</div></div>
+</div>
+
+<form class="card form" method="post" action="/lotofoot/optimiser">
+  <div class="actions" style="align-items: flex-end">
+    <label class="field" style="margin: 0"><span>Budget mensuel (€, de {{ budget_min }} à {{ budget_max }}) — τ = {{ budget.threshold }}</span><input type="text" name="budget" value="{{ budget.monthly }}" inputmode="numeric"></label>
+    <label style="padding: 8px 0"><input type="checkbox" name="discord"> Envoyer sur Discord</label>
+    <button class="btn" type="submit" title="Relève prono-match et les cotes manquantes (1 crédit par compétition, 8 au plus), recalcule les grilles ouvertes pas encore jouées dans l'ordre de clôture, et écrit la séance au journal.">Optimiser maintenant</button>
+    <button class="btn" type="submit" name="action" value="budget" title="Enregistre le budget sans lancer de séance.">Enregistrer le budget</button>
+  </div>
+  <p class="meta" style="margin: 8px 0 0">À lancer au guichet, juste avant de valider. Les grilles ouvertes se partagent le budget du mois dans l'ordre de clôture : la plus proche prend d'abord ses tickets au-dessus de τ. Une grille vue depuis moins de 8 h est évaluée sans engager de budget. Les tickets déclarés joués ne sont jamais recalculés.</p>
+</form>
+
+<h2>À jouer<small>grilles ouvertes, tickets pas encore déclarés joués</small></h2>
+{% if play_bulletins %}
+<p class="meta">Chaque colonne est une grille à remplir : coche toutes les cases indiquées pour chaque rencontre, dans l'ordre de la grille (deux cases : double, trois : triple). Les multiples regroupent sans perte les tickets choisis (<code>docs/sources.md</code> §39). Chances : probabilités du marché (Pinnacle, sans marge) ; gains : moyenne une fois la masse partagée avec les autres gagnants attendus.</p>
+{% for b in play_bulletins %}{{ bulletin(b, true) }}{% endfor %}
 {% else %}
-<div class="card empty"><b>Aucune séance pour l'instant</b><span>Le relevé horaire archive les grilles ; la séance a lieu le samedi à midi.</span></div>
+<div class="card empty"><b>Rien à jouer</b><span>Aucun ticket en attente : lance une séance au guichet.</span></div>
+{% endif %}
+
+{% if live_bulletins %}
+<h2>En cours<small>tickets joués, résultats attendus ; une grille disparaît quand tous ses résultats sont connus</small></h2>
+{% for b in live_bulletins %}{{ bulletin(b, false) }}{% endfor %}
 {% endif %}
 {% for i in live_issues %}<div class="notice t-warn">Suivi en direct : {{ i }}</div>{% endfor %}
-{% for s in skipped %}<div class="notice t-warn">Grille écartée : {{ s }}</div>{% endfor %}
-{% if unknown_names %}<div class="notice t-warn">Noms absents de <code>config/aliases.toml</code> : {{ unknown_names|join(", ") }}.</div>{% endif %}
+
+<h2>Dernière séance<small>ce que le bouton a calculé</small></h2>
+<div class="card">
+{% if session %}
+  <b>Séance {{ session }}</b>{% if session_rule %} <span class="chip">{{ session_rule }}</span>{% endif %}
+  {% if evaluated %}<p class="sub" style="margin: 6px 0 0">Évaluées : {{ evaluated|join(" ; ") }}.</p>{% endif %}
+  {% for s in skipped %}<div class="notice t-warn">Écartée ou sans ticket : {{ s }}</div>{% endfor %}
+  {% if unknown_names %}<div class="notice t-warn">Noms absents de <code>config/aliases.toml</code> : {{ unknown_names|join(", ") }}.</div>{% endif %}
+{% else %}
+  <span class="sub">Aucune séance pour l'instant.</span>
+{% endif %}
+</div>
 
 <h2>Bilan<small>le rendement ne dit rien avant des années</small></h2>
 <div class="card scroll">

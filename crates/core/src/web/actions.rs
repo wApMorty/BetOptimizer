@@ -66,6 +66,13 @@ pub enum Action {
     },
     /// Déclarer jouée toute la dernière séance Loto Foot (comme `edge lotofoot played --last-session`).
     LotofootPlayedSession,
+    /// Déclarer joués les tickets en vigueur d'une grille Loto Foot (bouton « J'ai joué cette grille »).
+    LotofootPlayedGrid {
+        /// Formule.
+        game: crate::lotofoot::Game,
+        /// Numéro.
+        number: u32,
+    },
     /// Déclarer jouées les grilles de la dernière séance du Grand Loto (comme `edge loto played --last-session`).
     LotoPlayedSession,
     /// Déclarer une grille de Grand Loto saisie à la main (comme `edge loto played --grid … --date …`).
@@ -175,6 +182,22 @@ pub fn apply(
             let declared = played::declare_last_session(&conn, now, stake)?;
             let mut message = format!(
                 "{} ticket(s) Loto Foot déclaré(s) joué(s).",
+                declared.written.len()
+            );
+            if !declared.already.is_empty() {
+                message.push_str(&format!(
+                    " {} déjà déclaré(s) : ignoré(s).",
+                    declared.already.len()
+                ));
+            }
+            Ok(message)
+        }
+        Action::LotofootPlayedGrid { game, number } => {
+            let stake = Euros::new(TICKET_PRICE)
+                .ok_or_else(|| Error::Data("prix du ticket invalide".to_string()))?;
+            let declared = played::declare_grid(&conn, *game, *number, now, stake)?;
+            let mut message = format!(
+                "{game} n°{number} : {} ticket(s) déclaré(s) joué(s).",
                 declared.written.len()
             );
             if !declared.already.is_empty() {

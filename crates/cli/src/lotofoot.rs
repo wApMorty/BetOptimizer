@@ -14,7 +14,7 @@ use edge_core::lotofoot::fetch::{self, FetchReport, PronoMatchClient};
 use edge_core::lotofoot::live::{self, Notified};
 use edge_core::lotofoot::outlets::Outlet;
 use edge_core::lotofoot::played::{self, Declared, Manual};
-use edge_core::lotofoot::session::{Request, SessionReport};
+use edge_core::lotofoot::session::{self, Request, SessionReport};
 use edge_core::lotofoot::settle::{self, Ledger};
 use edge_core::lotofoot::verify;
 use edge_core::lotofoot::{Game, Ticket};
@@ -87,18 +87,16 @@ fn print_fetch(report: &FetchReport) {
 }
 
 /// `edge lotofoot recommend` : séance (relevé frais, cotes, tickets), écrite au journal ; `--notify` l'envoie sur Discord.
-/// Même chemin que le bouton « Optimiser maintenant » de l'application Web, avec la mise plafond de la configuration.
+/// Même chemin que le bouton « Optimiser maintenant » de l'application Web, avec le budget mensuel en vigueur.
 pub fn recommend(paths: &Paths, notify: bool, dry_run: bool) -> Result<()> {
     let config = Config::load(&paths.config_file)?;
     let mut conn = store::open_migrated(&paths.db_file)
         .context("base inaccessible : lance d'abord `edge init`")?;
     let aliases = Aliases::bundled()?;
-    // Le timer ne remplace jamais une recommandation : il n'analyse que les grilles nouvelles.
-    let request = Request {
-        max_tickets: config.lotofoot_max_tickets,
-        replace: false,
-        dry_run,
-    };
+    // Le timer ne remplace jamais une recommandation : il n'analyse que les grilles nouvelles. Budget : celui saisi dans
+    // l'application, sinon celui de la configuration.
+    let budget = session::monthly_budget(&conn, &config, Utc::now())?;
+    let request = Request::from_budget(budget, false, dry_run)?;
     let live = live::recommend(&mut conn, &config, &aliases, request, notify)?;
     print_fetch(&live.fetched);
     print_session(&live.report, dry_run);
@@ -133,8 +131,12 @@ fn print_session(report: &SessionReport, dry_run: bool) {
     for s in &report.skipped {
         println!("  écartée : {} — {}", s.grid, s.reason);
     }
-    if !report.weeks.is_empty() {
-        println!("  budget : {}", lotofoot_page::weeks_text(&report.weeks));
+    if !report.months.is_empty() {
+        println!(
+            "  budget : {} ; {}",
+            lotofoot_page::months_text(&report.months),
+            lotofoot_page::threshold_text(report)
+        );
     }
     if !report.unknown_names.is_empty() {
         println!(

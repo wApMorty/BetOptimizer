@@ -56,6 +56,27 @@ pub fn declare_last_session(
     write(conn, &chosen, now, stake)
 }
 
+/// Déclare joués les tickets en vigueur d'une grille (bouton « J'ai joué cette grille »).
+pub fn declare_grid(
+    conn: &Connection,
+    game: Game,
+    number: u32,
+    now: DateTime<Utc>,
+    stake: Euros,
+) -> Result<Declared> {
+    let recos = store::current_recos(conn)?;
+    let chosen: Vec<&RecoRow> = recos
+        .iter()
+        .filter(|r| (r.game, r.number) == (game, number))
+        .collect();
+    if chosen.is_empty() {
+        return Err(Error::Input(format!(
+            "aucun ticket en vigueur pour la grille {game} n°{number}"
+        )));
+    }
+    write(conn, &chosen, now, stake)
+}
+
 fn write(
     conn: &Connection,
     chosen: &[&RecoRow],

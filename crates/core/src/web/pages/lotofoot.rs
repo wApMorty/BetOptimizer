@@ -1,10 +1,12 @@
-//! Onglet « Loto Foot » (`/lotofoot`) : verdict du modèle, dernière séance (grilles à remplir et tickets), bilans,
-//! vérification.
+//! Onglet « Loto Foot » (`/lotofoot`) : budget du mois et bouton de séance, tickets à jouer, tickets en cours, dernière
+//! séance (ce qu'elle a évalué ou écarté), bilans, vérification.
 //!
 //! Tout vient de [`crate::report::lotofoot_page::page`] ; ce module ajoute la présentation en bulletin : une ligne par
 //! rencontre, une colonne par grille à remplir (simple ou multiple, `docs/sources.md` §39), les cases à cocher dans
 //! chaque colonne ; puis le détail des tickets de la grille (espérance, règlement). Le bouton « Optimiser maintenant »
-//! lance la séance comme `edge lotofoot recommend` ([`crate::lotofoot::live`]), avec la mise plafond saisie.
+//! enregistre le budget mensuel saisi s'il a changé, puis lance la séance comme `edge lotofoot recommend`
+//! ([`crate::lotofoot::live`]), au seuil que l'abaque tire de ce budget (§49, §51). Un ticket joué dont la grille a tous
+//! ses résultats n'est plus affiché : il reste dans le bilan.
 //!
 //! Pendant les matchs, l'affichage relève les scores chez ESPN ([`crate::lotofoot::scores`]) : score à côté de chaque
 //! rencontre, case juste ou fausse, couleur de chaque grille et de chaque ticket, et la page se recharge toutes les
@@ -15,13 +17,14 @@ use serde::Serialize;
 
 use crate::domain::Outcome;
 use crate::error::Result;
+use crate::lotofoot::abaque;
 use crate::lotofoot::bulletin::session_lines;
 use crate::lotofoot::espn::EspnClient;
 use crate::lotofoot::live::{self, Live, Notified};
 use crate::lotofoot::scores::{self, MatchNow, Standing};
-use crate::lotofoot::session::Request;
+use crate::lotofoot::session::{self, Request};
 use crate::lotofoot::{Ticket, sign_char};
-use crate::report::lotofoot_page::{self, LineView, LotofootPage, RankView, TicketView};
+use crate::report::lotofoot_page::{self, Group, LineView, LotofootPage, RankView, TicketView};
 use crate::store;
 use crate::store::lotofoot as lotofoot_store;
 use crate::web::App;
@@ -96,7 +99,13 @@ struct Detail {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 struct Bulletin {
     grid: String,
+    /// `lf7-133`, pour le bouton « J'ai joué cette grille ».
+    key: String,
     closes: String,
+    /// Séance qui a choisi les tickets.
+    session: String,
+    /// Tickets pas encore déclarés joués.
+    to_declare: usize,
     columns: Vec<Column>,
     rows: Vec<Row>,
     ranks: Vec<RankRow>,
@@ -109,10 +118,14 @@ struct Page {
     layout: Layout,
     #[serde(flatten)]
     lotofoot: LotofootPage,
-    bulletins: Vec<Bulletin>,
-    to_declare: usize,
-    /// Mise plafond du formulaire « Optimiser maintenant » (`lotofoot_max_tickets`, 16 € gelés).
-    max_stake: u32,
+    /// Grilles à jouer, en bulletins.
+    play_bulletins: Vec<Bulletin>,
+    /// Grilles en cours (tickets joués, résultats attendus), en bulletins.
+    live_bulletins: Vec<Bulletin>,
+    /// Bornes du budget mensuel (abaque).
+    budget_min: u32,
+    /// Voir `budget_min`.
+    budget_max: u32,
     /// Un match des grilles se joue : la page se recharge toutes les minutes.
     auto_refresh: bool,
     /// Ce qui empêche de suivre certaines rencontres (noms inconnus, ESPN injoignable).
@@ -129,11 +142,14 @@ struct Follow {
     issues: Vec<String>,
 }
 
-/// Relève les scores (si l'application y est autorisée) puis lit l'état des rencontres des grilles de la semaine.
+/// Relève les scores (si l'application y est autorisée) puis lit l'état des rencontres des grilles suivies (à jouer et
+/// en cours).
 fn follow(app: &App, now: DateTime<Utc>) -> Result<Follow> {
     // Lecture et écriture : les scores relevés sont gardés en base (dernier état seulement, migration 17).
     let conn = store::open_migrated(&app.paths.db_file)?;
-    let recos = lotofoot_store::week_recos(&conn)?;
+    let followed = lotofoot_page::followed(&conn, now)?;
+    let mut recos = followed.to_play;
+    recos.extend(followed.in_play);
     let (tracked, mut issues) = scores::tracked(&conn, &app.aliases, &recos)?;
     let mut watching = 0;
     if app.live_scores {
@@ -167,27 +183,53 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
         issues: vec![format!("scores en direct indisponibles : {error}")],
     });
     let conn = store::open_read_only(&app.paths.db_file)?;
-    let lotofoot = lotofoot_page::page(&conn, now)?;
-    let bulletins = lotofoot
+    let budget = session::monthly_budget(&conn, &app.config, now)?;
+    let lotofoot = lotofoot_page::page(&conn, now, budget)?;
+    let play_bulletins = bulletins(&lotofoot.to_play, &follow);
+    let live_bulletins = bulletins(&lotofoot.in_play, &follow);
+    render(
+        "lotofoot.html",
+        TEMPLATE,
+        &Page {
+            layout: Layout::new("lotofoot", now, flash),
+            lotofoot,
+            play_bulletins,
+            live_bulletins,
+            budget_min: abaque::MIN_BUDGET,
+            budget_max: abaque::MAX_BUDGET,
+            auto_refresh: follow.watching > 0,
+            live_issues: follow.issues,
+        },
+    )
+}
+
+/// Les grilles d'un groupe en bulletins.
+fn bulletins(group: &Group, follow: &Follow) -> Vec<Bulletin> {
+    group
         .grids
         .iter()
         .map(|grid| {
-            let lines: Vec<&LineView> = lotofoot
-                .lines
-                .iter()
-                .filter(|l| l.grid == grid.grid)
-                .collect();
+            let lines: Vec<&LineView> =
+                group.lines.iter().filter(|l| l.grid == grid.grid).collect();
             let matches: &[MatchNow] = follow
                 .grids
                 .iter()
                 .find(|(g, _)| *g == grid.grid)
                 .map_or(&[], |(_, m)| m.as_slice());
+            let tickets: Vec<&TicketView> = group
+                .tickets
+                .iter()
+                .filter(|t| t.grid == grid.grid)
+                .collect();
             Bulletin {
                 grid: grid.grid.clone(),
+                key: grid.key.clone(),
                 closes: grid.closes.clone(),
+                session: grid.session.clone(),
+                to_declare: tickets.iter().filter(|t| !t.played).count(),
                 columns: lines
                     .iter()
-                    .map(|l| column(l, &lotofoot.tickets, matches))
+                    .map(|l| column(l, &group.tickets, matches))
                     .collect(),
                 rows: grid
                     .matches
@@ -196,39 +238,29 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
                     .map(|(index, fixture)| row(fixture, index, &lines, matches.get(index)))
                     .collect(),
                 ranks: rank_rows(&lines),
-                details: lotofoot
-                    .tickets
-                    .iter()
-                    .filter(|t| t.grid == grid.grid)
-                    .map(|t| detail(t, matches))
-                    .collect(),
+                details: tickets.iter().map(|t| detail(t, matches)).collect(),
             }
         })
-        .collect();
-    let to_declare = lotofoot.tickets.iter().filter(|t| !t.played).count();
-    render(
-        "lotofoot.html",
-        TEMPLATE,
-        &Page {
-            layout: Layout::new("lotofoot", now, flash),
-            lotofoot,
-            bulletins,
-            to_declare,
-            max_stake: app.config.lotofoot_max_tickets,
-            auto_refresh: follow.watching > 0,
-            live_issues: follow.issues,
-        },
-    )
+        .collect()
 }
 
-/// Bouton « Optimiser maintenant » : mise plafond saisie (champ `mise`, en euros entiers), message Discord si la case
-/// `discord` est cochée. Le résultat revient en message sur l'onglet, qui montre alors la nouvelle séance.
-pub fn optimize(app: &App, form: &Form) -> Reply {
-    let flash = match stake(form.get("mise"), app.config.lotofoot_max_tickets) {
+/// Bouton « Optimiser maintenant » : budget mensuel saisi (champ `budget`, euros entiers de l'abaque), enregistré s'il a
+/// changé ; message Discord si la case `discord` est cochée. Le bouton « Enregistrer le budget » (`action=budget`)
+/// enregistre sans lancer de séance. Le résultat revient en message sur l'onglet.
+pub fn optimize(app: &App, form: &Form, now: DateTime<Utc>) -> Reply {
+    let flash = match budget(form.get("budget")) {
         Err(message) => Flash::error(message),
-        Ok(max_tickets) => match run_now(app, max_tickets, form.has("discord")) {
-            Ok(message) => Flash::ok(message),
-            Err(error) => Flash::error(format!("séance non faite : {error}")),
+        Ok(monthly) => match save_budget(app, monthly, now) {
+            Err(error) => Flash::error(format!("budget non enregistré : {error}")),
+            Ok(saved) if form.get("action") == "budget" => Flash::ok(if saved {
+                format!("Budget enregistré : {monthly} € par mois.")
+            } else {
+                format!("Budget inchangé : {monthly} € par mois.")
+            }),
+            Ok(_) => match run_now(app, monthly, form.has("discord")) {
+                Ok(message) => Flash::ok(message),
+                Err(error) => Flash::error(format!("séance non faite : {error}")),
+            },
         },
     };
     Reply::Done {
@@ -237,24 +269,34 @@ pub fn optimize(app: &App, form: &Form) -> Reply {
     }
 }
 
-/// Mise saisie : un nombre entier d'euros entre 1 et le plafond de la configuration.
-fn stake(text: &str, cap: u32) -> std::result::Result<u32, String> {
+/// Budget saisi : un nombre entier d'euros dans l'abaque.
+fn budget(text: &str) -> std::result::Result<u32, String> {
     match text.trim().parse::<u32>() {
-        Ok(euros) if (1..=cap).contains(&euros) => Ok(euros),
+        Ok(euros) if abaque::threshold(euros).is_ok() => Ok(euros),
         _ => Err(format!(
-            "mise attendue : un nombre entier d'euros entre 1 et {cap}"
+            "budget attendu : un nombre entier d'euros par mois, de {} à {}",
+            abaque::MIN_BUDGET,
+            abaque::MAX_BUDGET
         )),
     }
 }
 
-fn run_now(app: &App, max_tickets: u32, notify: bool) -> Result<String> {
+/// Enregistre le budget s'il diffère de celui en vigueur ; `true` s'il a été écrit.
+fn save_budget(app: &App, monthly: u32, now: DateTime<Utc>) -> Result<bool> {
+    let conn = store::open_migrated(&app.paths.db_file)?;
+    if session::monthly_budget(&conn, &app.config, now)? == monthly
+        && lotofoot_store::budget_at(&conn, now)?.is_some()
+    {
+        return Ok(false);
+    }
+    lotofoot_store::record_budget(&conn, now, monthly)?;
+    Ok(true)
+}
+
+fn run_now(app: &App, monthly_budget: u32, notify: bool) -> Result<String> {
     let mut conn = store::open_migrated(&app.paths.db_file)?;
     // Le bouton recalcule aussi les grilles déjà recommandées (pas encore jouées) : la répartition a pu bouger.
-    let request = Request {
-        max_tickets,
-        replace: true,
-        dry_run: false,
-    };
+    let request = Request::from_budget(monthly_budget, true, false)?;
     let live = live::recommend(&mut conn, &app.config, &app.aliases, request, notify)?;
     Ok(summary(&live))
 }
@@ -283,10 +325,11 @@ fn summary(live: &Live) -> String {
             .collect();
         parts.push(format!("Écartée(s) : {}.", skipped.join(" ; ")));
     }
-    if !report.weeks.is_empty() {
+    if !report.months.is_empty() {
         parts.push(format!(
-            "Budget : {}.",
-            lotofoot_page::weeks_text(&report.weeks)
+            "Budget : {} ; {}.",
+            lotofoot_page::months_text(&report.months),
+            lotofoot_page::threshold_text(report)
         ));
     }
     if !live.fetched.failures.is_empty() {
@@ -409,12 +452,16 @@ mod tests {
             html.contains("1N21N21") && html.contains("2N21N21"),
             "{html}"
         );
-        assert!(html.contains("J'ai joué la séance"));
+        assert!(html.contains("J'ai joué cette grille"));
+        assert!(html.contains("name=\"grille\" value=\"lf7-133\""), "{html}");
+        // La séance est présentée à part des tickets.
+        assert!(html.contains("Dernière séance"), "{html}");
         let html = empty().html("/lotofoot");
-        assert!(html.contains("Aucune séance pour l'instant"));
-        // Le bouton est là même sans séance, avec la mise plafond de la configuration.
+        assert!(html.contains("Rien à jouer"), "{html}");
+        // Le bouton est là même sans séance, avec le budget mensuel de la configuration et son seuil.
         assert!(html.contains("action=\"/lotofoot/optimiser\""), "{html}");
-        assert!(html.contains("value=\"16\""), "{html}");
+        assert!(html.contains("value=\"60\""), "{html}");
+        assert!(html.contains("τ = 1,8"), "{html}");
     }
 
     #[test]
@@ -464,11 +511,47 @@ mod tests {
     }
 
     #[test]
-    fn the_stake_must_be_whole_euros_within_the_cap() {
-        assert_eq!(super::stake("8", 16), Ok(8));
-        assert_eq!(super::stake(" 16 ", 16), Ok(16));
-        for wrong in ["0", "17", "2,5", "", "huit"] {
-            assert!(super::stake(wrong, 16).is_err(), "{wrong}");
+    fn the_budget_must_be_whole_euros_within_the_abaque() {
+        assert_eq!(super::budget("60"), Ok(60));
+        assert_eq!(super::budget(" 400 "), Ok(400));
+        for wrong in ["0", "19", "401", "60,5", "", "soixante"] {
+            assert!(super::budget(wrong).is_err(), "{wrong}");
         }
+    }
+
+    #[test]
+    fn a_played_grid_with_all_its_results_is_no_longer_shown() {
+        use crate::lotofoot::Game;
+        use crate::lotofoot::pronomatch::GridResult;
+        use crate::store::lotofoot::{Page as FetchPage, record_fetch, record_results};
+
+        let sample = sample();
+        let mut conn = crate::store::open_migrated(&sample.app.paths.db_file).unwrap();
+        // Les deux tickets du LF7 n°133 sont joués : la grille passe dans « En cours ».
+        let stake = crate::domain::Euros::new(1.0).unwrap();
+        crate::lotofoot::played::declare_grid(&conn, Game::Lf7, 133, sample.now, stake).unwrap();
+        let html = sample.html("/lotofoot");
+        assert!(html.contains("En cours"), "{html}");
+        assert!(html.contains("LF7 n°133"), "{html}");
+        // Tous les résultats connus : la grille n'est plus suivie (elle reste au bilan).
+        let fetch_id = record_fetch(&conn, sample.now, FetchPage::Results, 200, None).unwrap();
+        let result = GridResult {
+            game: Some(Game::Lf7),
+            number: 133,
+            date: None,
+            matches: (1..=7)
+                .map(|i| {
+                    (
+                        format!("H{i}"),
+                        format!("A{i}"),
+                        crate::domain::Outcome::Home,
+                    )
+                })
+                .collect(),
+            ranks: vec![],
+        };
+        record_results(&mut conn, fetch_id, &[result]).unwrap();
+        let html = sample.html("/lotofoot");
+        assert!(!html.contains("LF7 n°133"), "{html}");
     }
 }
