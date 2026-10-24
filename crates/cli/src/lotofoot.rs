@@ -12,6 +12,7 @@ use edge_core::lotofoot::alert;
 use edge_core::lotofoot::bulletin;
 use edge_core::lotofoot::fetch::{self, FetchReport, PronoMatchClient};
 use edge_core::lotofoot::live::{self, Notified};
+use edge_core::lotofoot::outlets::Outlet;
 use edge_core::lotofoot::played::{self, Declared, Manual};
 use edge_core::lotofoot::session::{Request, SessionReport};
 use edge_core::lotofoot::settle::{self, Ledger};
@@ -35,7 +36,13 @@ pub fn fetch(paths: &Paths, notify: bool) -> Result<()> {
         if !listed.is_empty() {
             let config = Config::load(&paths.config_file)?;
             let webhook = config.discord_webhook(std::env::var(WEBHOOK_ENV).ok().as_deref())?;
-            let text = lotofoot_page::listing_text(&listed, config.site_url.as_deref());
+            let outlets = config
+                .lotofoot_outlets
+                .iter()
+                .map(Outlet::from_config)
+                .collect::<edge_core::error::Result<Vec<_>>>()?;
+            let text =
+                lotofoot_page::listing_text(&listed, &outlets, now, config.site_url.as_deref());
             // Un échec fait échouer l'unité (visible dans `systemctl --user status`) ; rien n'est noté, donc l'alerte
             // repartira au relevé suivant.
             discord::send(&webhook, &text, &[], &mut discord::http_post)

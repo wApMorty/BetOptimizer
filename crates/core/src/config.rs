@@ -214,6 +214,9 @@ pub struct Config {
     pub lotofoot_session_credits: u32,
     /// Loto Foot : compétitions où chercher les rencontres des grilles (`/events`, gratuit), en plus de `leagues`.
     pub lotofoot_leagues: Vec<String>,
+    /// Loto Foot : points de vente où Paul valide ses grilles, avec leurs horaires ; l'alerte « nouvelle grille » en tire
+    /// l'heure limite réelle de validation (`docs/sources.md` §48). Vide par défaut : seule la clôture est donnée.
+    pub lotofoot_outlets: Vec<LotofootOutlet>,
     /// Grand Loto : éditions annoncées par la FDJ, saisies à la main (choix de Paul du 2026-10-23 : l'archive ne contient
     /// pas les tirages à venir, et les pages de fdj.fr ne sont pas lues). Vide par défaut.
     pub grand_loto_editions: Vec<GrandLotoEdition>,
@@ -227,6 +230,38 @@ pub struct Config {
     pub grand_loto_quantile: f64,
     /// Grand Loto : la séance a lieu au plus tant de jours avant l'édition (le timer quotidien la lance alors).
     pub grand_loto_days_before: u32,
+}
+
+/// Un point de vente FDJ et ses horaires de la semaine, à l'heure de Paris.
+///
+/// Dans `edge.toml` : `[[lotofoot_outlets]]`, `name = "…"`, puis une liste de plages par jour ouvert,
+/// `mar = ["07:00-20:00"]`, `dim = ["08:30-13:00"]` (deux plages pour une coupure de midi). Un jour absent est fermé.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LotofootOutlet {
+    /// Nom affiché dans l'alerte.
+    pub name: String,
+    /// Plages du lundi.
+    #[serde(default)]
+    pub lun: Vec<String>,
+    /// Plages du mardi.
+    #[serde(default)]
+    pub mar: Vec<String>,
+    /// Plages du mercredi.
+    #[serde(default)]
+    pub mer: Vec<String>,
+    /// Plages du jeudi.
+    #[serde(default)]
+    pub jeu: Vec<String>,
+    /// Plages du vendredi.
+    #[serde(default)]
+    pub ven: Vec<String>,
+    /// Plages du samedi.
+    #[serde(default)]
+    pub sam: Vec<String>,
+    /// Plages du dimanche.
+    #[serde(default)]
+    pub dim: Vec<String>,
 }
 
 /// Une édition du Grand Loto, telle que la FDJ l'annonce.
@@ -346,6 +381,7 @@ impl Default for Config {
                 "soccer_spain_copa_del_rey",
                 "soccer_italy_coppa_italia",
             ]),
+            lotofoot_outlets: Vec::new(),
             grand_loto_editions: Vec::new(),
             grand_loto_budget: 20.0,
             grand_loto_threshold: 1.05,
@@ -440,6 +476,9 @@ impl Config {
             return Err(Error::InvalidConfig(
                 "lotofoot_frequency_weight doit être positif ou nul".to_string(),
             ));
+        }
+        for outlet in &self.lotofoot_outlets {
+            crate::lotofoot::outlets::Outlet::from_config(outlet)?;
         }
         self.validate_grand_loto()?;
         let lists = [

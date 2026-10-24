@@ -12,6 +12,7 @@ use crate::format::{chance, decimal, kickoff_label, long_date, rough_euros};
 use crate::lotofoot::alert::Listed;
 use crate::lotofoot::bulletin::{Line, session_lines};
 use crate::lotofoot::model::{FROZEN, GridModel, RankOdds};
+use crate::lotofoot::outlets::Outlet;
 use crate::lotofoot::session::{SessionReport, WeekBudget};
 use crate::lotofoot::settle::{self, Ledger};
 use crate::lotofoot::verify::{self, Verdict, Verification};
@@ -425,7 +426,15 @@ fn verdict_class(v: &Verdict) -> &'static str {
 
 /// Message Discord d'une ou plusieurs grilles qui viennent de sortir : leur heure de clôture, sans aucun ticket (il est
 /// trop tôt : la répartition des autres joueurs n'est pas encore représentative). Le calcul se fait au guichet.
-pub fn listing_text(listed: &[Listed], site_url: Option<&str>) -> String {
+///
+/// Avec des points de vente configurés, chaque grille reçoit aussi, pour chacun, le dernier moment pour la valider
+/// (heure de fermeture du guichet ou clôture de la grille, la plus proche des deux ; `now` : instant du message).
+pub fn listing_text(
+    listed: &[Listed],
+    outlets: &[Outlet],
+    now: DateTime<Utc>,
+    site_url: Option<&str>,
+) -> String {
     let mut text = String::from("**edge · Loto Foot** — nouvelle grille\n");
     for grid in listed {
         let jackpot = grid.jackpot.map_or(String::new(), |j| {
@@ -442,6 +451,12 @@ pub fn listing_text(listed: &[Listed], site_url: Option<&str>) -> String {
             grid.number,
             kickoff_label(grid.closes_at)
         ));
+        if !outlets.is_empty() {
+            text.push_str(&format!(
+                "Dernier moment pour valider : {}.\n",
+                last_chances(outlets, grid.closes_at, now)
+            ));
+        }
     }
     match site_url {
         Some(url) => text.push_str(&format!(
@@ -450,6 +465,31 @@ pub fn listing_text(listed: &[Listed], site_url: Option<&str>) -> String {
         None => text.push_str(
             "Au guichet, juste avant de valider : « Optimiser maintenant » sur la page Loto Foot.",
         ),
+    }
+    text
+}
+
+/// Pour chaque point de vente, le dernier moment pour valider une grille qui ferme à `closes_at` :
+/// « Le Longchamp **dim. 25/10 13:00** ; Relay, gare de Rennes jusqu'à la clôture ».
+fn last_chances(outlets: &[Outlet], closes_at: DateTime<Utc>, now: DateTime<Utc>) -> String {
+    let mut any = false;
+    let parts: Vec<String> = outlets
+        .iter()
+        .map(|outlet| match outlet.last_chance(closes_at, now) {
+            Some(at) if at == closes_at => {
+                any = true;
+                format!("{} jusqu'à la clôture", outlet.name)
+            }
+            Some(at) => {
+                any = true;
+                format!("{} **{}**", outlet.name, kickoff_label(at))
+            }
+            None => format!("{} fermé d'ici la clôture", outlet.name),
+        })
+        .collect();
+    let mut text = parts.join(" ; ");
+    if !any {
+        text.push_str(" — aucun de tes points de vente n'ouvre avant la clôture");
     }
     text
 }
@@ -619,6 +659,22 @@ mod tests {
         assert!(discord_text(&empty, None).contains("rien de plus à jouer"));
     }
 
+    /// Un tabac ouvert du mardi au samedi de 7 h à 20 h et le dimanche matin.
+    fn outlet() -> Outlet {
+        let range = |r: &str| vec![r.to_string()];
+        Outlet::from_config(&crate::config::LotofootOutlet {
+            name: "Le Longchamp".to_string(),
+            lun: vec![],
+            mar: range("07:00-20:00"),
+            mer: range("07:00-20:00"),
+            jeu: range("07:00-20:00"),
+            ven: range("07:00-20:00"),
+            sam: range("07:00-20:00"),
+            dim: range("08:30-13:00"),
+        })
+        .unwrap()
+    }
+
     #[test]
     fn a_new_grid_is_announced_with_its_closing_time_and_no_ticket() {
         // 16 h 10 UTC le 25 octobre, jour du passage à l'heure d'hiver : 17 h 10 à Paris.
@@ -633,7 +689,15 @@ mod tests {
                 jackpot: Some(100_000),
                 split_published: false,
             }],
+            &[outlet()],
+            DateTime::parse_from_rfc3339("2026-10-24T09:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
             Some("http://portable.local:8737/"),
+        );
+        assert!(
+            text.contains("Dernier moment pour valider : Le Longchamp **dim. 25/10 13:00**."),
+            "{text}"
         );
         assert!(
             text.contains("**LF7 n°133** : clôture **dim. 25/10 17:10**, pactole 100\u{a0}000 €"),

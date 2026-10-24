@@ -109,6 +109,13 @@ lotofoot_session_credits = 8
 # Compétitions où chercher les rencontres des grilles (`/events`, gratuit), en plus de `leagues`. Laisser la liste par
 # défaut sauf besoin : elle couvre les ligues vues dans les grilles de 2025-2026.
 # lotofoot_leagues = ["soccer_france_ligue_two", "soccer_uefa_champs_league", ...]
+# Points de vente où valider les grilles, horaires de la semaine à l'heure de Paris (un jour absent est fermé ; deux
+# plages pour une coupure de midi). L'alerte « nouvelle grille » donne, pour chacun, le dernier moment pour valider.
+# [[lotofoot_outlets]]
+# name = "Tabac du centre"
+# mar = ["07:00-12:30", "14:00-19:30"]
+# sam = ["08:00-19:30"]
+# dim = ["08:30-12:30"]
 
 # Grand Loto (phase 16, `edge loto`, docs/sources.md §43 et §44) : le jackpot est toujours versé, au rang 1 ou aux rangs
 # inférieurs. Une grille est jouée si ses euros rendus par euro misé atteignent grand_loto_threshold au nombre de grilles

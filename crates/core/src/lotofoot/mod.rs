@@ -12,6 +12,7 @@ pub mod live;
 pub mod model;
 pub mod odds;
 pub mod optimize;
+pub mod outlets;
 pub mod played;
 pub mod pronomatch;
 pub mod scores;

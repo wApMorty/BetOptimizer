@@ -1975,3 +1975,25 @@ non déduit, semaines réelles non indépendantes ; espérances du modèle, aucu
   donne le budget restant de la semaine.
 - **Timer du samedi midi retiré** : il calculait trop tôt (répartition encore loin de la finale : sur le LF8 n°146, les favoris ont gagné
   4 à 5 points dans les dix dernières heures) et consommait le budget de la semaine. `edge lotofoot recommend` reste disponible à la main.
+
+## 48. Loto Foot : points de vente et heure limite réelle de validation (2026-10-24)
+
+**Constat de Paul** : la plupart des buralistes ferment le dimanche, jour où ferment environ 20 % des LF7 (148 sur 741 dans
+l'historique FDJ, presque toujours vers 14 h : 100 cas, puis 17 h : 29) et 6 % des LF8. Une grille ne se valide qu'au guichet
+(règlement v6, art. 3.1.5) : l'heure de clôture ne dit donc pas jusqu'à quand on peut jouer.
+
+**Recherche** (annuaires publics, 2026-10-24 ; le localisateur de la FDJ n'a pas été lu : pas de navigation automatisée chez un
+opérateur) : à Cesson-Sévigné, Le Longchamp (centre commercial Beausoleil) est le seul tabac trouvé ouvert le dimanche, de 8 h 30 à 13 h
+(Bottin, sans mention de la FDJ) ; Le Cessonnais, Mag Presse et Clopinette sont fermés le dimanche. À Rennes, le Relay de la gare est
+ouvert tous les jours, le dimanche de 7 h à 22 h 45, et se déclare détaillant FDJ (PagesJaunes, fiche du 2026-10-02). La fiche du Tabac
+Presse Titeux (Thabor, dimanche 14 h – 20 h selon un résultat de recherche) n'a pas pu être lue (refus du site).
+
+**Règle** : `[[lotofoot_outlets]]` dans `edge.toml` (hors dépôt : les lieux disent où habite Paul) donne les horaires de la semaine de
+chaque point de vente. L'alerte « nouvelle grille » indique, pour chacun, le dernier moment pour valider : l'heure de fermeture du
+guichet ou la clôture de la grille, la plus proche des deux, en remontant au besoin aux jours précédents (`lotofoot::outlets`). Le calcul
+et le seuil ne changent pas.
+
+**Effet sur la stratégie, à mesurer** : valider tôt (dimanche matin pour une grille de 14 h, samedi pour une grille du dimanche) éloigne
+le calcul de la répartition finale, sur laquelle le modèle et le seuil τ = 1,7 ont été calibrés. La mesure de la dérive avant la
+clôture (tâche du lundi 26 octobre) dira à partir de combien d'heures l'écart devient gênant ; selon elle, il faudra choisir pour les
+grilles du dimanche entre le trajet jusqu'au guichet ouvert, un seuil plus haut quand on valide tôt, ou ne pas les jouer.
