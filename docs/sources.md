@@ -2046,3 +2046,19 @@ concurrents) : le critère reste l'espérance analytique, plus prudente.
 
 **Aucune règle de production ne change ici.** Passer à un plafond mensuel, changer τ ou l'allocation entre grilles demande un plan
 séparé et le go de Paul, après la mesure de la dérive.
+
+## 50. Dérive de la répartition avant la clôture : la Wayback Machine ne suffit pas (2026-10-24)
+
+**Question** (Paul, 2026-10-24) : repérer les espérances aberrantes selon l'heure du calcul (une espérance très haute n'est pas
+aberrante 30 minutes avant la clôture). Source envisagée : des copies Wayback d'une même grille prises avant sa clôture. Accord de Paul
+pour l'index CDX seulement, sans relevé en masse.
+
+**Décompte** (index CDX, interrogé à nouveau sans regroupement le 2026-10-24 : 2 152 copies LF7 et 1 440 LF8, comme l'index relevé le
+22 octobre à une copie près) : 1 508 pages LF7/LF8, dont 1 187 avec heure de clôture connue (`endValidationDate`). **12 grilles
+seulement** ont une copie antérieure à la clôture (2023 à 2025), **aucune n'en a deux** ; ces copies sont prises de 20 à 92 heures avant la
+clôture (médiane 51 h), une seule dans les trois dernières heures. Les pages de prono-match (`prono-match.fr/loto-foot-7/`, `-8/`) n'ont
+aucune copie (88 copies du site en tout, aucune de Loto Foot).
+
+**Conclusion** : aucun historique de la dérive n'existe dans la Wayback Machine. La seule source est notre propre relevé horaire de
+prono-match (`lotofoot_split`, depuis le 22 octobre 2026 : 3 grilles, 18 à 32 relevés chacune) ; au rythme d'environ 6,6 grilles par
+semaine, il faudra plusieurs semaines pour une courbe de dérive par heure avant la clôture.
