@@ -2166,3 +2166,9 @@ Regard exploratoire demandé par Paul (`scripts/lotofoot/drift_peek.py`), **sans
 - **Affichage** (choix de Paul du 2026-10-25) : la page `/lotofoot` montre pour chaque ticket sa marge au-dessus du τ de sa séance
   (colonne « Marge ») et signale « limite » un ticket à moins de 5 % (`LIMIT_MARGIN`), avec le décompte par grille du Loto Foot et
   par grille à remplir. La règle de sélection ne change pas : Paul décide au guichet de jouer ou non un ticket limite.
+- **Marge selon le délai** (remplace les 5 % fixes, choix de Paul du 2026-10-25) : un ticket est limite si sa marge au-dessus du τ de
+  sa séance est sous `exp(0,044 · √h) − 1`, h = heures entre la séance et la clôture (4,5 % à 1 h, 7,9 % à 3 h, 10 % à 5 h, 14 % à
+  9 h, 24 % à 24 h ; `DRIFT_PER_SQRT_HOUR`). Hypothèse d'une dérive au hasard dont l'écart croît comme √h, calée sur la dérive d'une
+  heure des tickets limites (10e centile 0,957) ; les mesures par tranche (de 3 à 40 % selon la tranche, deux grilles) sont trop
+  bruitées pour une table. Provisoire jusqu'à l'étude de dérive, qui dira aussi s'il faut une pente (dérive systématique vers le bas,
+  vue sur le LF8 n°147).

@@ -4,7 +4,7 @@
 {% block content %}
 {% macro bulletin(b, playable) %}
 <div class="card">
-  <div class="split"><div><b style="font-size: 1.1rem">{{ b.grid }}</b> <span class="chip">clôture {{ b.closes }}</span> <span class="meta">{{ b.session }}</span>{% if b.limits %} <span class="chip t-warn" title="Moins de 5 % au-dessus du seuil : ces tickets peuvent passer sous τ d'ici la clôture (docs/sources.md §54). Ils gardent une espérance supérieure à la mise ; à toi de voir.">{{ b.limits }} ticket(s) limite(s)</span>{% endif %}</div>
+  <div class="split"><div><b style="font-size: 1.1rem">{{ b.grid }}</b> <span class="chip">clôture {{ b.closes }}</span> <span class="meta">{{ b.session }}</span>{% if b.limits %} <span class="chip t-warn" title="Marge au-dessus de τ trop faible pour le délai entre la séance et la clôture : ces tickets peuvent passer sous τ d'ici là (docs/sources.md §54). Ils gardent une espérance supérieure à la mise ; à toi de voir.">{{ b.limits }} ticket(s) limite(s)</span>{% endif %}</div>
   {% if playable and b.to_declare %}<form method="post" action="/lotofoot/jouee" class="inline"><input type="hidden" name="grille" value="{{ b.key }}"><button class="btn" type="submit" title="Déclare joués les tickets de cette grille. Un ticket déjà déclaré est ignoré, jamais doublé.">J'ai joué cette grille</button></form>{% endif %}</div>
   <div class="scroll">
   <table class="bulletin">
@@ -23,9 +23,9 @@
   <details><summary class="meta">Détail des {{ b.details|length }} ticket(s)</summary>
   <div class="scroll">
   <table>
-    <thead><tr><th>Ticket</th><th>Signes</th><th>Sans faute</th><th>Une erreur</th><th>Chance de gain</th><th class="num" title="Euros rendus en moyenne pour 1 € misé ; entre parenthèses, le scénario défavorable qui sert au seuil.">Espérance</th><th class="num" title="Espérance défavorable au-dessus du seuil τ de la séance. Sous 5 %, le ticket est limite : il peut passer sous τ d'ici la clôture.">Marge</th><th>En direct</th><th>État</th></tr></thead>
+    <thead><tr><th>Ticket</th><th>Signes</th><th>Sans faute</th><th>Une erreur</th><th>Chance de gain</th><th class="num" title="Euros rendus en moyenne pour 1 € misé ; entre parenthèses, le scénario défavorable qui sert au seuil.">Espérance</th><th class="num" title="Espérance défavorable au-dessus du seuil τ de la séance. Le ticket est limite si sa marge est sous exp(0,044·√h) − 1, h = heures entre la séance et la clôture (4,5 % à 1 h, 8 % à 3 h, 14 % à 9 h) : il peut passer sous τ d'ici la clôture.">Marge</th><th>En direct</th><th>État</th></tr></thead>
     <tbody>
-    {% for d in b.details %}<tr><td>n° {{ d.id }}</td><td><code>{{ d.ticket }}</code></td>{% for r in d.ranks %}<td><b>{{ r.chance }}</b><br><span class="meta">{{ r.gain }}</span></td>{% else %}<td>—</td><td>—</td>{% endfor %}<td><b>{{ d.chance }}</b></td><td class="num">{{ d.ev }}<br><span class="meta">({{ d.ev_low }})</span></td><td class="num">{{ d.margin }}{% if d.limit %}<br><span class="chip t-warn">limite</span>{% endif %}</td><td><span class="chip {{ d.live_tone }}">{{ d.live_state }}</span></td><td><span class="chip {{ d.tone }}">{{ d.status }}</span> <span class="chip {% if d.played %}t-pos{% else %}t-warn{% endif %}">{% if d.played %}joué{% else %}pas déclaré{% endif %}</span></td></tr>
+    {% for d in b.details %}<tr><td>n° {{ d.id }}</td><td><code>{{ d.ticket }}</code></td>{% for r in d.ranks %}<td><b>{{ r.chance }}</b><br><span class="meta">{{ r.gain }}</span></td>{% else %}<td>—</td><td>—</td>{% endfor %}<td><b>{{ d.chance }}</b></td><td class="num">{{ d.ev }}<br><span class="meta">({{ d.ev_low }})</span></td><td class="num"><span title="Limite sous {{ d.limit_margin }} : marge requise pour le délai entre la séance et la clôture (docs/sources.md §54)">{{ d.margin }}</span>{% if d.limit %}<br><span class="chip t-warn">limite</span>{% endif %}</td><td><span class="chip {{ d.live_tone }}">{{ d.live_state }}</span></td><td><span class="chip {{ d.tone }}">{{ d.status }}</span> <span class="chip {% if d.played %}t-pos{% else %}t-warn{% endif %}">{% if d.played %}joué{% else %}pas déclaré{% endif %}</span></td></tr>
     {% endfor %}
     </tbody>
   </table>

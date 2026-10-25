@@ -47,21 +47,32 @@ pub struct TicketView {
     pub played: bool,
     /// Marge de l'espérance défavorable au-dessus du seuil de sa séance (« +12 % »), vide si le seuil n'est pas noté.
     pub margin: String,
-    /// Ticket limite : moins de [`LIMIT_MARGIN`] de marge, il peut passer sous le seuil d'ici la clôture.
+    /// Ticket limite : marge sous [`limit_margin`] du délai entre sa séance et la clôture ; il peut passer sous le seuil.
     pub limit: bool,
+    /// Marge sous laquelle ce ticket serait limite (« 7,9 % »), vide si le seuil n'est pas noté.
+    pub limit_margin: String,
 }
 
-/// Marge sous laquelle un ticket est signalé « limite » : 5 %. Sur les deux premières grilles relevées, une heure de dérive
-/// fait perdre 4 % ou plus à un ticket limite une fois sur dix (`docs/sources.md` §54) ; choix de Paul du 2026-10-25.
-pub const LIMIT_MARGIN: f64 = 0.05;
+/// Dérive par racine d'heure : une fois sur dix, un ticket limite perd au moins 4,4 % de son espérance en une heure (deux
+/// premières grilles relevées, `docs/sources.md` §54). Valeur provisoire, choisie par Paul le 2026-10-25, à revoir avec l'étude
+/// de dérive (`scripts/lotofoot/PROTOCOLE_DERIVE.md`).
+pub const DRIFT_PER_SQRT_HOUR: f64 = 0.044;
 
-/// Marge d'une espérance défavorable au-dessus d'un seuil, et ticket limite ou non.
-pub fn margin(ev_pessimistic: f64, threshold: f64) -> (String, bool) {
+/// Marge sous laquelle un ticket choisi `hours` heures avant la clôture est signalé « limite » :
+/// `marge(h) = exp(0,044 · √h) − 1` (dérive supposée au hasard, heure après heure : son écart grandit comme `√h`).
+/// 4,5 % à 1 h, 7,9 % à 3 h, 14 % à 9 h, 24 % à 24 h. `exp_m1` calcule `e^x − 1` sans perte de précision pour `x` petit.
+pub fn limit_margin(hours: f64) -> f64 {
+    (DRIFT_PER_SQRT_HOUR * hours.max(0.0).sqrt()).exp_m1()
+}
+
+/// Marge d'une espérance défavorable au-dessus d'un seuil (« +12 % ») et ticket limite ou non, pour un ticket choisi `hours`
+/// heures avant la clôture.
+pub fn margin(ev_pessimistic: f64, threshold: f64, hours: f64) -> (String, bool) {
     let m = ev_pessimistic / threshold - 1.0;
     let sign = if m < 0.0 { "−" } else { "+" };
     (
         format!("{sign}{} %", decimal(m.abs() * 100.0, 0)),
-        m < LIMIT_MARGIN,
+        m < limit_margin(hours),
     )
 }
 
@@ -456,9 +467,17 @@ fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group>
                 t
             }
         };
-        let (margin, limit) =
-            threshold.map_or((String::new(), false), |t| margin(reco.ev_pessimistic, t));
         let grid = store::grid(conn, reco.game, reco.number)?;
+        // Délai entre la séance et la clôture : c'est la dérive possible pendant ce temps qui menace le ticket.
+        let hours = grid.as_ref().map_or(1.0, |g| {
+            (g.closes_at - reco.created_at).num_minutes() as f64 / 60.0
+        });
+        let (margin, limit) = threshold.map_or((String::new(), false), |t| {
+            margin(reco.ev_pessimistic, t, hours)
+        });
+        let limit_margin = threshold.map_or(String::new(), |_| {
+            format!("{} %", decimal(limit_margin(hours) * 100.0, 1))
+        });
         let closes = grid
             .as_ref()
             .map(|g| kickoff_label(g.closes_at))
@@ -523,6 +542,7 @@ fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group>
             played: played.contains(&reco.id),
             margin,
             limit,
+            limit_margin,
         });
     }
     out.lines = line_views(recos, played);
@@ -986,10 +1006,15 @@ mod tests {
     }
 
     #[test]
-    fn a_ticket_less_than_five_percent_above_the_threshold_is_a_limit() {
-        assert_eq!(margin(1.98, 1.8), ("+10 %".to_string(), false));
-        assert_eq!(margin(1.88, 1.8), ("+4 %".to_string(), true));
-        assert_eq!(margin(1.8, 1.8), ("+0 %".to_string(), true));
+    fn the_limit_margin_grows_with_the_square_root_of_the_time_to_close() {
+        approx::assert_abs_diff_eq!(limit_margin(1.0), 0.045, epsilon = 1e-3);
+        approx::assert_abs_diff_eq!(limit_margin(9.0), 0.1412, epsilon = 1e-3);
+        approx::assert_abs_diff_eq!(limit_margin(24.0), 0.2408, epsilon = 1e-3);
+        assert_eq!(limit_margin(-2.0), 0.0);
+        // +10 % : sûr une heure avant, limite neuf heures avant.
+        assert_eq!(margin(1.98, 1.8, 1.0), ("+10 %".to_string(), false));
+        assert_eq!(margin(1.98, 1.8, 9.0), ("+10 %".to_string(), true));
+        assert_eq!(margin(1.8, 1.8, 0.0), ("+0 %".to_string(), false));
     }
 
     #[test]

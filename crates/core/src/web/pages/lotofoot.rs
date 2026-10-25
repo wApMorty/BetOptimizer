@@ -49,7 +49,7 @@ struct Column {
     state: String,
     /// Tickets encore en lice pour un rang payé (« 3 / 4 en vie »), vide pour un ticket seul.
     alive: String,
-    /// Tickets limites contenus (moins de 5 % au-dessus du seuil).
+    /// Tickets limites contenus (marge trop faible pour le délai avant la clôture).
     limits: usize,
 }
 
@@ -99,8 +99,10 @@ struct Detail {
     live_state: String,
     /// Marge au-dessus du seuil de la séance (« +12 % »).
     margin: String,
-    /// Moins de 5 % de marge.
+    /// Marge sous le seuil du délai entre la séance et la clôture.
     limit: bool,
+    /// Marge requise pour ce délai (« 7,9 % »).
+    limit_margin: String,
 }
 
 /// Une grille du Loto Foot présentée en bulletin.
@@ -114,7 +116,7 @@ struct Bulletin {
     session: String,
     /// Tickets pas encore déclarés joués.
     to_declare: usize,
-    /// Tickets limites (moins de 5 % au-dessus du seuil).
+    /// Tickets limites (marge trop faible pour le délai avant la clôture).
     limits: usize,
     columns: Vec<Column>,
     rows: Vec<Row>,
@@ -453,6 +455,7 @@ fn detail(ticket: &TicketView, matches: &[MatchNow]) -> Detail {
         live_state: live.map_or(String::new(), |s| s.label()),
         margin: ticket.margin.clone(),
         limit: ticket.limit,
+        limit_margin: ticket.limit_margin.clone(),
     }
 }
 
@@ -474,7 +477,7 @@ mod tests {
             "{html}"
         );
         assert!(html.contains("J'ai joué cette grille"));
-        // Seuil de la séance à 1,36 : tickets à 1,40, soit +3 %, signalés limites.
+        // Seuil de la séance à 1,36 : tickets à 1,40, soit +3 %, limites pour une séance 25 h avant la clôture (24,6 % requis).
         assert!(
             html.contains("+3 %") && html.contains("2 ticket(s) limite(s)"),
             "{html}"
