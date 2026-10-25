@@ -137,5 +137,14 @@ mod tests {
             aliases.resolve("ESPN", "Internazionale"),
             Some("Inter Milan")
         );
+        // Noms de la grille LF8 n°148 (FDJ, puis ESPN) qui bloquaient la séance du 2026-10-25.
+        assert_eq!(
+            aliases.resolve("LOTOFOOT", "FC Copenhague"),
+            Some("FC Copenhagen")
+        );
+        assert_eq!(
+            aliases.resolve("ESPN", "F.C. København"),
+            Some("FC Copenhagen")
+        );
     }
 }
