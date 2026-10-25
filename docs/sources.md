@@ -2213,3 +2213,36 @@ cookies non essentiels refusés) :
   contourner une protection anti-robot : exclu, quelle que soit la règle du projet. Rien n'a été rejoué hors du navigateur.
 - **Conclusion** : test non concluant, aucune exception ajoutée au `CLAUDE.md`. Seul acquis utile : le service identifie une grille
   par les identifiants des matchs et un signe par match.
+
+## 56. Loto Foot : écarter les tickets dont la part « une erreur » rend moins que la mise ? Non (2026-10-25)
+
+**Question de Paul** : sur la page `/lotofoot`, certains tickets ont au rang « une erreur » une chance et un gain dont le produit est
+sous 1 € (LF7 n°133, ticket 1222221 : 1 sur 59 pour ≈ 56 €, soit 0,95 €). Que donnerait un système qui ne les joue pas ?
+
+**Précision préalable** (`scripts/lotofoot/one_error_peek.py`) : le gain sachant une erreur n'est jamais sous la mise (aucun des
+6 544 tickets de l'historique, aucun en production : 56 € au moins sur le LF7 n°133, 187 € sur le LF8 n°147). Ce qui passe sous 1 €,
+c'est la **part** du rang dans l'espérance du ticket ; elle n'est pas négative, elle s'ajoute à celle du sans-faute (le ticket ne se
+paie qu'une fois). Un ticket « faible » au sens de la question : part « une erreur » < 1 € en base, le modèle qu'affiche la page.
+
+**Étude** (`scripts/lotofoot/one_error.py`, protocole figé en tête du script) : simulation de l'abaque (§49) inchangée, 409 grilles,
+mêmes arrivées et mêmes tirages ; A = production, B = A sans les tickets faibles, au τ de l'abaque puis à son propre τ*.
+Configurations : 20 + 20 + 620.
+
+| Budget / mois (τ) | Tickets ≥ τ faibles (LF7 / LF8) | A : espérance S3 / an | B − A, même τ | B − A, τ* propre | Année en perte A → B | Médiane A → B |
+|---|---|---|---|---|---|---|
+| 60 € (1,8) | 39 % / 9 % | +727 € | −5 € | −5 € | 61 → 62 % | −251 → −267 € |
+| **100 € (1,7)** | **60 % / 18 %** | **+1 098 €** | **−47 €** | −36 € | **56 → 60 %** | **−224 → −311 €** |
+| 200 € (1,5) | 84 % / 38 % | +1 829 € | −462 € | −447 € | 49 → 57 % | +68 → −315 € |
+| 400 € (1,2) | 94 % / 53 % | +2 715 € | −1 325 € | −1 325 € | 40 → 57 % | +1 052 → −312 € |
+
+Test (90 grilles), à 100 € : −148 € par an (−15 %), année en perte 61 → 64 %. B est moins bon à chaque budget, sur l'entraînement
+comme sur le test ; seul le 10e centile s'améliore, parce que B dépense moins (−8 € par mois à 100 €).
+
+**Pourquoi.** Les tickets faibles ont une espérance au-dessus de τ (1,79 en moyenne à τ = 1,7) : les retirer retire de l'espérance,
+et le budget libéré va à des tickets moins bons ou n'est pas dépensé. Ce sont aussi les tickets qui paient **le plus souvent** (à
+τ = 1,7, LF7 : un rang payé 1 fois sur 104, contre 1 sur 169 pour les autres ; LF8 : 1 sur 250 contre 1 sur 456) : proches des
+favoris, ils partagent davantage le rang « une erreur », d'où un petit gain, mais ils l'atteignent plus souvent. Les écarter rend la
+sélection plus aléatoire, pas plus sûre. Ils sont surtout des LF7 (60 % des tickets LF7 au-dessus de 1,7).
+
+**Conclusion** : règle écartée ; aucune règle de production ne change. Le seul critère pertinent reste l'espérance du ticket entier,
+tous rangs confondus. Limites : celles de l'abaque (répartition finale, coupes et sélections absentes, aucun gain démontré, §37).
