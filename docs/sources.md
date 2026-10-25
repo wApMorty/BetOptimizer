@@ -2172,3 +2172,29 @@ Regard exploratoire demandé par Paul (`scripts/lotofoot/drift_peek.py`), **sans
   heure des tickets limites (10e centile 0,957) ; les mesures par tranche (de 3 à 40 % selon la tranche, deux grilles) sont trop
   bruitées pour une table. Provisoire jusqu'à l'étude de dérive, qui dira aussi s'il faut une pente (dérive systématique vers le bas,
   vue sur le LF8 n°147).
+
+## 55. Loto Foot : QR codes de prise de jeu FDJ, génération écartée (2026-10-25)
+
+**Question de Paul** : edge peut-il livrer, à la demande, les QR codes que l'application ParionsSport produit pour une grille
+préparée (e-bulletin scanné au guichet, sans compte ; [demotivateur.fr](https://www.demotivateur.fr/lifestyle/on-a-teste-parions-sport-point-de-vente-pour-la-premiere-fois-voila-ce-qu-on-n-attendait-pas-50041),
+[App Store](https://apps.apple.com/fr/app/parions-sport/id496184783), lus le 2026-10-25), pour éviter la saisie ?
+
+**Piloter le site ou l'application** : exclu par la règle du projet (aucune interaction automatisée avec les sites des opérateurs).
+
+**Format observé** sur deux codes de Paul, grilles qui ne diffèrent que d'un signe (décodés par lui) :
+
+```
+3;FDJ;PDJ;01;<32 octets en base64>;<UUID v4>;20751,1710;11;<un chiffre par match>
+```
+
+- `3;FDJ;PDJ;01`, `20751,1710` et `11` identiques ; `PDJ` se lit « prise de jeu » ; `20751,1710` et `11` non identifiés.
+- Signes `1714171` contre `1711171` : seul le 4e chiffre change. Hypothèse cohérente mais non prouvée : masque de bits
+  (1 = « 1 », 2 = « N », 4 = « 2 », 7 = triple).
+- UUID et bloc de 32 octets différents d'un code à l'autre.
+
+**Signature.** Le bloc de 32 octets ne se recalcule pas sans clé : SHA-256, SHA3-256 et BLAKE2s sur environ 8 300 assemblages des
+autres champs par code (sous-ensembles ordonnés, séparateurs `;`, rien, `,`, `|`), aucune correspondance. C'est presque sûrement une
+signature avec une clé de la FDJ (HMAC), peut-être doublée d'un enregistrement de l'UUID côté serveur.
+
+**Conclusion** : générer ces codes demanderait de forger une signature de la FDJ ; piste close. Pour alléger la saisie, reste
+l'affichage de `/lotofoot` dans l'ordre de saisie de l'application (non engagé).
