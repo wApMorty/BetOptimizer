@@ -2198,3 +2198,18 @@ signature avec une clé de la FDJ (HMAC), peut-être doublée d'un enregistremen
 
 **Conclusion** : générer ces codes demanderait de forger une signature de la FDJ ; piste close. Pour alléger la saisie, reste
 l'affichage de `/lotofoot` dans l'ordre de saisie de l'application (non engagé).
+
+**Test unique sur le site** (autorisé par Paul le 2026-10-25, avant toute exception à la règle du projet ; navigateur intégré,
+cookies non essentiels refusés) :
+- **Conditions d'utilisation** ([mentions légales](https://www.pointdevente.parionssport.fdj.fr/mentions-legales), lues le
+  2026-10-25) : rien sur les accès automatisés ; site « exclusivement destiné à un usage personnel » ; « exploitation de tout ou partie
+  des éléments » du site interdite. Aucune API publique trouvée.
+- **Grille de test** : LF8 n°148, « 1 » sur les huit matchs, 1 €. Le panier créé reste en attente chez la FDJ et expire à la clôture.
+- **Création côté serveur** : `POST /secured-service-cart/carts?size=250` reçoit la grille (`game_name` `lotofoot8`, `grid_id`,
+  `sportevent_id` et `outcome_id` par match, mise) et renvoie un panier (`uid`) ; l'image du code vient ensuite de
+  `carts/<uid>/code.png`. La signature est donc ajoutée par le serveur de la FDJ.
+- **Protection** : le code du site (`main.js`) joint aux appels du service un jeton reCAPTCHA v3 (`recaptchaV3Service.execute`,
+  en-têtes `Captcha` et `x-auth-token`). Appeler le service depuis edge demanderait de produire ce jeton sans navigateur, donc de
+  contourner une protection anti-robot : exclu, quelle que soit la règle du projet. Rien n'a été rejoué hors du navigateur.
+- **Conclusion** : test non concluant, aucune exception ajoutée au `CLAUDE.md`. Seul acquis utile : le service identifie une grille
+  par les identifiants des matchs et un signe par match.
