@@ -2163,3 +2163,6 @@ Regard exploratoire demandé par Paul (`scripts/lotofoot/drift_peek.py`), **sans
   12 à 24 h (τ = 1,7 : 97, 91, 92, 77 %). Le pire ticket retenu finit au plus bas à 1,49 (choisi 3 à 6 h avant) et à 1,43 (12 à 24 h) :
   sous le seuil, jamais sous 1. Une heure de dérive de plus, sur les tickets limites (τ à τ + 0,4) des six dernières heures : rapport
   médian 1,00, 10e centile 0,96, minimum 0,71 (un saut sur 53 cas). Deux grilles : ordres de grandeur seulement.
+- **Affichage** (choix de Paul du 2026-10-25) : la page `/lotofoot` montre pour chaque ticket sa marge au-dessus du τ de sa séance
+  (colonne « Marge ») et signale « limite » un ticket à moins de 5 % (`LIMIT_MARGIN`), avec le décompte par grille du Loto Foot et
+  par grille à remplir. La règle de sélection ne change pas : Paul décide au guichet de jouer ou non un ticket limite.

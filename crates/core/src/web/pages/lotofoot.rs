@@ -49,6 +49,8 @@ struct Column {
     state: String,
     /// Tickets encore en lice pour un rang payé (« 3 / 4 en vie »), vide pour un ticket seul.
     alive: String,
+    /// Tickets limites contenus (moins de 5 % au-dessus du seuil).
+    limits: usize,
 }
 
 /// Un rang en pied de bulletin (« Sans faute ») : pour chaque grille à remplir, sa chance et son gain moyen.
@@ -95,6 +97,10 @@ struct Detail {
     live_tone: &'static str,
     /// État en clair du suivi en direct.
     live_state: String,
+    /// Marge au-dessus du seuil de la séance (« +12 % »).
+    margin: String,
+    /// Moins de 5 % de marge.
+    limit: bool,
 }
 
 /// Une grille du Loto Foot présentée en bulletin.
@@ -108,6 +114,8 @@ struct Bulletin {
     session: String,
     /// Tickets pas encore déclarés joués.
     to_declare: usize,
+    /// Tickets limites (moins de 5 % au-dessus du seuil).
+    limits: usize,
     columns: Vec<Column>,
     rows: Vec<Row>,
     ranks: Vec<RankRow>,
@@ -231,6 +239,7 @@ fn bulletins(group: &Group, follow: &Follow) -> Vec<Bulletin> {
                 closes: grid.closes.clone(),
                 session: grid.session.clone(),
                 to_declare: tickets.iter().filter(|t| !t.played).count(),
+                limits: tickets.iter().filter(|t| t.limit).count(),
                 columns: lines
                     .iter()
                     .map(|l| column(l, &group.tickets, matches))
@@ -402,7 +411,12 @@ fn column(line: &LineView, tickets: &[TicketView], matches: &[MatchNow]) -> Colu
         .map(|t| Standing::of(&Standing::covers(&t), matches))
         .collect();
     let alive = standings.iter().filter(|s| s.alive()).count();
+    let limits = tickets
+        .iter()
+        .filter(|t| line.tickets.contains(&t.id) && t.limit)
+        .count();
     Column {
+        limits,
         price: line.price.clone(),
         tickets: format!("n° {}", ids.join(", ")),
         played: line.played,
@@ -437,6 +451,8 @@ fn detail(ticket: &TicketView, matches: &[MatchNow]) -> Detail {
         ranks: ticket.ranks.clone(),
         live_tone: live.map_or("t-wait", |s| s.tone()),
         live_state: live.map_or(String::new(), |s| s.label()),
+        margin: ticket.margin.clone(),
+        limit: ticket.limit,
     }
 }
 
@@ -458,6 +474,11 @@ mod tests {
             "{html}"
         );
         assert!(html.contains("J'ai joué cette grille"));
+        // Seuil de la séance à 1,36 : tickets à 1,40, soit +3 %, signalés limites.
+        assert!(
+            html.contains("+3 %") && html.contains("2 ticket(s) limite(s)"),
+            "{html}"
+        );
         assert!(html.contains("name=\"grille\" value=\"lf7-133\""), "{html}");
         // La séance est présentée à part des tickets.
         assert!(html.contains("Dernière séance"), "{html}");

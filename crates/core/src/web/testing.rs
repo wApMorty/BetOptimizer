@@ -219,7 +219,8 @@ fn lotofoot_session(conn: &mut Connection, now: DateTime<Utc>) {
     let session = NewSession {
         created_at: fetched,
         model_version: "test",
-        params: "{}",
+        // Seuil de 1,36 : les deux tickets, à 1,40, ont 3 % de marge (tickets limites).
+        params: r#"{"threshold": 1.36}"#,
         notes: "{}",
     };
     record_session(conn, &session, &recos).unwrap();

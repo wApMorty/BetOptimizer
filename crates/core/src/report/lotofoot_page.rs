@@ -45,6 +45,31 @@ pub struct TicketView {
     pub status: String,
     /// Déjà déclaré joué (`edge lotofoot played`).
     pub played: bool,
+    /// Marge de l'espérance défavorable au-dessus du seuil de sa séance (« +12 % »), vide si le seuil n'est pas noté.
+    pub margin: String,
+    /// Ticket limite : moins de [`LIMIT_MARGIN`] de marge, il peut passer sous le seuil d'ici la clôture.
+    pub limit: bool,
+}
+
+/// Marge sous laquelle un ticket est signalé « limite » : 5 %. Sur les deux premières grilles relevées, une heure de dérive
+/// fait perdre 4 % ou plus à un ticket limite une fois sur dix (`docs/sources.md` §54) ; choix de Paul du 2026-10-25.
+pub const LIMIT_MARGIN: f64 = 0.05;
+
+/// Marge d'une espérance défavorable au-dessus d'un seuil, et ticket limite ou non.
+pub fn margin(ev_pessimistic: f64, threshold: f64) -> (String, bool) {
+    let m = ev_pessimistic / threshold - 1.0;
+    let sign = if m < 0.0 { "−" } else { "+" };
+    (
+        format!("{sign}{} %", decimal(m.abs() * 100.0, 0)),
+        m < LIMIT_MARGIN,
+    )
+}
+
+/// Seuil τ noté dans les paramètres d'une séance (`None` pour une séance qui ne l'a pas noté).
+fn session_threshold(conn: &Connection, session_id: i64) -> Result<Option<f64>> {
+    Ok(store::session_params(conn, session_id)?
+        .and_then(|p| serde_json::from_str::<serde_json::Value>(&p).ok())
+        .and_then(|p| p.get("threshold").and_then(|t| t.as_f64())))
 }
 
 /// Un rang payé d'un ticket ou d'une grille : ce qu'il faut réussir, la chance d'y arriver, le gain moyen quand on y arrive.
@@ -420,7 +445,19 @@ fn budget_view(
 fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group> {
     let mut out = Group::default();
     let mut seen: Vec<(Game, u32)> = Vec::new();
+    // Seuil de chaque séance, lu une fois par séance.
+    let mut thresholds: Vec<(i64, Option<f64>)> = Vec::new();
     for reco in recos {
+        let threshold = match thresholds.iter().find(|(id, _)| *id == reco.session_id) {
+            Some((_, t)) => *t,
+            None => {
+                let t = session_threshold(conn, reco.session_id)?;
+                thresholds.push((reco.session_id, t));
+                t
+            }
+        };
+        let (margin, limit) =
+            threshold.map_or((String::new(), false), |t| margin(reco.ev_pessimistic, t));
         let grid = store::grid(conn, reco.game, reco.number)?;
         let closes = grid
             .as_ref()
@@ -484,6 +521,8 @@ fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group>
             ranks: rank_views(reco),
             status,
             played: played.contains(&reco.id),
+            margin,
+            limit,
         });
     }
     out.lines = line_views(recos, played);
@@ -944,6 +983,13 @@ mod tests {
             text.contains("<http://portable.local:8737/lotofoot>"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn a_ticket_less_than_five_percent_above_the_threshold_is_a_limit() {
+        assert_eq!(margin(1.98, 1.8), ("+10 %".to_string(), false));
+        assert_eq!(margin(1.88, 1.8), ("+4 %".to_string(), true));
+        assert_eq!(margin(1.8, 1.8), ("+0 %".to_string(), true));
     }
 
     #[test]
