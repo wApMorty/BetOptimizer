@@ -2158,3 +2158,8 @@ Regard exploratoire demandé par Paul (`scripts/lotofoot/drift_peek.py`), **sans
   mais deux grilles, dispersion du modèle de 30 %, mises déduites avec une part de 70 %.
 - **Mises estimées** (médiane des huit dernières grilles) : 357 158 € contre 486 250 € (n°146) et 267 357 € (n°147) déduits des
   rapports ; avec les mises réelles, 12 tickets ≥ 1,7 au lieu de 16 (n°146), 14 au lieu de 15 (n°147). Effet modéré, de sens variable.
+- **Ticket limite** (`scripts/lotofoot/drift_margin.py`, question de Paul) : part des tickets au-dessus de τ = 1,8 à un relevé qui le
+  sont encore au dernier relevé : 100 % s'ils sont choisis moins de 3 h avant la clôture, 90 % de 3 à 6 h, 85 % de 6 à 12 h, 72 % de
+  12 à 24 h (τ = 1,7 : 97, 91, 92, 77 %). Le pire ticket retenu finit au plus bas à 1,49 (choisi 3 à 6 h avant) et à 1,43 (12 à 24 h) :
+  sous le seuil, jamais sous 1. Une heure de dérive de plus, sur les tickets limites (τ à τ + 0,4) des six dernières heures : rapport
+  médian 1,00, 10e centile 0,96, minimum 0,71 (un saut sur 53 cas). Deux grilles : ordres de grandeur seulement.
