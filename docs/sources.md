@@ -2120,3 +2120,24 @@ marché, et les noms de la page des résultats du n°146 sont identiques à ceux
 **Contrôle** sur une copie de la base (2026-10-24 à 23 h) : la nouvelle composition du n°133 est détectée ; le meilleur ticket passe
 à 2,73 en scénario défavorable (12,57 avant), et la grille, vue depuis moins de 8 h, est évaluée sans ticket jusqu'au 25 octobre au
 matin. Les résultats du LF8 n°147 sont acceptés.
+
+## 53. Loto Foot : beaucoup de tickets au-dessus du seuil ? L'arrondi n'y est pour rien, le LF8 est généreux (2026-10-25)
+
+**Question de Paul** : beaucoup de tickets au-dessus de τ en production, même calculés moins d'une heure avant la clôture.
+
+**Hypothèse testée** (`scripts/lotofoot/rounding.py`, ex ante) : prono-match publie des parts entières ; la recherche choisirait les
+signes arrondis vers le bas. Sur les 409 grilles de l'étude, q arrondi au pourcent et traité comme en production : l'espérance S3
+annoncée des tickets ≥ 1,7 dépasse leur valeur réelle de **+0,006** en moyenne (90e centile +0,05) ; le nombre de tickets au-dessus de
+τ ne change pas. **Hypothèse rejetée.**
+
+**Ce que montre la même mesure, par formule** (tickets au-dessus de τ par grille, recherche de production, q exact) :
+
+| | τ = 1,7 | τ = 1,8 | Grilles sans ticket à 1,8 |
+|---|---|---|---|
+| LF7 (252 grilles) | 1,2 | 0,6 | 87 % |
+| LF8 (157 grilles) | 7,2 | 5,4 | 43 % |
+
+Les grilles valides vues jusqu'ici en production sont des LF8 (n°146, n°147) ; le LF7 n°133 était faussé (§52). Beaucoup de tickets
+sur un LF8 est donc l'ordinaire de l'historique, pas une anomalie. Au rythme 2025-2026 (environ 15 LF8 par mois), la demande dépasse un
+budget de 60 € : le budget va surtout au LF8, ce que la simulation du §49 intègre (mois épuisé vers le 19 en médiane). La dérive de la
+dernière heure (référence prono-match environ une heure avant la clôture) reste à mesurer (`PROTOCOLE_DERIVE.md`).
