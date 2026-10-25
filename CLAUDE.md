@@ -214,6 +214,9 @@ Chaque phase : plan court → mon go → code et tests → résumé, fichier pé
 - Vérifier à la source (documentation d'API, colonnes CSV, versions de crates) avant de coder ;
   consigner dans `docs/sources.md`, avec la date.
 - Commits atomiques ; fmt, clippy et tests verts avant chaque commit.
+- **Scripts bavards.** Tout script (étude Python, shell, commande `edge` longue) journalise sa progression sur stderr, horodatée :
+  étape en cours, avancement (`n / N`), durée écoulée et estimation du temps restant. Aucune étape de plus de quelques secondes ne
+  reste silencieuse ; un script long se lance en arrière-plan, son journal dans un fichier que je peux suivre (`tail -f`).
 - Tests obligatoires pour les mathématiques : probabilités sans marge qui somment à 1, grille de scores
   qui somme à 1, Kelly nul sans avantage, symétrie de l'Elo, absence de fuite du futur.
 - Fin de phase : résumé en dix lignes maximum, commandes pour essayer, limites connues, fichier
