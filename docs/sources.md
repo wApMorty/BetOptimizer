@@ -2141,3 +2141,20 @@ Les grilles valides vues jusqu'ici en production sont des LF8 (n°146, n°147) ;
 sur un LF8 est donc l'ordinaire de l'historique, pas une anomalie. Au rythme 2025-2026 (environ 15 LF8 par mois), la demande dépasse un
 budget de 60 € : le budget va surtout au LF8, ce que la simulation du §49 intègre (mois épuisé vers le 19 en médiane). La dérive de la
 dernière heure (référence prono-match environ une heure avant la clôture) reste à mesurer (`PROTOCOLE_DERIVE.md`).
+
+## 54. Loto Foot : premier regard sur la dérive, deux grilles (2026-10-25)
+
+Regard exploratoire demandé par Paul (`scripts/lotofoot/drift_peek.py`), **sans conclusion** et sans effet sur le protocole figé
+(`PROTOCOLE_DERIVE.md`) : LF8 n°146 et n°147, seules grilles closes valides ; cotes et mises figées (dernière recommandation).
+
+- **LF8 n°147** : le meilleur ticket S3 baisse tout au long de la journée : 6,7 (16 h avant la clôture), 4,3 (5 h), 3,2 (3 h), 2,25
+  (1 h). Un ticket choisi 16 h avant vaut au dernier relevé le quart de son espérance annoncée (R ≈ 4). La part du public sur le
+  favori du marché passe de 68 à 62 points : le public se disperse vers les outsiders, qui perdent leur valeur.
+- **LF8 n°146** : saut entre 10 h et 9 h avant (3,78 → 1,54), puis 2,4 à 2,6 les cinq dernières heures (R de 0,96 à 1,07).
+- **Dernière heure (spéculation)** : gagnants du sans-faute publiés contre prédits avec le dernier relevé et les mises déduites des
+  rapports : 132 contre 236 (n°146), 519 contre 985 (n°147), soit environ 1,8 fois moins que prévu dans les deux cas, alors que le
+  rapport publié / prédit était de 0,96 à 1,16 avec la répartition finale FDJ (§37). Compatible avec un public qui continue de se
+  disperser dans la dernière heure (résultats surtout favoris), donc avec des espérances encore un peu optimistes une heure avant ;
+  mais deux grilles, dispersion du modèle de 30 %, mises déduites avec une part de 70 %.
+- **Mises estimées** (médiane des huit dernières grilles) : 357 158 € contre 486 250 € (n°146) et 267 357 € (n°147) déduits des
+  rapports ; avec les mises réelles, 12 tickets ≥ 1,7 au lieu de 16 (n°146), 14 au lieu de 15 (n°147). Effet modéré, de sens variable.
