@@ -2246,3 +2246,21 @@ sélection plus aléatoire, pas plus sûre. Ils sont surtout des LF7 (60 % des t
 
 **Conclusion** : règle écartée ; aucune règle de production ne change. Le seul critère pertinent reste l'espérance du ticket entier,
 tous rangs confondus. Limites : celles de l'abaque (répartition finale, coupes et sélections absentes, aucun gain démontré, §37).
+
+## 57. OddsPapi : clé refusée depuis le 2026-10-26, documentation passée en v5 (2026-10-28)
+
+Motif : étude rétrospective des créneaux de détection (le relevé de 14 h est-il le plus fructueux ?), sur l'historique OddsPapi.
+
+| Fait | Nature |
+|---|---|
+| `edge latency fetch` du lundi 2026-10-26, 09:00 : `GET /v4/account` → HTTP 500 `INTERNAL_ERROR`, « Authentication error occurred » ; archive OddsPapi toujours vide (0 match, 0 prix) | test réel |
+| Même réponse le 2026-10-28 sur `account` et `historical-odds` (v4) avec notre clé, **et avec une clé manifestement fausse** ; sans clé : 401 `MISSING_API_KEY` | test réel |
+| La documentation ne connaît que 401 `invalid_api_key` pour une clé invalide (pas de 500) | doc (docs.oddspapi.io/api-reference/errors.md) |
+| La documentation décrit désormais une API v5 : `https://v5.oddspapi.io/en/…`, clé en en-tête `X-API-Key` ou paramètre `apiKey` ; aucune mention de la v4 ni de migration | doc (docs.oddspapi.io/api-reference/authentication.md) |
+| v5 avec notre clé (`/en/sports`, `/en/account`) : HTTP 401 `invalid_api_key` | test réel |
+| Tarifs : calculateur sans prix lisibles ; un « free account » est mentionné, sans quota ni mention de l'historique | doc (oddspapi.io/pricing) |
+| L'historique téléchargé pour le §34 n'existe plus sur le disque (dossiers `hist/` vides) | constat |
+
+Lecture : la v4 ne reconnaît plus aucune clé, et la v5 ne reconnaît pas la nôtre. Cause non établie (v4 arrêtée, compte gratuit
+supprimé, ou panne). Conséquences : le test prospectif de latence (§34, phase 13) est à l'arrêt, et l'étude des créneaux est
+bloquée tant qu'une clé valide n'existe pas. Seul Paul peut vérifier son compte sur oddspapi.io.
