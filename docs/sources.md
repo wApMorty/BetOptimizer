@@ -2264,3 +2264,9 @@ Motif : étude rétrospective des créneaux de détection (le relevé de 14 h es
 Lecture : la v4 ne reconnaît plus aucune clé, et la v5 ne reconnaît pas la nôtre. Cause non établie (v4 arrêtée, compte gratuit
 supprimé, ou panne). Conséquences : le test prospectif de latence (§34, phase 13) est à l'arrêt, et l'étude des créneaux est
 bloquée tant qu'une clé valide n'existe pas. Seul Paul peut vérifier son compte sur oddspapi.io.
+
+**Résolution (2026-10-28).** Paul a récupéré une nouvelle clé sur oddspapi.io (même compte, créé le 2026-10-21, offre `free`,
+250 requêtes par mois, 38 consommées). Elle est acceptée par la **v4** (`account` : HTTP 200) et refusée par la v5 (401) : aucune
+migration n'est nécessaire, l'ancienne clé avait simplement été invalidée. Une clé inconnue reçoit donc en v4 un 500
+`INTERNAL_ERROR`, pas le 401 documenté. Pinnacle, Winamax, Unibet et PMU restent accessibles ; Betclic est toujours absent.
+Passage manqué du 26/10 rejoué : 57 matchs archivés depuis le 22/10 (82 834 changements de prix), +6 requêtes.
