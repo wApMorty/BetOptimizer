@@ -2270,3 +2270,61 @@ bloquée tant qu'une clé valide n'existe pas. Seul Paul peut vérifier son comp
 migration n'est nécessaire, l'ancienne clé avait simplement été invalidée. Une clé inconnue reçoit donc en v4 un 500
 `INTERNAL_ERROR`, pas le 401 documenté. Pinnacle, Winamax, Unibet et PMU restent accessibles ; Betclic est toujours absent.
 Passage manqué du 26/10 rejoué : 57 matchs archivés depuis le 22/10 (82 834 changements de prix), +6 requêtes.
+
+## 58. Créneau de détection : le passage de 14 h est-il le plus fructueux ? Non, l'heure n'y est pour rien (2026-10-28)
+
+**Question** (Paul) : le relevé quotidien de 14 h (recommandations à 14 h 10) a été fixé arbitrairement ; un autre créneau trouverait-il
+plus de valeur ? **Source** : historique OddsPapi (§34, §57), 165 matchs Big 5 + Écosse joués du 2026-10-01 au 2026-10-27, Pinnacle,
+Winamax, Unibet et PMU (Betclic absent d'OddsPapi). Coût : 6 requêtes décomptées (listes de matchs) et 5 refus 429 décomptés eux aussi
+(OddsPapi : 60 / 250) ; l'historique n'est pas décompté. Aucun crédit The Odds API. Scripts : `scripts/oddspapi/creneaux_download.py`
+(téléchargement, 44 min) et `scripts/oddspapi/creneaux.py` (protocole figé en tête, validé par Paul avant toute lecture). Données et
+rapport complet hors dépôt : `~/.local/share/edge/etudes/data/creneaux/`.
+
+**Méthode.** Règle de la production simulée à chaque heure h :
+- un passage par jour à h:00 (heure de Paris), au plus une sélection par match, seul le premier franchissement du seuil compte ;
+- référence Pinnacle sans marge (puissance) au même instant ;
+- CLV sur la dernière cote de Pinnacle avant le coup d'envoi ;
+- filtre de suivi d'au moins 10 changements en 24 h : 446 couples match × opérateur.
+
+Configurations : 48 (24 heures × 2 seuils), 16 en lecture par délai, 7 tranches de durée de vie.
+
+| Passage quotidien, seuil 1 % | Paris (4 semaines) | CLV moyenne [IC 95 %] | Délai médian avant le match |
+|---|---|---|---|
+| 7 h (meilleure CLV ponctuelle) | 10 | +1,2 % [−7,7 ; +20,1] | 169 h |
+| 0 h – 6 h | 10 à 12 | −2,6 % à −0,4 % | 180 à 186 h |
+| 8 h – 12 h | 7 à 9 | −4,8 % à −3,9 % | 175 à 225 h |
+| **14 h (production)** | **6** | **−9,8 % [−21,5 ; −0,6]** | **222 h** |
+| 17 h – 22 h | 7 à 9 | −11,8 % à −7,1 % | 190 à 212 h |
+
+Seuil > 0 % : 13 à 20 paris selon l'heure, CLV entre −8,5 % et −2,9 %, aucune borne haute nettement positive.
+
+**Lecture.**
+- **Rareté.** Quelle que soit l'heure, un passage quotidien trouve 6 à 12 écarts d'au moins 1 % en quatre semaines, surtout chez PMU.
+- **L'heure ne compte pas, le moment d'ouverture si.** Les écarts apparaissent 5 à 11 jours avant le match, quand Pinnacle ouvre ses
+  cotes. Les heures retrouvent largement les mêmes matchs ; leurs différences tiennent à 3 ou 4 cotes longues dont la CLV varie de −21 %
+  à +34 % (Roma – Genoa à 9,00 : +34 % au passage de 7 h, absent à 14 h). Aucun intervalle ne permet de classer les heures.
+- **14 h n'est pas validé pour autant.** Les 6 paris de 14 h ont tous une CLV négative (−0,6 % à −21,5 %), mais l'échantillon est
+  minuscule et 48 configurations ont été essayées : c'est un signal d'alerte, pas une preuve.
+- **Près du coup d'envoi**, grille de 5 min :
+  - 15–0 min : seule tranche à CLV positive, +2,6 % [+0,6 ; +5,1] sur 6 écarts ;
+  - 60–30 min : durée médiane 4,4 min, CLV +1,5 % [−6,4 ; +4,9] sur 12 écarts ;
+  - les autres tranches sont négatives ;
+  - durée de vie médiane des écarts : environ 1 min (Winamax 1,5, Unibet 2,2, PMU 0,6). Une saisie à la main est hors de portée,
+    sauf parfois dans la tranche 60–30 min.
+- **Contrôle** (relevés de 14 h de The Odds API contre OddsPapi au même instant, 386 couples relevé × match) :
+  - Pinnacle sans marge : écart médian de 0,02 point, 90e centile de 0,14 point ;
+  - cotes identiques : Winamax 100 %, PMU 97 %, Unibet 92 % ;
+  - écarts ≥ 1 % : 2 vus par The Odds API, tous deux retrouvés par OddsPapi (qui en voit 5).
+
+  Les deux sources décrivent le même marché.
+
+**Conclusion** : aucun créneau n'est meilleur que 14 h de façon mesurable ; l'horaire reste inchangé. Le volet prospectif (relevés
+The Odds API supplémentaires) n'apporterait que Betclic et environ 70 matchs : il n'est pas justifié par ces résultats.
+
+**Limites.**
+- Quatre semaines seulement, et Betclic absent.
+- Le filtre de suivi regarde les 24 h avant le match : c'est une sélection sur la qualité des données, comme au §34, pas une décision.
+- Défauts corrigés avant la lecture finale :
+  - quartiles extrapolés : méthode `inclusive` ;
+  - contrôle limité à 13:00 UTC alors que le relevé de 14 h était à 12:00 UTC avant le 25/10 ;
+  - relevés de clôture d'un seul match ignorés.
