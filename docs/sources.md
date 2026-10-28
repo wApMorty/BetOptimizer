@@ -2320,6 +2320,7 @@ Seuil > 0 % : 13 à 20 paris selon l'heure, CLV entre −8,5 % et −2,9 %, aucu
 
 **Conclusion** : aucun créneau n'est meilleur que 14 h de façon mesurable ; l'horaire reste inchangé. Le volet prospectif (relevés
 The Odds API supplémentaires) n'apporterait que Betclic et environ 70 matchs : il n'est pas justifié par ces résultats.
+**Décision de Paul (2026-10-28)** : volet prospectif abandonné ; le relevé et la détection restent à 14 h.
 
 **Limites.**
 - Quatre semaines seulement, et Betclic absent.
