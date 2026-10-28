@@ -2378,3 +2378,74 @@ risque, aurait-il des chances ? Recherche documentaire seule, aucun calcul, aucu
 
 **Conclusion** : pas d'étude DNN sur nos données publiques ; la littérature n'apporte ni information ni méthode qui change le verdict du
 §35.
+
+## 60. Cotes proches de la cote juste : jouer 1,24 pour une cote juste de 1,23 est-il perdant ? Cas trop rare pour trancher (2026-10-28)
+
+**Question** (Paul) : une cote française à quelques dixièmes de point de la cote juste de Pinnacle (3,21 pour 3,22, ou 1,24 pour 1,23
+sur un favori NBA) est-elle perdante ? En théorie, l'espérance vaut o / o_juste − 1 (−0,31 % et +0,81 %). Mais il faudrait environ
+14 000 paris pour distinguer +0,8 % de zéro par les résultats : la mesure passe donc par la CLV.
+
+**Source.** Historique OddsPapi (§34, §57) :
+- football : les 165 matchs d'octobre du §58 (Big 5 + Écosse, 1X2) ;
+- NBA : 247 matchs terminés du 2026-04-01 au 2026-10-27, marché vainqueur prolongations comprises (111), dont 55 en octobre ;
+- opérateurs : Winamax, Unibet et PMU (Betclic absent).
+
+Coût : 3 requêtes décomptées (`sports`, `tournaments`, `fixtures` ; OddsPapi 63 / 250) ; l'historique n'est pas décompté. Aucun crédit
+The Odds API. L'archive The Odds API ne convient pas : elle n'a la clôture de Pinnacle que pour les matchs recommandés.
+
+Scripts :
+- `scripts/oddspapi/proche_download.py` : téléchargement de la NBA, 71 min, 33 historiques PMU absents ;
+- `scripts/oddspapi/proche.py` : protocole figé en tête, choix validés par Paul avant toute lecture.
+
+Rapport complet hors dépôt : `~/.local/share/edge/etudes/data/proche/rapport.txt`.
+
+**Méthode.**
+- Instants de décision : principal, le dernier 14 h (heure de Paris) avant le coup d'envoi, celui de la production (la veille pour la
+  NBA) ; secondaire, 60 min avant le coup d'envoi.
+- Unité : chaque couple match × opérateur × issue, toutes les issues et pas seulement la meilleure. Filtres :
+  - suivi d'au moins 10 changements relevés chez l'opérateur dans les 24 h avant le match ;
+  - somme des probabilités implicites dans [1,00 ; 1,30].
+- Avantage annoncé e = o · p_t − 1 ; CLV = o · p_clôture − 1. Pinnacle sans marge par la méthode puissance ; sensibilité à la méthode
+  multiplicative et à Shin (Shin 1993, forme de Štrumbelj 2014).
+- Six tranches de e entre −2 % et +2 % ; intervalles par bootstrap de blocs championnat × semaine (semaine seule en NBA).
+- Régression CLV = a + b · e : a = CLV d'une cote annoncée juste, b = part de l'avantage annoncé qui survit jusqu'à la clôture.
+- 24 configurations de régression.
+- Critère : la tranche [0 ; 1 %) a un avantage réel si la borne basse de sa CLV moyenne est > 0.
+
+**Résultat principal : la situation ne se présente presque jamais.** Lecture complémentaire, ajoutée après la première lecture parce
+que les tranches étaient presque vides (avantage annoncé sur toutes les cotes suivies) :
+
+| Sport, décision | Cotes | e médian [p10 ; p90] | \|e\| < 2 % | e ≥ 0 | e moyen / CLV moyenne |
+|---|---|---|---|---|---|
+| Football, 14 h | 1 287 | −9,1 % [−17,0 ; −5,2] | 9 (0,7 %) | 1 | −10,5 % / −10,3 % |
+| Football, 60 min | 1 266 | −9,1 % [−17,6 ; −5,0] | 11 (0,9 %) | 2 | −10,5 % / −10,4 % |
+| NBA, 14 h | 612 | −7,5 % [−18,4 ; −3,4] | 15 (2,5 %) | 2 | −9,7 % / −9,3 % |
+| NBA, 60 min | 608 | −7,5 % [−17,5 ; −3,5] | 13 (2,1 %) | 6 | −9,5 % / −9,5 % |
+
+Les cotes à moins de 2 % de la juste viennent surtout de PMU et d'Unibet ; Winamax n'en donne qu'en NBA, 60 min avant le match (7 sur 13). Une cote à e ≥ 0 se présente donc pour environ une cote
+suivie sur 300 à 600. En moyenne, la CLV égale l'avantage annoncé : Pinnacle à 14 h est un estimateur sans biais de sa clôture.
+
+**Critère : non atteint, faute de cas.** Tranche [0 ; 1 %) :
+- football : 0 cote aux deux instants ;
+- NBA : 2 cotes à 14 h (CLV +10,7 % et −2,2 %) et 2 à 60 min (+0,7 % et −0,8 %).
+
+La pente b n'est pas estimable : intervalles de −8 à +13 en football, de −94 à +152 sur une tranche NBA. Les autres méthodes de retrait
+ne changent rien : 0 à 4 cotes par tranche.
+
+**Indice, juste sous la cote juste.** Tranche [−2 ; −1 %) :
+- football, 14 h : 5 cotes, e moyen −1,6 %, CLV −4,2 % [−8,4 ; −0,4] ;
+- NBA, 60 min : 7 cotes, e moyen −1,6 %, CLV −2,0 % [−2,3 ; −0,3] ;
+- NBA, 14 h (−1,0 % [−3,2 ; +0,6], 11 cotes) et football, 60 min (−1,3 % [−2,7 ; +0,2], 6 cotes) : intervalles qui touchent zéro.
+
+Quand une cote française approche Pinnacle, Pinnacle tend ensuite à s'éloigner dans le mauvais sens pour le parieur : sélection
+adverse, cohérente avec le §58 (6 paris à 14 h, CLV −9,8 %). Ce n'est qu'un indice : une douzaine de cotes et 24 configurations essayées.
+
+**Conclusion** : une cote juste ou légèrement au-dessus est trop rare chez les opérateurs français pour qu'une règle « jouer à la cote
+juste » ait un intérêt pratique, et rien ne montre qu'elle rapporte. Pour un usage où une espérance proche de zéro suffit (conditions de
+mise d'un bonus), c'est l'issue la moins chère, mais elle se présente rarement. Aucun changement en production.
+
+**Limites.**
+- Football : quatre semaines seulement.
+- NBA, couverture : Winamax suivi sur 78 matchs sur 225 (relevé incomplet avant octobre, §34), Unibet sur 39 ; Betclic absent partout.
+- Une cote Winamax aberrante (4,90 sur une issue que Pinnacle cote 2,16, 11/04/2026, 60 min avant le match) passe le filtre de la
+  somme des probabilités implicites : e = +119 %. Elle est hors des tranches étudiées et sans effet sur le résultat.
