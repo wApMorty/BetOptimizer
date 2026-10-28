@@ -2329,3 +2329,52 @@ The Odds API supplémentaires) n'apporterait que Betclic et environ 70 matchs : 
   - quartiles extrapolés : méthode `inclusive` ;
   - contrôle limité à 13:00 UTC alors que le relevé de 14 h était à 12:00 UTC avant le 25/10 ;
   - relevés de clôture d'un seul match ignorés.
+
+## 59. Apprentissage profond (DNN) et gestion du risque : revue de la littérature (2026-10-28)
+
+**Question** (Paul) : un système à base de deep learning (DNN), complété par d'autres techniques pour affiner les probabilités et gérer le
+risque, aurait-il des chances ? Recherche documentaire seule, aucun calcul, aucun crédit. Le §35 a déjà mesuré un MLP contre le marché.
+
+**Ce que dit la littérature.**
+- **Revue systématique** (Galekwa, Tshimula, Tajeuna, Kyamakya, arXiv 2410.21484, octobre 2024 ; PRISMA, 219 articles de 2010 à
+  juillet 2024) : aucune famille de modèles ne domine (forêts, SVM, boosting, réseaux selon les études) ; métriques et données non
+  comparables ; la rentabilité est rarement mesurée et, dans les parties lues, jamais contre la clôture de Pinnacle.
+- **Soccer Prediction Challenge 2023** (Yeung, Bunker, Umemoto, Fujii, *Machine Learning* 113, 2024 ; chapitre de synthèse arXiv
+  2403.07669) : sur des données de buts seules, CatBoost sur pi-ratings est donné comme l'approche la plus forte. Texte intégral non lu :
+  le volet « deep learning » n'est pas vérifié.
+- **Décorrélation d'avec le marché** (Hubáček, Šourek, Železný, *IJF* 35, 2019 ; Hubáček et Šír, arXiv 2010.12508, *IJF* 2023 ; section 5
+  lue en entier). Le seul travail publié où un réseau profond « bat » un marché efficient :
+  - NBA, statistiques individuelles 2000–2014, réseau convolutif sur la matrice des dix joueurs les plus utilisés de chaque équipe ;
+  - perte `MSE* = moyenne[(t − r)² − γ · (t − m)²]`, qui pénalise les prédictions trop proches du marché `m` ;
+  - walk-forward par saison, 9 093 matchs évalués (2006–2014) ; cotes de **clôture** Pinnacle 2010–2014, plusieurs bookmakers avant ;
+  - précision des modèles 61 à 69 %, inférieure à celle du bookmaker (69 %) ; corrélation avec le marché 0,87 sans les cotes en entrée,
+    0,95 avec ;
+  - **mise uniforme : perte pour toutes les valeurs de γ** (au mieux −0,39) ; portefeuille au ratio de Sharpe : au mieux +1,74 ± 0,14
+    (γ = 0,4, sans les cotes), unité non précisée dans le texte lu.
+
+  Limites au regard de nos invariants : γ lu sur le test (24 configurations affichées, aucune gelée avant) ; erreurs-types calculées sur
+  10 réentraînements (variance d'optimisation, pas d'échantillonnage des matchs) ; décision sur la clôture, interdite chez nous
+  (invariant 4) ; marché NBA d'il y a dix ans ; aucune réplication indépendante trouvée hormis un mémoire de master (Aalborg, 2025, sur
+  Betfair).
+- **Modèles au niveau des joueurs** (graphes et transformeurs : HIGFormer, arXiv 2507.10626 ; mémoire SFU 2022) : gains annoncés contre
+  d'autres modèles, jamais contre les cotes ni la clôture.
+- **xG simple** (« Can simple models predict football — and beat the odds? », *Journal of Sports Analytics* 12, 2026 ; résumé seul) :
+  Bundesliga 2014/15–2024/25, xG récents, loi de Skellam, calibration isotone ; le bookmaker reste mieux calibré ; rendement simulé
+  +10 % contre la cote moyenne, +15 % contre la meilleure cote. Même schéma que le §33 (cotes moyennes ou maximales) ; xG indisponibles
+  pour nous depuis 2026.
+- **Gestion du risque.** Baker et McHale (*Decision Analysis* 10, 2013) : réduire la mise de Kelly à proportion de l'incertitude
+  d'estimation ; Metel (arXiv 1701.02814, 2017) : Kelly robuste à plusieurs issues, rendement meilleur avec des mises nettement
+  réduites ; ensembles de réseaux (Lakshminarayanan et al., NeurIPS 2017) pour estimer l'incertitude d'une prédiction. Aucune étude
+  trouvée ne mesure hors échantillon, en paris, une mise pilotée par l'incertitude d'un réseau.
+
+**Lecture pour edge.**
+- La barrière est la marge : une cote française vaut en moyenne 9 à 16 % de moins que Pinnacle sans marge (§33). Le meilleur résultat
+  publié avec un réseau profond tire 1 à 2 points d'un marché à 2,5 % de marge, et perd en mise uniforme.
+- Plus de profondeur n'apporte pas d'information : au §35, le MLP fait moins bien que la logistique sur les mêmes 34 variables.
+- Le seul usage défendable du deep learning serait d'agréger une information nouvelle au niveau des joueurs (compositions, absences)
+  plus vite que les opérateurs français. C'est la piste de latence (§34) ; près du coup d'envoi, les écarts vivent environ une minute
+  (§58).
+- Côté risque, sans avantage mesuré il n'y a rien à dimensionner ; le demi-Kelly (§27) applique déjà le principe de Baker et McHale.
+
+**Conclusion** : pas d'étude DNN sur nos données publiques ; la littérature n'apporte ni information ni méthode qui change le verdict du
+§35.
