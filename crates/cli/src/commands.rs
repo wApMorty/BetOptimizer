@@ -1439,12 +1439,20 @@ pub fn serve(paths: &Paths) -> Result<()> {
     let bind = config.serve_bind;
     // Sans secret, pas d'application : elle permet d'écrire dans le journal.
     let token = config.web_token(std::env::var(SERVE_TOKEN_ENV).ok().as_deref())?;
+    // Sans clé The Odds API, l'application démarre quand même : seul le bouton « Relever les cotes » refusera.
+    let odds_api_key = api_key_from(&config).ok();
+    if odds_api_key.is_none() {
+        println!(
+            "Clé The Odds API absente : le bouton « Relever les cotes » de l'onglet Bonus ne fonctionnera pas."
+        );
+    }
     let app = App {
         paths: paths.clone(),
         config,
         aliases: Aliases::bundled()?,
         token,
         live_scores: true,
+        odds_api_key,
     };
     // L'erreur de `tiny_http` est une `Box<dyn Error + Send + Sync>` : `anyhow!` l'enveloppe avec son message.
     let server = tiny_http::Server::http(bind)

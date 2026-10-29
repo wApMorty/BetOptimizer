@@ -157,6 +157,7 @@ mod tests {
             aliases: Aliases::bundled().unwrap(),
             token: ServeToken::new("jeton-de-test-0123456789abcdef").unwrap(),
             live_scores: false,
+            odds_api_key: None,
         };
         // Port 0 : le système choisit un port libre, que l'on relit ensuite.
         let server = Server::http("127.0.0.1:0").unwrap();

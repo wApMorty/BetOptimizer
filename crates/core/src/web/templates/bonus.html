@@ -9,7 +9,8 @@
   <div class="tile"><div class="label">À jouer</div><div class="figure acc">{{ to_play }}</div><div class="note">{{ covers }}</div></div>
 </div>
 
-<h2>À jouer<small>dernier relevé · recalcule avant de parier</small></h2>
+<h2>À jouer<small>{{ last_snapshot }} · recalcule avant de parier</small></h2>
+<form method="post" action="/bonus/relever" class="actions"><button class="btn secondary" type="submit" title="Relève les cotes du football chez The Odds API, comme edge snapshot sans le tennis, sous la garde de budget mensuelle. Refusé moins de 15 minutes après le relevé précédent.">Relever les cotes ({{ refresh_cost }} crédits)</button></form>
 {% for plan in plans %}
 <div class="card">
   <div><b style="font-size: 1.05rem">{{ plan.name }}</b> <span class="chip t-acc">{{ plan.kind }}</span> <span class="chip">{{ plan.amount }}</span>{% if plan.min_odds %} <span class="chip">{{ plan.min_odds }}</span>{% endif %}</div>

@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::config::{Config, ServeToken};
+use crate::config::{ApiKey, Config, ServeToken};
 use crate::error::{Error, Result};
 use crate::ingest::aliases::Aliases;
 use crate::paths::Paths;
@@ -51,6 +51,8 @@ pub struct App {
     pub token: ServeToken,
     /// Relever les scores chez ESPN à l'affichage de `/lotofoot` (faux dans les tests : aucun appel réseau).
     pub live_scores: bool,
+    /// Clé The Odds API du bouton « Relever les cotes » de `/bonus` (`None` : clé absente, ou tests sans réseau).
+    pub odds_api_key: Option<ApiKey>,
 }
 
 /// Méthode HTTP d'une requête.
@@ -272,6 +274,7 @@ fn post(
         "/bonus/operation" => entry::bonus_operation(app, &empty, Some(form), now)?,
         "/bonus/offre" => entry::offer(app, &empty, Some(form), now)?,
         "/bonus/regler" => act(app, &Action::SettleBonusAuto, "/bonus", now),
+        "/bonus/relever" => pages::bonus::refresh(app, now),
         "/lotofoot/jouee" => match lotofoot_grid(form.get("grille")) {
             Some((game, number)) => act(
                 app,
