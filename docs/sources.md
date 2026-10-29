@@ -2552,3 +2552,6 @@ couvrent tous de −60 % à +50 % au moins.
 - Statut comparable à celui du Loto Foot (§37) : une loterie à espérance probablement positive, sans preuve. L'espérance annoncée
   n'est pas utilisable telle quelle comme seuil.
 - Configurations lues sur le test : 1 principale et 4 secondaires, comme annoncé.
+
+**Décision (2026-10-29).** Paul clôt la piste du Loto Rugby 7 : avantage non démontré. Ni jeu réel ni relevé prospectif ; le Loto
+Basket reste écarté (historique caduc). À rouvrir seulement sur une donnée nouvelle (règlement, garantie, historique).
