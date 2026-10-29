@@ -2509,3 +2509,16 @@ délaissés gagne aussi souvent qu'un autre, mais partage la garantie avec moins
   2024-2026. Pour le Loto Rugby, l'historique reste représentatif (handicaps conservés) ; pour le Loto Basket, le passage au handicap nul
   en 2026 le rend caduc, et il faudrait des cotes NBA (avec la probabilité d'égalité avant prolongation) et un relevé prospectif.
 - Configurations regardées : un tableau de calibration par jeu, sur l'entraînement.
+
+**Backtest figé du Loto Rugby 7, étape 1 : ajustement (2026-10-29).** Protocole `scripts/lotosports/PROTOCOLE_RUGBY.md` validé tel quel
+par Paul (modèle sans cote, Ŝ sur les 8 dernières grilles, 10 tickets sans seuil, règles du verdict). `rugby_fit.py`, 77 grilles
+d'entraînement (137 retenues au total, comme prévu) :
+- p : π_N = 0,0260 (539 matchs), h = 0,5143 ; concurrents : κ = 1,530, β = 0,9457, φ ≈ 0, θ = 8,92 ; logistique (analyse secondaire) :
+  a = 0,004, b = 0,344 (525 matchs) ; médiane de S de l'entraînement 22 963 €.
+- `params_rugby.json` (hors dépôt, `~/.local/share/edge/etudes/data/ls/`) : SHA-256
+  `f882da39d0f6de5eec3ed8710a3681769022705bc83400e3f79577ce4f184dcd`.
+- Calibration des concurrents dans l'échantillon (gagnants publiés / prédits) : 0,80 (λ de 1 à 10, 7 observations), 1,12, 0,97, 1,02.
+- Stratégie principale **dans l'échantillon** (déclarée comme telle) : 770 € misés, 824,90 € gagnés, ROI +7,1 % ; espérance
+  annoncée 2,38 € par euro ; 19 grilles payées, 4 tickets au 1er rang, 32 au 2e. Sur les 4 gains au 1er rang, les gagnants publiés
+  dépassent la prédiction (171 contre 48, 195 contre 107, 76 contre 63, 75 contre 51) : l'espérance annoncée est très au-dessus du
+  réalisé. Ce constat, lu avant le test, ne change rien au protocole.
