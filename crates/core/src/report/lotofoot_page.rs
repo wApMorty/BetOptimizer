@@ -911,6 +911,7 @@ mod tests {
             skipped: vec![],
             unknown_names: vec!["LOTOFOOT: Inconnu FC".into()],
             leagues: Default::default(),
+            oddspapi: Default::default(),
             chosen: vec![Candidate {
                 grid: (Game::Lf8, 147),
                 ticket: crate::lotofoot::Ticket::parse("21N12222").unwrap(),

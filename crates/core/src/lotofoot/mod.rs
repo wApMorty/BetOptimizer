@@ -12,6 +12,7 @@ pub mod fetch;
 pub mod live;
 pub mod model;
 pub mod odds;
+pub mod oddspapi;
 pub mod optimize;
 pub mod outlets;
 pub mod played;

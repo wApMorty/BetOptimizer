@@ -1,5 +1,5 @@
-//! Séance avec les vrais clients : relevé frais de prono-match, cotes manquantes chez The Odds API, séance écrite au
-//! journal, et au besoin message Discord avec l'image des grilles à remplir.
+//! Séance avec les vrais clients : relevé frais de prono-match, cotes manquantes chez The Odds API puis chez OddsPapi
+//! (repli, si la clé existe), séance écrite au journal, et au besoin message Discord avec l'image des grilles à remplir.
 //!
 //! Partagée par `edge lotofoot recommend` (timer du samedi) et le bouton « Optimiser maintenant » de l'application Web.
 //! Seule la demande change : le bouton choisit sa mise et recalcule les grilles déjà recommandées, le timer non.
@@ -8,12 +8,14 @@ use chrono::Utc;
 use rusqlite::Connection;
 
 use super::fetch::{self, FetchReport, PronoMatchClient};
+use super::oddspapi::Access;
 use super::session::{self, Request, SessionReport};
-use crate::config::{API_KEY_ENV, Config, WEBHOOK_ENV};
+use crate::config::{API_KEY_ENV, Config, ODDSPAPI_KEY_ENV, WEBHOOK_ENV};
 use crate::error::{Error, Result};
 use crate::format::long_date;
 use crate::ingest::aliases::Aliases;
 use crate::ingest::client::{HttpResponse, OddsApiClient};
+use crate::ingest::oddspapi::OddsPapiClient;
 use crate::notify::discord;
 use crate::report::{lotofoot_image, lotofoot_page};
 
@@ -63,18 +65,41 @@ pub fn recommend(
             aliases,
             &mut Utc::now,
             &mut |path, _| refused(path),
+            None,
             request,
         )?
     } else {
         // `.ok()` : variable d'environnement absente = `None`, la clé est alors lue dans la configuration.
         let key = config.api_key(std::env::var(API_KEY_ENV).ok().as_deref())?;
         let odds = OddsApiClient::new(key);
+        // Repli OddsPapi : facultatif. Sans clé, `ok()` donne `None` et le bilan de la séance le signale.
+        let papi = config
+            .oddspapi_key(std::env::var(ODDSPAPI_KEY_ENV).ok().as_deref())
+            .ok()
+            .map(OddsPapiClient::new);
+        // La fermeture emprunte `papi` en lecture ; `is_some` aussi : deux emprunts partagés peuvent coexister.
+        let mut papi_get = |path: &str, params: &str| match &papi {
+            Some(client) => client.get(path, params),
+            None => refused(path),
+        };
+        // Variable locale : `Access` garde une référence vers la pause, qui doit donc vivre jusqu'à la fin de la séance
+        // (un `&mut std::thread::sleep` écrit dans l'expression serait une valeur temporaire, détruite trop tôt).
+        let mut sleep = std::thread::sleep;
+        let access = if papi.is_some() {
+            Some(Access {
+                fetch: &mut papi_get,
+                pause: &mut sleep,
+            })
+        } else {
+            None
+        };
         session::run(
             conn,
             config,
             aliases,
             &mut Utc::now,
             &mut |path, params| odds.get(path, params),
+            access,
             request,
         )?
     };

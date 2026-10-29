@@ -5,6 +5,7 @@
 //! 2. On cherche dans l'archive le dernier relevé Pinnacle du match, assez récent.
 //! 3. Pour les matchs absents, on trouve leur compétition avec `/events` (gratuit) parmi les compétitions actives, puis on
 //!    relève ces compétitions avec `/odds` (1 crédit chacune), sous la garde de budget et un plafond par séance.
+//! 4. Ce qui manque encore est cherché chez OddsPapi, qui relaie aussi Pinnacle ([`super::oddspapi`]).
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -56,15 +57,36 @@ pub fn canonical_matches(
     }
 }
 
-/// Probabilités du marché d'une rencontre et l'appel d'où vient la cote.
+/// Provenance d'une cote Pinnacle.
+///
+/// `enum` à données : chaque variante porte ses propres champs (contrairement à une `enum` de C, qui n'est qu'un entier).
+/// Pour lire ces champs, il faut un `match` sur la variante, et le compilateur refuse un `match` qui oublie une source :
+/// ajouter une troisième source signalera chaque endroit à compléter.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Source {
+    /// Notre archive The Odds API.
+    OddsApi {
+        /// Appel `/odds` d'où vient la cote.
+        api_call_id: i64,
+        /// Compétition (`soccer_portugal_primeira_liga`…).
+        sport_key: String,
+    },
+    /// Repli OddsPapi.
+    OddsPapi {
+        /// Relevé (`lotofoot_oddspapi_quote`) d'où vient la cote.
+        quote_id: i64,
+        /// Dernier changement de prix Pinnacle avant le relevé.
+        last_change_at: DateTime<Utc>,
+    },
+}
+
+/// Probabilités du marché d'une rencontre et la provenance de la cote.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchMarket {
     /// Probabilités sans marge (méthode puissance).
     pub probs: Probs1x2,
-    /// Appel `/odds` d'où vient la cote.
-    pub api_call_id: i64,
-    /// Compétition.
-    pub sport_key: String,
+    /// D'où vient la cote.
+    pub source: Source,
 }
 
 /// Dernière cote Pinnacle 1X2 archivée du match `home – away` (noms de The Odds API) dont le coup d'envoi tombe dans
@@ -118,8 +140,10 @@ pub fn archived_market(
     };
     Ok(remove_margin(&odds, method).map(|probs| MatchMarket {
         probs,
-        api_call_id,
-        sport_key,
+        source: Source::OddsApi {
+            api_call_id,
+            sport_key,
+        },
     }))
 }
 
@@ -346,7 +370,10 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(market.sport_key, "soccer_france_ligue_two");
+        let Source::OddsApi { sport_key, .. } = &market.source else {
+            panic!("cote attendue de The Odds API");
+        };
+        assert_eq!(sport_key, "soccer_france_ligue_two");
         let p = market.probs.to_array();
         assert!((p.iter().sum::<f64>() - 1.0).abs() < 1e-9);
         assert!(p[0] > p[2]);

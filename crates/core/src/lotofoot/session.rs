@@ -3,7 +3,7 @@
 //!
 //! Déroulé : grilles LF7 et LF8 qui ferment au moins `lotofoot_min_minutes_before_close` minutes après la séance ; pour
 //! chacune, la dernière répartition FDJ relevée, les mises estimées, les probabilités du marché (avec, au besoin, un
-//! relevé des compétitions manquantes) ; puis les meilleurs tickets de chaque grille et leur répartition dans le budget
+//! relevé des compétitions manquantes, puis le repli OddsPapi pour les rencontres encore sans cote) ; puis les meilleurs tickets de chaque grille et leur répartition dans le budget
 //! du mois, grille par grille dans l'ordre de clôture, au-dessus du seuil τ que l'abaque tire du budget (§49, §51). Une
 //! grille incomplète est écartée avec la raison, jamais devinée ; une grille trop jeune est évaluée mais n'engage pas de
 //! budget. Aucune donnée postérieure à la séance n'est lue (CLAUDE.md, invariant 1).
@@ -16,7 +16,8 @@ use serde_json::json;
 use super::Game;
 use super::abaque;
 use super::model::{FROZEN, GridModel, PESSIMISTIC_LOW_MULT, PESSIMISTIC_SHRINK, public_split};
-use super::odds::{self, LeagueSearch, MatchMarket};
+use super::odds::{self, LeagueSearch, MatchMarket, Source};
+use super::oddspapi::{self, Access};
 use super::optimize::{self, Candidate};
 use crate::config::Config;
 use crate::domain::Probs1x2;
@@ -81,6 +82,8 @@ pub struct SessionReport {
     pub unknown_names: Vec<String>,
     /// Recherche des compétitions manquantes.
     pub leagues: LeagueSearch,
+    /// Repli OddsPapi pour les rencontres encore sans cote.
+    pub oddspapi: oddspapi::Search,
     /// Tickets retenus, du meilleur au moins bon.
     pub chosen: Vec<Candidate>,
     /// Séance enregistrée (`None` à blanc).
@@ -190,12 +193,15 @@ impl Request {
 /// remplace même si elle n'y retient aucun ticket (« remplacée par rien », noté dans les paramètres de la séance).
 /// Seule la dernière recommandation de chaque grille compte ([`store::current_recos`], `docs/sources.md` §41). Une
 /// séance qui ne retient aucun ticket et ne remplace rien n'est pas écrite : elle n'aurait rien à journaliser.
+///
+/// `fetch` appelle The Odds API ; `oddspapi`, l'accès au repli (`None` : pas de clé OddsPapi, repli désactivé).
 pub fn run(
     conn: &mut Connection,
     config: &Config,
     aliases: &Aliases,
     now: Clock,
     fetch: Fetch,
+    oddspapi: Option<Access>,
     request: Request,
 ) -> Result<SessionReport> {
     let dry_run = request.dry_run;
@@ -208,6 +214,7 @@ pub fn run(
         skipped: Vec::new(),
         unknown_names: Vec::new(),
         leagues: LeagueSearch::default(),
+        oddspapi: oddspapi::Search::default(),
         chosen: Vec::new(),
         session_id: None,
         months: Vec::new(),
@@ -307,7 +314,8 @@ pub fn run(
         });
     }
 
-    // 2. Probabilités du marché ; relevé des compétitions manquantes (sauf à blanc), puis seconde lecture de l'archive.
+    // 2. Probabilités du marché ; relevé des compétitions manquantes puis repli OddsPapi (sauf à blanc), et nouvelle
+    // lecture de l'archive après chaque relevé.
     let window_of = |row: &GridRow| {
         (
             row.closes_at - Duration::hours(2),
@@ -322,33 +330,65 @@ pub fn run(
         canonical
             .iter()
             .map(|(h, a)| {
-                odds::archived_market(
+                let found = odds::archived_market(
                     conn,
                     (h, a),
                     from.max(started),
                     until,
                     fresh_after,
                     config.margin_method,
-                )
+                )?;
+                // Notre archive The Odds API d'abord ; OddsPapi seulement pour ce qu'elle n'a pas.
+                match found {
+                    Some(market) => Ok(Some(market)),
+                    None => oddspapi::archived_market(
+                        conn,
+                        (h, a),
+                        (from.max(started), until),
+                        fresh_after,
+                        started,
+                        config.margin_method,
+                    ),
+                }
             })
             .collect()
     };
-    let mut missing: Vec<(String, String)> = Vec::new();
-    for Pending { row, canonical, .. } in &pending {
-        for (market, teams) in lookup(conn, row, canonical)?.iter().zip(canonical) {
-            if market.is_none() && !missing.contains(teams) {
-                missing.push(teams.clone());
+    // Rencontres sans cote, sans doublon (une même rencontre peut figurer dans deux grilles).
+    let missing_of = |conn: &Connection| -> Result<Vec<(String, String)>> {
+        let mut missing: Vec<(String, String)> = Vec::new();
+        for Pending { row, canonical, .. } in &pending {
+            for (market, teams) in lookup(conn, row, canonical)?.iter().zip(canonical) {
+                if market.is_none() && !missing.contains(teams) {
+                    missing.push(teams.clone());
+                }
             }
         }
-    }
-    if !missing.is_empty() && !dry_run {
-        let from = started;
-        let until = pending
+        Ok(missing)
+    };
+    let search_window = (
+        started,
+        pending
             .iter()
             .map(|p| window_of(&p.row).1)
             .max()
-            .unwrap_or(started);
-        report.leagues = odds::refresh_leagues(conn, config, &missing, (from, until), now, fetch)?;
+            .unwrap_or(started),
+    );
+    let missing = missing_of(conn)?;
+    if !missing.is_empty() && !dry_run {
+        report.leagues = odds::refresh_leagues(conn, config, &missing, search_window, now, fetch)?;
+    }
+    let missing = missing_of(conn)?;
+    if !missing.is_empty() && !dry_run {
+        match oddspapi {
+            Some(access) => {
+                report.oddspapi =
+                    oddspapi::refresh(conn, config, aliases, &missing, search_window, now, access)?;
+            }
+            None => report
+                .oddspapi
+                .refused
+                .push("clé OddsPapi absente : repli désactivé".to_string()),
+        }
     }
 
     let mut ready: Vec<Ready> = Vec::new();
@@ -466,6 +506,8 @@ pub fn run(
             "skipped": report.skipped.iter().map(|s| json!({"grid": s.grid, "reason": s.reason})).collect::<Vec<_>>(),
             "unknown_names": report.unknown_names,
             "leagues_fetched": report.leagues.fetched, "credits_spent": report.leagues.spent,
+            "oddspapi_found": report.oddspapi.found, "oddspapi_refused": report.oddspapi.refused,
+            "oddspapi_requests": report.oddspapi.spent,
         })
         .to_string();
         // Les entrées JSON sont construites d'abord : `NewReco` ne fait qu'emprunter ces textes, qui doivent donc vivre
@@ -606,10 +648,27 @@ fn inputs_json(grid: &Ready) -> String {
     let q: Vec<[f64; 3]> = (0..grid.model.len())
         .filter_map(|i| grid.model.public(i))
         .collect();
-    let calls: Vec<i64> = grid.markets.iter().map(|m| m.api_call_id).collect();
+    // Provenance de chaque cote, rencontre par rencontre : l'appel `/odds` de The Odds API, ou le relevé OddsPapi ; `null`
+    // dans la liste qui ne concerne pas la rencontre.
+    let calls: Vec<Option<i64>> = grid
+        .markets
+        .iter()
+        .map(|m| match m.source {
+            Source::OddsApi { api_call_id, .. } => Some(api_call_id),
+            Source::OddsPapi { .. } => None,
+        })
+        .collect();
+    let quotes: Vec<Option<i64>> = grid
+        .markets
+        .iter()
+        .map(|m| match m.source {
+            Source::OddsApi { .. } => None,
+            Source::OddsPapi { quote_id, .. } => Some(quote_id),
+        })
+        .collect();
     json!({
         "p": p, "q": q, "stakes": grid.stakes, "jackpot": grid.row.jackpot.map(|j| j.get()),
-        "odds_calls": calls, "matches": grid.row.matches,
+        "odds_calls": calls, "oddspapi_quotes": quotes, "matches": grid.row.matches,
     })
     .to_string()
 }
@@ -775,6 +834,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(16, tau_config, false, false),
         )
         .unwrap();
@@ -812,6 +872,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(3, tau_config, false, false),
         )
         .unwrap();
@@ -824,6 +885,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(100, tau_config, false, false),
         )
         .unwrap();
@@ -863,6 +925,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(16, tau_config, false, false),
         )
         .unwrap();
@@ -874,6 +937,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(3, tau_config, true, false),
         )
         .unwrap();
@@ -900,6 +964,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(16, tau_config, true, false),
         )
         .unwrap();
@@ -940,6 +1005,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(16, 1.0, false, false),
         )
         .unwrap();
@@ -955,6 +1021,7 @@ mod tests {
             &aliases,
             &mut later,
             &mut fetch,
+            None,
             ask(16, 1.0, false, false),
         )
         .unwrap();
@@ -974,6 +1041,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(16, 1.0, false, false),
         )
         .unwrap();
@@ -988,6 +1056,7 @@ mod tests {
             &aliases,
             &mut later,
             &mut fetch,
+            None,
             ask(16, 1.0, true, false),
         )
         .unwrap();
@@ -1019,6 +1088,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(5, tau_config, false, false),
         )
         .unwrap();
@@ -1033,6 +1103,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(5, tau_config, true, false),
         )
         .unwrap();
@@ -1085,6 +1156,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(5, 1.0, false, false),
         )
         .unwrap();
@@ -1126,6 +1198,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(16, 1.0, false, false),
         )
         .unwrap();
@@ -1162,6 +1235,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(16, tau_easy, false, false),
         )
         .unwrap();
@@ -1174,6 +1248,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(16, tau_strict, true, false),
         )
         .unwrap();
@@ -1234,6 +1309,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(16, tau_config, false, false),
         )
         .unwrap();
@@ -1267,6 +1343,7 @@ mod tests {
             &aliases,
             &mut clock,
             &mut fetch,
+            None,
             ask(16, tau_config, false, false),
         )
         .unwrap();
@@ -1295,6 +1372,7 @@ mod tests {
             &empty,
             &mut clock,
             &mut fetch,
+            None,
             ask(16, 1.7, false, true),
         )
         .unwrap();
@@ -1310,9 +1388,189 @@ mod tests {
             &aliases,
             &mut late,
             &mut fetch,
+            None,
             ask(16, 1.7, false, true),
         )
         .unwrap();
         assert!(report.skipped[0].reason.contains("plus de 3 h"));
+    }
+    /// Grille dont la 7e rencontre (H7 – A7) manque à l'archive The Odds API ; OddsPapi la liste sous d'autres noms.
+    fn setup_without_the_last_match(conn: &mut Connection) -> Aliases {
+        let teams: Vec<(String, String)> = (1..=7)
+            .map(|i| (format!("H{i}"), format!("A{i}")))
+            .collect();
+        record_grid(
+            conn,
+            133,
+            at("2026-10-25T16:10:00Z"),
+            at("2026-10-24T01:30:00Z"),
+        );
+        record_grid(
+            conn,
+            133,
+            at("2026-10-25T16:10:00Z"),
+            at("2026-10-24T09:30:00Z"),
+        );
+        record_odds(conn, &teams[..6]);
+        let mut text = String::from("[LOTOFOOT]\n");
+        for (h, a) in &teams[..6] {
+            text.push_str(&format!("\"{h}\" = []\n\"{a}\" = []\n"));
+        }
+        text.push_str("\"H7\" = [\"H7 FC\"]\n\"A7\" = [\"A7 United\"]\n");
+        Aliases::parse(&text).unwrap()
+    }
+
+    /// The Odds API : aucune compétition active, donc rien à relever.
+    fn no_active_league(path: &str, _: &str) -> Result<HttpResponse> {
+        assert_eq!(
+            path,
+            crate::ingest::odds_api::SPORTS_PATH,
+            "appel inattendu : {path}"
+        );
+        Ok(HttpResponse {
+            status: 200,
+            quota: Quota::default(),
+            body: "[]".to_string(),
+        })
+    }
+
+    /// OddsPapi simulé : le compte, le match H7 FC – A7 United, et son historique Pinnacle.
+    fn oddspapi_api(path: &str, params: &str) -> Result<HttpResponse> {
+        let body = match path {
+            "account" => {
+                r#"{"subscriptions":[{"is_active":true,"request_count":70,"request_limit":250}]}"#
+            }
+            "fixtures" => {
+                r#"[{"fixtureId":"id7","tournamentId":327,"statusId":0,"startTime":"2026-10-25T18:00:00.000Z",
+                "participant1Name":"H7 FC","participant2Name":"A7 United"}]"#
+            }
+            "historical-odds" if params.starts_with("fixtureId=id7&") => {
+                r#"{"bookmakers":{"pinnacle":{"markets":{"101":{"outcomes":{
+                "101":{"players":{"0":[{"createdAt":"2026-10-24T08:00:00Z","price":2.0,"active":true}]}},
+                "102":{"players":{"0":[{"createdAt":"2026-10-24T08:00:00Z","price":3.6,"active":true}]}},
+                "103":{"players":{"0":[{"createdAt":"2026-10-24T08:00:00Z","price":3.7,"active":true}]}}}}}}}}"#
+            }
+            _ => panic!("appel OddsPapi inattendu : {path}?{params}"),
+        };
+        Ok(HttpResponse {
+            status: 200,
+            quota: Quota::default(),
+            body: body.to_string(),
+        })
+    }
+
+    #[test]
+    fn a_match_missing_from_the_archive_is_priced_by_oddspapi_and_its_source_is_journaled() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let aliases = setup_without_the_last_match(&mut conn);
+        let config = Config::default();
+        let mut clock = || at("2026-10-24T10:00:00Z");
+        let mut papi = oddspapi_api;
+        let report = run(
+            &mut conn,
+            &config,
+            &aliases,
+            &mut clock,
+            &mut no_active_league,
+            Some(Access {
+                fetch: &mut papi,
+                pause: &mut |_| {},
+            }),
+            ask(16, 1.0, false, false),
+        )
+        .unwrap();
+        assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+        assert_eq!(report.oddspapi.found.len(), 1, "{:?}", report.oddspapi);
+        assert_eq!(report.oddspapi.spent, 1);
+        assert!(!report.chosen.is_empty());
+
+        let recos = store::current_recos(&conn).unwrap();
+        let inputs: serde_json::Value = serde_json::from_str(&recos[0].inputs).unwrap();
+        let calls = inputs["odds_calls"].as_array().unwrap();
+        let quotes = inputs["oddspapi_quotes"].as_array().unwrap();
+        assert_eq!((calls.len(), quotes.len()), (7, 7));
+        assert!(calls[..6].iter().all(|c| c.is_i64()) && calls[6].is_null());
+        assert!(quotes[..6].iter().all(|q| q.is_null()) && quotes[6].is_i64());
+    }
+
+    #[test]
+    fn a_dry_run_reads_the_oddspapi_archive_without_calling_it() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let aliases = setup_without_the_last_match(&mut conn);
+        let config = Config::default();
+        let mut clock = || at("2026-10-24T10:00:00Z");
+        let mut refused = |path: &str, _: &str| -> Result<HttpResponse> {
+            panic!("aucun appel attendu à blanc : {path}")
+        };
+        // Sans relevé OddsPapi, la grille est écartée, et rien n'est appelé.
+        let report = run(
+            &mut conn,
+            &config,
+            &aliases,
+            &mut clock,
+            &mut |path, _| panic!("aucun appel attendu à blanc : {path}"),
+            Some(Access {
+                fetch: &mut refused,
+                pause: &mut |_| {},
+            }),
+            ask(16, 1.0, false, true),
+        )
+        .unwrap();
+        assert!(report.skipped[0].reason.contains("cote Pinnacle absente"));
+
+        // Un vrai relevé, puis une séance à blanc : la cote OddsPapi archivée sert, toujours sans appel.
+        let mut papi = oddspapi_api;
+        run(
+            &mut conn,
+            &config,
+            &aliases,
+            &mut clock,
+            &mut no_active_league,
+            Some(Access {
+                fetch: &mut papi,
+                pause: &mut |_| {},
+            }),
+            ask(16, 1.0, false, false),
+        )
+        .unwrap();
+        let report = run(
+            &mut conn,
+            &config,
+            &aliases,
+            &mut clock,
+            &mut |path, _| panic!("aucun appel attendu à blanc : {path}"),
+            Some(Access {
+                fetch: &mut refused,
+                pause: &mut |_| {},
+            }),
+            ask(16, 1.0, true, true),
+        )
+        .unwrap();
+        assert_eq!(report.evaluated.len(), 1, "{:?}", report.skipped);
+    }
+
+    #[test]
+    fn without_an_oddspapi_key_the_fallback_is_reported_as_disabled() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let aliases = setup_without_the_last_match(&mut conn);
+        let mut clock = || at("2026-10-24T10:00:00Z");
+        let report = run(
+            &mut conn,
+            &Config::default(),
+            &aliases,
+            &mut clock,
+            &mut no_active_league,
+            None,
+            ask(16, 1.0, false, false),
+        )
+        .unwrap();
+        assert_eq!(
+            report.oddspapi.refused,
+            vec!["clé OddsPapi absente : repli désactivé".to_string()]
+        );
+        assert!(report.skipped[0].reason.contains("cote Pinnacle absente"));
     }
 }

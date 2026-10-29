@@ -2,7 +2,8 @@
 //! ticket (sans faute, une erreur, perdu) pour le code couleur de la page (`docs/sources.md` §46).
 //!
 //! 1. [`tracked`] retrouve, pour chaque rencontre, sa compétition et son coup d'envoi dans notre archive The Odds API
-//!    (les appels `/odds` figés avec la recommandation).
+//!    (les appels `/odds` figés avec la recommandation), ou dans les relevés OddsPapi du repli : ces compétitions-là
+//!    n'ont pas de code ESPN et restent sans score, signalées.
 //! 2. [`refresh`] appelle ESPN pour les rencontres commencées et pas finies, au plus une fois par minute et par page.
 //!    Les noms d'ESPN passent par la section `ESPN` de la table d'alias : un nom inconnu laisse la rencontre sans score,
 //!    jamais d'appariement approximatif.
@@ -22,6 +23,7 @@ use crate::ingest::snapshot::Fetch;
 use crate::store::journal::parse_timestamp;
 use crate::store::lotofoot::{self as store, RecoRow};
 use crate::store::lotofoot_live::{self as live, LiveScore};
+use crate::store::oddspapi as oddspapi_store;
 
 /// Section de la table d'alias : noms d'ESPN → noms de The Odds API.
 pub const ALIAS_SECTION: &str = "ESPN";
@@ -84,22 +86,22 @@ pub fn tracked(
                 continue;
             }
         };
-        // Les appels `/odds` d'où viennent les cotes, figés avec la recommandation : un par rencontre, dans l'ordre.
-        let calls: Vec<i64> = serde_json::from_str::<serde_json::Value>(&reco.inputs)
-            .ok()
-            .and_then(|v| {
-                v.get("odds_calls")?
-                    .as_array()?
-                    .iter()
-                    .map(serde_json::Value::as_i64)
-                    .collect()
-            })
-            .unwrap_or_default();
+        // Provenance des cotes, figée avec la recommandation : un élément par rencontre, dans l'ordre. `odds_calls` donne
+        // l'appel `/odds` de The Odds API, `oddspapi_quotes` (depuis le §62) le relevé OddsPapi ; `null` dans l'autre liste.
+        let inputs = serde_json::from_str::<serde_json::Value>(&reco.inputs).ok();
+        let calls = id_list(inputs.as_ref(), "odds_calls");
+        let quotes = id_list(inputs.as_ref(), "oddspapi_quotes");
         for (index, (home, away)) in teams.into_iter().enumerate() {
             let position = u32::try_from(index + 1).unwrap_or(u32::MAX);
-            let event = match calls.get(index) {
-                Some(&call) => event(conn, call, &home, &away)?,
-                None => None,
+            let event = match (calls.get(index), quotes.get(index)) {
+                (Some(Some(call)), _) => event(conn, *call, &home, &away)?,
+                (_, Some(Some(quote))) => oddspapi_store::lotofoot_quote_kickoff(conn, *quote)?
+                    .map(
+                        // Pas de clé The Odds API : le nom affiché dit d'où vient la rencontre, et `espn::league` n'y
+                        // trouve aucun code, d'où le signalement « compétition sans code ESPN ».
+                        |(tournament_id, kickoff)| (format!("OddsPapi n°{tournament_id}"), kickoff),
+                    ),
+                _ => None,
             };
             match event {
                 Some((sport_key, kickoff)) => out.push(Tracked {
@@ -118,6 +120,15 @@ pub fn tracked(
         }
     }
     Ok((out, issues))
+}
+
+/// Identifiants d'une liste du journal (`odds_calls`, `oddspapi_quotes`) : `None` pour un `null`, liste vide si le champ
+/// manque (recommandation antérieure au repli).
+fn id_list(inputs: Option<&serde_json::Value>, key: &str) -> Vec<Option<i64>> {
+    inputs
+        .and_then(|v| v.get(key)?.as_array())
+        .map(|ids| ids.iter().map(serde_json::Value::as_i64).collect())
+        .unwrap_or_default()
 }
 
 /// Compétition et coup d'envoi d'un match vu par un appel `/odds` de l'archive.
@@ -566,6 +577,38 @@ mod tests {
         assert_eq!(tracked[1].sport_key, "soccer_france_ligue_two");
         // Rencontres 3 à 7 : pas d'appel `/odds` figé, signalées.
         assert_eq!(issues.len(), 5);
+    }
+
+    #[test]
+    fn a_match_priced_by_oddspapi_takes_its_kickoff_there_and_is_flagged_without_espn() {
+        let (conn, aliases, mut reco) = setup();
+        conn.execute_batch(
+            "INSERT INTO oddspapi_call (id, called_at, endpoint, params, http_status)
+               VALUES (1, '2026-10-24T08:00:00.000000Z', 'historical-odds', '', 200);
+             INSERT INTO lotofoot_oddspapi_quote VALUES (5, 1, 'id9', 327, '2026-10-24T16:00:00.000000Z', 'Dijon FCO',
+               'Rodez AF', 'Dijon', 'Rodez', 2.1, 3.2, 3.6, '2026-10-24T07:00:00.000000Z', '2026-10-24T08:00:00.000000Z');",
+        )
+        .unwrap();
+        reco.inputs = r#"{"odds_calls":[1,null],"oddspapi_quotes":[null,5]}"#.to_string();
+        let (tracked, _) = tracked(&conn, &aliases, std::slice::from_ref(&reco)).unwrap();
+        assert_eq!(tracked.len(), 2);
+        assert_eq!(tracked[1].sport_key, "OddsPapi n°327");
+        assert_eq!(tracked[1].kickoff, at("2026-10-24T16:00:00Z"));
+        // Pendant le match : la rencontre OddsPapi est signalée sans code ESPN, aucune page n'est appelée pour elle.
+        let mut fetch =
+            |path: &str, _: &str| -> Result<HttpResponse> { panic!("appel inattendu : {path}") };
+        let report = refresh(
+            &conn,
+            &aliases,
+            &tracked[1..],
+            at("2026-10-24T16:30:00Z"),
+            &mut fetch,
+        )
+        .unwrap();
+        assert_eq!(
+            report.issues,
+            vec!["OddsPapi n°327 : compétition sans code ESPN".to_string()]
+        );
     }
 
     #[test]

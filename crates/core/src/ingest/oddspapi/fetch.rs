@@ -111,7 +111,12 @@ pub fn run(
 }
 
 /// Lit la consommation du compte. Le corps de la réponse n'est jamais journalisé : il contient la clé.
-fn read_usage(conn: &Connection, now: Clock, fetch: Fetch, pause: Pause) -> Result<format::Usage> {
+pub(crate) fn read_usage(
+    conn: &Connection,
+    now: Clock,
+    fetch: Fetch,
+    pause: Pause,
+) -> Result<format::Usage> {
     let response = get(fetch, pause, "account", "")?;
     let usage = if response.status == 200 {
         Some(format::parse_usage(&response.body)?)
@@ -209,7 +214,7 @@ fn download(
 
 /// `GET` avec nouvelles tentatives sur un refus de débit. Un quota mensuel épuisé (`REQUEST_LIMIT_EXCEEDED`) n'est
 /// pas réessayé : il est renvoyé tel quel et arrête le passage.
-fn get(fetch: Fetch, pause: Pause, path: &str, params: &str) -> Result<HttpResponse> {
+pub(crate) fn get(fetch: Fetch, pause: Pause, path: &str, params: &str) -> Result<HttpResponse> {
     let mut attempt = 0;
     loop {
         let response = fetch(path, params)?;
