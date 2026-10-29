@@ -2522,3 +2522,33 @@ d'entraînement (137 retenues au total, comme prévu) :
   annoncée 2,38 € par euro ; 19 grilles payées, 4 tickets au 1er rang, 32 au 2e. Sur les 4 gains au 1er rang, les gagnants publiés
   dépassent la prédiction (171 contre 48, 195 contre 107, 76 contre 63, 75 contre 51) : l'espérance annoncée est très au-dessus du
   réalisé. Ce constat, lu avant le test, ne change rien au protocole.
+
+**Backtest figé du Loto Rugby 7, étape 2 : lecture unique du test (2026-10-29).** `rugby_test.py` (empreinte des paramètres vérifiée),
+60 grilles closes de janvier 2024 à 2026, 10 tickets par grille, 600 € misés :
+
+| Mesure | Valeur |
+|---|---|
+| Gain réalisé | 694,00 €, **ROI +15,7 %**, IC 95 % [−60,9 % ; +110,8 %] |
+| Sans le meilleur gain | −10,9 % |
+| Grilles payées | 11 (attendues sous le modèle : 17,0) ; 3 tickets au 1er rang, 17 au 2e |
+| Espérance annoncée | 1,99 € par euro |
+| Loi simulée sous le modèle | moyenne 1 193 €, 5e centile 420 €, médiane 1 074 € ; P(simulé ≤ réalisé) = 0,197 |
+| Tickets tirés comme le public | gain moyen 528 € (ROI −11,9 %) ; P(public ≥ réalisé) = 0,095 |
+| Calibration des concurrents (λ ≥ 10) | 1,05 ; 0,94 ; 0,99 (λ de 1 à 10 : 0,53 sur 13 observations, hors critère) |
+
+**Verdict figé : avantage NON DÉMONTRÉ.** L'IC du ROI contient 0, et P = 0,095 dépasse le seuil de 0,05. Le modèle n'est pas en défaut
+au sens du protocole (calibration dans les bornes, gain au-dessus du 5e centile).
+
+Analyses secondaires, sans rôle dans le verdict : logistique −8,6 % ; 1 ticket −24,3 % ; 3 tickets −27,1 % ; S réel +18,1 %. Les IC
+couvrent tous de −60 % à +50 % au moins.
+
+**Lecture.**
+- Les deux périodes vont dans le même sens : +7,1 % sur l'entraînement, +15,7 % sur le test, contre environ −12 à −15 % pour des
+  tickets joués comme le public. C'est cohérent avec un avantage réel, mais 60 grilles ne suffisent pas à l'établir.
+- Le modèle surestime l'espérance d'environ moitié : 1,99 annoncé contre 1,16 réalisé sur le test, et 2,38 contre 1,07 sur
+  l'entraînement. Les deux réalisés tombent sous la médiane simulée (P = 0,20 et 0,07). Les gains au 1er rang sont partagés avec plus
+  de gagnants que prévu, ce qui laisse penser que des joueurs « à contre-courant » jouent les mêmes tickets que nous.
+- Les variantes à 1 et 3 tickets font moins bien : avec si peu de grilles payées, c'est du bruit.
+- Statut comparable à celui du Loto Foot (§37) : une loterie à espérance probablement positive, sans preuve. L'espérance annoncée
+  n'est pas utilisable telle quelle comme seuil.
+- Configurations lues sur le test : 1 principale et 4 secondaires, comme annoncé.

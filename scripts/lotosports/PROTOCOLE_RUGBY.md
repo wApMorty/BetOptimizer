@@ -1,4 +1,4 @@
-# Backtest Loto Rugby 7 — protocole figé avant toute lecture du test (rédigé le 2026-10-29, à valider par Paul)
+# Backtest Loto Rugby 7 — protocole figé avant toute lecture du test (rédigé et validé par Paul le 2026-10-29 ; test lu le même jour, §61)
 
 État des lectures au moment de la rédaction :
 - **entraînement** (grilles closes avant le 2024-01-01) : retour du public, mises S et calibration de la répartition par tranche
