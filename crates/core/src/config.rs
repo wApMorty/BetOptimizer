@@ -371,6 +371,8 @@ impl Default for Config {
                 "soccer_fa_cup",
                 "soccer_spain_copa_del_rey",
                 "soccer_italy_coppa_italia",
+                // Ajoutée le 2026-10-29 (LF7 n°135, `docs/sources.md` §62).
+                "soccer_saudi_arabia_pro_league",
             ]),
             lotofoot_outlets: Vec::new(),
             grand_loto_editions: Vec::new(),

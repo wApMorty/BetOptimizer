@@ -2555,3 +2555,16 @@ couvrent tous de −60 % à +50 % au moins.
 
 **Décision (2026-10-29).** Paul clôt la piste du Loto Rugby 7 : avantage non démontré. Ni jeu réel ni relevé prospectif ; le Loto
 Basket reste écarté (historique caduc). À rouvrir seulement sur une donnée nouvelle (règlement, garantie, historique).
+
+## 62. Loto Foot : ligue saoudienne et rencontres non couvertes par The Odds API (2026-10-29)
+
+Constat sur le LF7 n°135 (clôture le 2026-10-29 à 18 h 25) : grille écartée, d'abord pour 11 noms inconnus, puis pour « cote
+Pinnacle absente ».
+
+- **Noms.** 13 alias ajoutés dans la section `[LOTOFOOT]` (LF7 n°135 et LF8 n°150), noms bruts lus sur `/v4/sports/{clé}/events`
+  (gratuit) : `Newcastle United`, `Al-Nassr`, `Al-Kholood`, `Al-Riyadh`, `Al-Qadsiah`, `Famalicão`, `Rodez AF`…
+- **Saudi Pro League.** Clé `soccer_saudi_arabia_pro_league`, active sur `/sports` ; Al-Nassr – Al-Kholood et Al-Riyadh –
+  Al-Qadsiah y figurent le 2026-10-29 à 18 h UTC. Absente jusqu'ici de `lotofoot_leagues` : ajoutée. Code ESPN `ksa.1`, vérifié sur
+  le scoreboard du jour (« Saudi Pro League », mêmes rencontres).
+- **Non couvert.** Benfica – Gil Vicente (coupe du Portugal) n'apparaît dans aucune des 50 compétitions de football de The Odds API
+  (`/events` de chacune, 2026-10-29). Une grille qui contient une rencontre de ce type reste écartée : aucun repli sans cote Pinnacle.

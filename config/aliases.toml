@@ -309,6 +309,21 @@
 "Saint Etienne" = ["St Etienne"]
 "Tottenham Hotspur" = ["Tottenham"]
 "Valencia" = ["CF Valence"]
+# Ajoutés le 2026-10-29 pour le LF7 n°135 et le LF8 n°150 (noms bruts de The Odds API lus sur `/events`, gratuit).
+# Benfica – Gil Vicente (coupe du Portugal) n'est couvert par aucune compétition de The Odds API.
+"Al-Kholood" = ["Al Kholood"]
+"Al-Nassr" = ["Al Nassr"]
+"Al-Qadsiah" = ["Al Qadisiya"]
+"Al-Riyadh" = ["Al Riyadh"]
+"Braga" = []
+"Dijon" = []
+"Everton" = []
+"Famalicão" = ["Famalicao"]
+"Frosinone" = []
+"Gil Vicente" = []
+"Lecce" = []
+"Newcastle United" = ["Newcastle"]
+"Rodez AF" = ["Rodez"]
 
 # Noms d'ESPN (scores en direct des grilles Loto Foot, docs/sources.md §46) → noms de The Odds API. Section commune à
 # toutes les compétitions. Depuis le 2026-10-24 : toutes les équipes des sept ligues archivées (Big 5, Écosse, Ligue 2),

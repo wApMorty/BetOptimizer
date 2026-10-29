@@ -19,7 +19,7 @@ pub const BASE_URL: &str = "https://site.api.espn.com/apis/site/v2/sports/soccer
 /// Clé de compétition de The Odds API → code de ligue ESPN. Codes vérifiés le 2026-10-23 sur la page « scoreboard » de
 /// chacun (`docs/sources.md` §46) : les compétitions des grilles (`lotofoot_leagues`), le Big 5 et l'Écosse. Seule
 /// manque l'Ekstraklasa polonaise : `pol.1` répond « Failed to get events endpoint » (HTTP 400).
-const LEAGUES: [(&str, &str); 36] = [
+const LEAGUES: [(&str, &str); 37] = [
     ("soccer_epl", "eng.1"),
     ("soccer_spain_la_liga", "esp.1"),
     ("soccer_germany_bundesliga", "ger.1"),
@@ -59,6 +59,8 @@ const LEAGUES: [(&str, &str); 36] = [
     ("soccer_fa_cup", "eng.fa"),
     ("soccer_spain_copa_del_rey", "esp.copa_del_rey"),
     ("soccer_italy_coppa_italia", "ita.coppa_italia"),
+    // Vérifié le 2026-10-29 (§62).
+    ("soccer_saudi_arabia_pro_league", "ksa.1"),
 ];
 
 /// Code ESPN d'une compétition de The Odds API ; `None` si ESPN n'est pas relié à cette compétition.
