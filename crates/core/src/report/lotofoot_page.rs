@@ -13,6 +13,7 @@ use crate::lotofoot::abaque;
 use crate::lotofoot::alert::Listed;
 use crate::lotofoot::bulletin::{Line, session_lines};
 use crate::lotofoot::model::{FROZEN, GridModel, RankOdds};
+use crate::lotofoot::oddspapi;
 use crate::lotofoot::outlets::Outlet;
 use crate::lotofoot::session::{self, MonthBudget, SessionReport};
 use crate::lotofoot::settle::{self, Ledger};
@@ -226,6 +227,10 @@ pub struct LotofootPage {
     pub skipped: Vec<String>,
     /// Noms d'équipes inconnus.
     pub unknown_names: Vec<String>,
+    /// Rencontres de la dernière séance dont la cote Pinnacle vient du repli OddsPapi.
+    pub oddspapi_found: Vec<String>,
+    /// Refus et pistes du repli OddsPapi de la dernière séance.
+    pub oddspapi_issues: Vec<String>,
     /// Bilans : recommandés (suivi du modèle), joués du modèle, joués hors modèle.
     pub ledgers: Vec<LedgerView>,
     /// Verdict en clair.
@@ -260,6 +265,8 @@ pub fn page(conn: &Connection, now: DateTime<Utc>, monthly_budget: u32) -> Resul
         evaluated: Vec::new(),
         skipped: Vec::new(),
         unknown_names: Vec::new(),
+        oddspapi_found: Vec::new(),
+        oddspapi_issues: Vec::new(),
         ledgers: vec![
             ledger_view(
                 "Tickets recommandés (suivi du modèle, joués ou non)",
@@ -341,10 +348,16 @@ pub fn page(conn: &Connection, now: DateTime<Utc>, monthly_budget: u32) -> Resul
                 ))
             })
             .collect();
-        page.unknown_names = list("unknown_names")
-            .iter()
-            .filter_map(|n| n.as_str().map(str::to_string))
-            .collect();
+        let texts = |key: &str| -> Vec<String> {
+            list(key)
+                .iter()
+                .filter_map(|n| n.as_str().map(str::to_string))
+                .collect()
+        };
+        page.unknown_names = texts("unknown_names");
+        page.oddspapi_found = texts("oddspapi_found");
+        page.oddspapi_issues = texts("oddspapi_refused");
+        page.oddspapi_issues.extend(texts("oddspapi_hints"));
     }
     Ok(page)
 }
@@ -801,6 +814,30 @@ pub fn threshold_text(report: &SessionReport) -> String {
     )
 }
 
+/// Bilan du repli OddsPapi en une phrase (CLI, application, Discord) ; `None` s'il n'a pas servi.
+pub fn oddspapi_text(search: &oddspapi::Search) -> Option<String> {
+    if search.found.is_empty() && search.refused.is_empty() {
+        return None;
+    }
+    let mut parts = vec![format!("Repli OddsPapi ({} requête(s))", search.spent)];
+    if !search.found.is_empty() {
+        parts.push(format!(
+            "cote Pinnacle relevée : {}",
+            search.found.join(" ; ")
+        ));
+    }
+    if !search.refused.is_empty() {
+        parts.push(format!("refus : {}", search.refused.join(" ; ")));
+    }
+    if !search.hints.is_empty() {
+        parts.push(format!(
+            "pistes pour la section [LOTOFOOT] de config/aliases.toml : {}",
+            search.hints.join(" ; ")
+        ));
+    }
+    Some(format!("{}.", parts.join(" — ")))
+}
+
 /// Texte du message Discord d'une séance : pour chaque grille, l'ordre des rencontres puis les tickets à remplir.
 pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
     let mut text = String::from("**edge · Loto Foot** — séance\n");
@@ -859,6 +896,9 @@ pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
             report.unknown_names.join(", ")
         ));
     }
+    if let Some(oddspapi) = oddspapi_text(&report.oddspapi) {
+        text.push_str(&format!("\n{oddspapi}\n"));
+    }
     if let Some(url) = site_url {
         text.push_str(&format!("\nDétail : <{url}lotofoot>\n"));
     }
@@ -870,6 +910,26 @@ pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
 mod tests {
     use super::*;
     use crate::store::migrate::migrate;
+
+    #[test]
+    fn the_oddspapi_fallback_is_summed_up_only_when_it_ran() {
+        assert_eq!(oddspapi_text(&oddspapi::Search::default()), None);
+        let search = oddspapi::Search {
+            spent: 1,
+            found: vec!["Benfica – Gil Vicente (SL Benfica – Gil Vicente Barcelos)".into()],
+            refused: vec!["Braga – Famalicão : introuvable chez OddsPapi".into()],
+            hints: vec![
+                "Braga – Famalicão : piste OddsPapi « SC Braga » – « FC Famalicao »".into(),
+            ],
+        };
+        let text = oddspapi_text(&search).unwrap();
+        assert!(
+            text.starts_with("Repli OddsPapi (1 requête(s)) — cote Pinnacle relevée : Benfica")
+        );
+        assert!(
+            text.contains("refus : Braga") && text.contains("pistes pour la section [LOTOFOOT]")
+        );
+    }
 
     #[test]
     fn the_discord_text_lists_each_grid_then_its_tickets() {

@@ -209,7 +209,9 @@
 # Loto Foot (phase 14) : noms de prono-match.fr (grilles FDJ, en français) → noms de The Odds API, toutes compétitions
 # confondues (une grille mêle Ligue 1, Ligue 2, coupes d'Europe…). Le nom canonique est celui de The Odds API ; les
 # variantes sont celles de prono-match. Chaque ligne a été appariée sur des noms réellement vus des deux côtés (relevés du
-# 2026-10-22) ; un club absent bloque la grille, avec son nom, jusqu'à ce qu'il soit ajouté ici.
+# 2026-10-22) ; un club absent bloque la grille, avec son nom, jusqu'à ce qu'il soit ajouté ici. Depuis le 2026-10-29, les
+# variantes comprennent aussi les noms d'OddsPapi (« SL Benfica »), qui servent au repli quand The Odds API n'a pas le match
+# (docs/sources.md §62) ; la séance propose des pistes pour les écrire.
 [LOTOFOOT]
 "AC Milan" = ["Milan AC"]
 "AS Monaco" = ["Monaco"]
@@ -226,7 +228,7 @@
 "Barcelona" = ["FC Barcelone"]
 "Bayer Leverkusen" = ["Leverkusen"]
 "Bayern Munich" = []
-"Benfica" = []
+"Benfica" = ["SL Benfica"]
 "Besiktas JK" = ["Besiktas"]
 "Boulogne" = []
 "Bournemouth" = []
@@ -310,7 +312,7 @@
 "Tottenham Hotspur" = ["Tottenham"]
 "Valencia" = ["CF Valence"]
 # Ajoutés le 2026-10-29 pour le LF7 n°135 et le LF8 n°150 (noms bruts de The Odds API lus sur `/events`, gratuit).
-# Benfica – Gil Vicente (coupe du Portugal) n'est couvert par aucune compétition de The Odds API.
+# Benfica – Gil Vicente (Taça da Liga) n'est couvert par aucune compétition de The Odds API : cote prise chez OddsPapi.
 "Al-Kholood" = ["Al Kholood"]
 "Al-Nassr" = ["Al Nassr"]
 "Al-Qadsiah" = ["Al Qadisiya"]
@@ -320,7 +322,7 @@
 "Everton" = []
 "Famalicão" = ["Famalicao"]
 "Frosinone" = []
-"Gil Vicente" = []
+"Gil Vicente" = ["Gil Vicente Barcelos"]
 "Lecce" = []
 "Newcastle United" = ["Newcastle"]
 "Rodez AF" = ["Rodez"]

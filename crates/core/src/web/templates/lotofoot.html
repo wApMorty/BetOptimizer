@@ -76,6 +76,8 @@
   {% if evaluated %}<p class="sub" style="margin: 6px 0 0">Évaluées : {{ evaluated|join(" ; ") }}.</p>{% endif %}
   {% for s in skipped %}<div class="notice t-warn">Écartée ou sans ticket : {{ s }}</div>{% endfor %}
   {% if unknown_names %}<div class="notice t-warn">Noms absents de <code>config/aliases.toml</code> : {{ unknown_names|join(", ") }}.</div>{% endif %}
+  {% if oddspapi_found %}<p class="sub" style="margin: 6px 0 0">Cote Pinnacle relevée chez OddsPapi (absente de The Odds API) : {{ oddspapi_found|join(" ; ") }}.</p>{% endif %}
+  {% for i in oddspapi_issues %}<div class="notice t-warn">Repli OddsPapi : {{ i }}</div>{% endfor %}
 {% else %}
   <span class="sub">Aucune séance pour l'instant.</span>
 {% endif %}

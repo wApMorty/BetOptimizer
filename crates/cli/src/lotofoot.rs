@@ -159,6 +159,9 @@ fn print_session(report: &SessionReport, dry_run: bool) {
             }
         );
     }
+    if let Some(oddspapi) = lotofoot_page::oddspapi_text(&report.oddspapi) {
+        println!("  {oddspapi}");
+    }
     if report.chosen.is_empty() {
         println!("\nAucun nouveau ticket : rien de plus à jouer.");
         return;

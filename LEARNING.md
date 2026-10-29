@@ -24,3 +24,4 @@ trois questions pour vérifier la compréhension, trois fichiers à relire en pr
 | 16 | Grand Loto et alerte EuroMillions (`edge loto`, historique FDJ, préférences du public, seuil 1,05 au pessimiste) | [docs/learning/phase-16.md](docs/learning/phase-16.md) |
 | 17 | Page « Grand Loto » de l'application Web (`/loto`, séance en boules, grilles jouées, EuroMillions au plafond) | [docs/learning/phase-17.md](docs/learning/phase-17.md) |
 | 18 | Suivi en direct des grilles Loto Foot (scores ESPN à l'affichage, code couleur des tickets, alias `[ESPN]`) | [docs/learning/phase-18.md](docs/learning/phase-18.md) |
+| 19 | Repli OddsPapi des séances Loto Foot (cote Pinnacle absente de The Odds API, migration 21, provenance au journal) | [docs/learning/phase-19.md](docs/learning/phase-19.md) |

@@ -507,6 +507,7 @@ pub fn run(
             "unknown_names": report.unknown_names,
             "leagues_fetched": report.leagues.fetched, "credits_spent": report.leagues.spent,
             "oddspapi_found": report.oddspapi.found, "oddspapi_refused": report.oddspapi.refused,
+            "oddspapi_hints": report.oddspapi.hints,
             "oddspapi_requests": report.oddspapi.spent,
         })
         .to_string();

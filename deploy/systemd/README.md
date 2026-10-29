@@ -57,6 +57,9 @@ systemctl --user daemon-reload
   `played --grid lf7:133 --ticket 1N22121` pour un ticket saisi à la main, hors modèle s'il ne correspond à aucune recommandation).
 - `edge lotofoot report`, page `/lotofoot` de l'application : bilans et vérification du modèle (critère figé, points de contrôle à 26 et 52 semaines).
 - Un nom d'équipe inconnu écarte sa grille : l'ajouter à la section `LOTOFOOT` de `config/aliases.toml`, puis réinstaller `edge`.
+- Une rencontre absente de The Odds API (coupe nationale…) est cherchée chez OddsPapi si `oddspapi_api_key` est renseignée : 1 requête
+  par séance, sous `oddspapi_monthly_cap`. Introuvable, elle écarte sa grille, avec des pistes pour écrire le nom OddsPapi dans
+  `LOTOFOOT` (`docs/sources.md` §62).
 
 ## NBA
 

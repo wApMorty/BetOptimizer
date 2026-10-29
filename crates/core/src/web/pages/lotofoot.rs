@@ -348,6 +348,9 @@ fn summary(live: &Live) -> String {
             lotofoot_page::threshold_text(report)
         ));
     }
+    if let Some(oddspapi) = lotofoot_page::oddspapi_text(&report.oddspapi) {
+        parts.push(oddspapi);
+    }
     if !live.fetched.failures.is_empty() {
         parts.push(format!(
             "Relevé de prono-match incomplet : {} page(s) non lue(s).",

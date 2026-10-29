@@ -2566,5 +2566,24 @@ Pinnacle absente ».
 - **Saudi Pro League.** Clé `soccer_saudi_arabia_pro_league`, active sur `/sports` ; Al-Nassr – Al-Kholood et Al-Riyadh –
   Al-Qadsiah y figurent le 2026-10-29 à 18 h UTC. Absente jusqu'ici de `lotofoot_leagues` : ajoutée. Code ESPN `ksa.1`, vérifié sur
   le scoreboard du jour (« Saudi Pro League », mêmes rencontres).
-- **Non couvert.** Benfica – Gil Vicente (coupe du Portugal) n'apparaît dans aucune des 50 compétitions de football de The Odds API
-  (`/events` de chacune, 2026-10-29). Une grille qui contient une rencontre de ce type reste écartée : aucun repli sans cote Pinnacle.
+- **Non couvert.** Benfica – Gil Vicente (Taça da Liga) n'apparaît dans aucune des 50 compétitions de football de The Odds API
+  (`/events` de chacune, 2026-10-29). Pinnacle le cote pourtant : OddsPapi le liste (`tournamentId` 327, « League Cup », Portugal,
+  `pinnacleId` présent) à 1,272 / 6,43 / 10,01, relevé à 18 h 05.
+
+**Repli OddsPapi (mis en production le 2026-10-29).** Faits vérifiés le jour même sur notre compte (offre gratuite, v4) :
+
+| Fait | Nature |
+|---|---|
+| `fixtures?sportId=10&from&to` : 1 requête décomptée (68 → 69 sur 250) | test réel |
+| `odds?fixtureId` : 1 requête décomptée (67 → 68) | test réel |
+| `historical-odds?fixtureId&bookmakers=pinnacle` sur un match à venir : non décompté (69 → 69), dernier prix identique à `odds` | test réel |
+| `fixtures` sans `tournamentId` : bornes à moins de 10 jours d'écart (HTTP 400 « must be under 10 days apart » sur 14 jours) | test réel |
+| `statusId` nul sur 36 des 6 686 matchs à venir de la fenêtre (compétitions de jeunes) | test réel |
+
+Déroulé, après le relevé The Odds API et seulement pour les rencontres encore sans cote : `account` (garde de budget,
+`oddspapi_monthly_cap`), `fixtures` (matchs à venir, fenêtre ramenée à 9 jours), appariement sur les deux noms exacts de la section
+`[LOTOFOOT]`, puis `historical-odds` (5,3 s entre deux matchs) et dernier prix Pinnacle de chaque issue connu au relevé, archivé
+(migration 21, `lotofoot_oddspapi_quote`). Même règle de fraîcheur que The Odds API (`lotofoot_max_odds_age_hours`) ; la date du
+dernier changement de prix est affichée, sans seuil. Coût : 1 requête par séance qui en a besoin. Une rencontre introuvable est
+refusée, avec des pistes (noms OddsPapi qui contiennent le nom cherché) jamais utilisées comme appariement. Les rencontres repêchées
+ne sont pas suivies en direct (pas de code ESPN pour les compétitions OddsPapi), et la page le signale.
