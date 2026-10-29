@@ -2449,3 +2449,63 @@ mise d'un bonus), c'est l'issue la moins chère, mais elle se présente rarement
 - NBA, couverture : Winamax suivi sur 78 matchs sur 225 (relevé incomplet avant octobre, §34), Unibet sur 39 ; Betclic absent partout.
 - Une cote Winamax aberrante (4,90 sur une issue que Pinnacle cote 2,16, 11/04/2026, 60 min avant le match) passe le filtre de la
   somme des probabilités implicites : e = +119 %. Elle est hors des tranches étudiées et sans effet sur le résultat.
+
+## 61. Loto Basket et Loto Rugby (FDJ) : garantie de 10 000 €, retour moyen de 85 % au public, premier regard sur ses biais (2026-10-29)
+
+**Demande de Paul** : étudier les grilles « Loto NBA » et Loto Rugby. Sources autorisées par Paul le 2026-10-28 : copies Wayback et
+lecture directe des pages de grilles du site des points de vente FDJ, à faible débit, faits extraits seulement.
+
+**Règles** (règlement Loto Sports v6, décision ANJ 2026-PR-087, lu le 2026-10-28) :
+- jeux : Loto Basket 7 et 15 (NBA), Loto Rugby 7 et 15 ; grille à 1 €, 70 % des mises reversées ; rangs : grilles 7 45 / 55 %,
+  grilles 15 40 / 20 / 20 / 20 % ;
+- préparation seulement dans l'application ParionsSport ou par « flash malin », validation en point de vente ;
+- pari « 1N2 handicap » : « N » est l'égalité à la fin du temps réglementaire, après handicap. Le Loto Basket est à handicap nul depuis
+  début 2026 (« N » = égalité avant prolongation), avec des handicaps non nuls de 2021 à 2025. Le Loto Rugby a un handicap par match
+  (−2 à −24 points sur les grilles du 2026-10-29) ;
+- garantie du 1er rang (art. 10.1.7.5 et 10.1.7.6) : 10 000 €, sans report, sur les Loto Rugby 7 qui comptent au moins 4 matchs de
+  Top 14, de Pro D2 ou de Coupe d'Europe, ou 3 du Tournoi des 6 nations, et sur les Loto Basket 7 qui comptent au moins 4 matchs NBA.
+  Les grilles 15 n'ont plus de garantie en 2026 (50 000 à 100 000 € auparavant) ;
+- le Basket 7 ferme le mercredi soir (n°45 : 23 h 50, heure de Paris) ; le Rugby 7 ferme le samedi en début d'après-midi
+  (n°42 : 13 h 55 ; n°46 : 14 h 25), avant le premier match de la grille.
+
+**Données** (`scripts/lotosports/`, données hors dépôt dans `~/.local/share/edge/etudes/data/ls/`) :
+- site FDJ (`fdj_get.py`, 550 identifiants, une requête toutes les 5 s) : il ne sert que les deux derniers mois, soit 16 grilles ;
+- Wayback (`wb_get.py`, 575 copies, 0 échec, 528 lisibles) : 2020 à 2026 ;
+- une copie prise avant la clôture porte la répartition du public en pourcentages entiers ; après la clôture, elle disparaît de la
+  page FDJ. Grilles avec répartition et résultats : 91 Basket 7, 139 Rugby 7.
+
+**Mesure sans modèle** (`payout.py`). Mises S déduites des rangs inférieurs (2e rang = 38,5 % de S pour une grille 7), retour du
+public = sommes versées / S :
+
+| Jeu | Grilles | S médian | Garantie déclenchée | Retour moyen | Retour médian | Grilles au-dessus de 100 % |
+|---|---|---|---|---|---|---|
+| Loto Basket 7 | 101 | 21 500 € | 99 | 86 % | 85 % | 5 |
+| Loto Rugby 7 | 156 | 22 400 € | 152 | 83 % | 83 % | 3 |
+| Loto Basket 15 (2025-2026, sans garantie) | 4 | 14 000 à 24 000 € | 0 | 42 % | 42 % | 0 |
+| Loto Rugby 15 (2026, sans garantie) | 3 | 11 300 € | 0 | 42 % | 42 % | 0 |
+
+Avec des mises d'environ 22 000 €, la part naturelle du 1er rang (31,5 % de S, environ 7 000 €) reste sous 10 000 € : la garantie
+déclenche presque toujours, et le public reçoit environ 85 % au lieu de 70 %. Une grille jouée comme le public perd donc environ 15 %.
+Le 1er rang étant une somme fixe partagée, un ticket rapporte d'autant plus que le public le joue peu.
+
+**Biais du public, période d'entraînement seulement** (`public_calib.py`, grilles closes avant le 2024-01-01 ; 2024 et suivantes
+réservées à un test figé, non lues). Fréquence de victoire d'un signe selon sa part q dans le public :
+
+| q | Basket 7 (handicaps) : signes, gagnés | Rugby 7 : signes, gagnés |
+|---|---|---|
+| 0,3 – 0,4 | 142, 45,8 % (p/q 1,28) | 220, 49,5 % (p/q 1,39) |
+| 0,4 – 0,5 | 221, 46,6 % | 346, 47,7 % |
+| 0,5 – 0,6 | 219, 51,1 % | 338, 48,8 % |
+| 0,6 – 0,7 | 108, 51,9 % (p/q 0,81) | 163, 50,3 % (p/q 0,80) |
+
+« N » : public 2,8 %, réalité 2,4 % (Basket) ; public 2,9 %, réalité 2,6 % (Rugby). Le handicap de la FDJ rend les matchs presque
+équilibrés, et la préférence du public pour un côté (60 / 40 en moyenne) n'apprend rien sur le résultat. Un ticket qui prend les côtés
+délaissés gagne aussi souvent qu'un autre, mais partage la garantie avec moins de concurrents.
+
+**Ce qui est établi, ce qui ne l'est pas.**
+- Établi : la structure (garantie qui déclenche dans 97 % des grilles 7, retour de 85 % au public), et sur l'entraînement, une
+  répartition du public sans valeur prédictive face au handicap.
+- Non établi : un gain. Il faut un protocole figé (modèle des probabilités, choix des tickets, concurrents), puis un test unique sur
+  2024-2026. Pour le Loto Rugby, l'historique reste représentatif (handicaps conservés) ; pour le Loto Basket, le passage au handicap nul
+  en 2026 le rend caduc, et il faudrait des cotes NBA (avec la probabilité d'égalité avant prolongation) et un relevé prospectif.
+- Configurations regardées : un tableau de calibration par jeu, sur l'entraînement.
