@@ -32,8 +32,9 @@ pub struct Fixture {
     pub home: String,
     /// Équipe à l'extérieur, nom brut d'OddsPapi.
     pub away: String,
-    /// Statut (voir [`STATUS_FINISHED`]).
-    pub status_id: u8,
+    /// Statut (voir [`STATUS_FINISHED`]) ; `None` quand OddsPapi n'en donne pas (vu le 2026-10-29 sur 36 matchs à venir
+    /// sur 6 686, des compétitions de jeunes).
+    pub status_id: Option<u8>,
 }
 
 /// Un changement de prix d'une issue chez un bookmaker.
@@ -79,7 +80,7 @@ struct RawFixture {
     start_time: DateTime<Utc>,
     participant1_name: String,
     participant2_name: String,
-    status_id: u8,
+    status_id: Option<u8>,
 }
 
 /// Lit la réponse de `GET /v4/fixtures` (un tableau de matchs).
@@ -231,7 +232,15 @@ mod tests {
         assert_eq!(fixtures.len(), 1);
         assert_eq!(fixtures[0].home, "Liverpool FC");
         assert_eq!(fixtures[0].kickoff, at("2026-04-13T19:00:00Z"));
-        assert_eq!(fixtures[0].status_id, STATUS_FINISHED);
+        assert_eq!(fixtures[0].status_id, Some(STATUS_FINISHED));
+    }
+
+    #[test]
+    fn a_fixture_without_status_is_still_read() {
+        let body = r#"[{"fixtureId":"id2","tournamentId":24702,"statusId":null,"startTime":"2026-10-31T09:00:00.000Z",
+            "participant1Name":"FC Ingolstadt 04","participant2Name":"VfB Stuttgart"}]"#;
+        let fixtures = parse_fixtures(body).unwrap();
+        assert_eq!(fixtures[0].status_id, None);
     }
 
     // Exemple de la documentation, complété d'une entrée en direct, d'un prix invalide et d'un marché non suivi.

@@ -167,7 +167,7 @@ fn list_finished(
     }
     Ok(format::parse_fixtures(&response.body)?
         .into_iter()
-        .filter(|f| f.status_id == STATUS_FINISHED && f.kickoff >= test_start())
+        .filter(|f| f.status_id == Some(STATUS_FINISHED) && f.kickoff >= test_start())
         .collect())
 }
 

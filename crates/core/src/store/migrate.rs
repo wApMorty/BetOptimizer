@@ -30,6 +30,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0018_lotofoot_alert.sql"),
     include_str!("migrations/0019_lotofoot_budget.sql"),
     include_str!("migrations/0020_lotofoot_match_revision.sql"),
+    include_str!("migrations/0021_lotofoot_oddspapi.sql"),
 ];
 
 /// Version du schéma attendue par ce programme (le nombre de migrations connues).

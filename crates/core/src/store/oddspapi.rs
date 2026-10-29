@@ -1,12 +1,13 @@
-//! Archive de l'historique OddsPapi (migration 14) et lecture de notre archive The Odds API pour le contrôle de qualité.
+//! Archive de l'historique OddsPapi (migration 14), relevés Pinnacle des rencontres de Loto Foot (migration 21), et lecture
+//! de notre archive The Odds API pour le contrôle de qualité.
 //!
 //! Uniquement des `INSERT` dans les tables OddsPapi : des déclencheurs interdisent toute modification ou suppression.
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::journal::parse_timestamp;
-use crate::domain::Odds;
+use crate::domain::{Odds, Odds1x2};
 use crate::error::Result;
 use crate::ingest::oddspapi::format::{Fixture, History};
 
@@ -203,6 +204,132 @@ pub fn prices_1x2_since(conn: &Connection, since: DateTime<Utc>) -> Result<Vec<S
     Ok(prices)
 }
 
+/// Une cote Pinnacle 1X2 relevée chez OddsPapi pour une rencontre de Loto Foot (migration 21).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LotofootQuote {
+    /// Appel `historical-odds` d'où vient la cote.
+    pub call_id: i64,
+    /// Match OddsPapi, avec ses noms bruts et son coup d'envoi.
+    pub fixture: Fixture,
+    /// Noms canoniques (section `LOTOFOOT` de la table d'alias) auxquels le match a été apparié.
+    pub teams: (String, String),
+    /// Cotes domicile, nul, extérieur.
+    pub odds: Odds1x2,
+    /// Dernier changement de prix Pinnacle avant le relevé.
+    pub last_change_at: DateTime<Utc>,
+    /// Instant du relevé.
+    pub fetched_at: DateTime<Utc>,
+}
+
+/// Enregistre un relevé et renvoie son identifiant.
+pub fn record_lotofoot_quote(conn: &Connection, quote: &LotofootQuote) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO lotofoot_oddspapi_quote
+             (call_id, fixture_id, tournament_id, kickoff, home_raw, away_raw, home_team, away_team,
+              price_home, price_draw, price_away, last_change_at, fetched_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![
+            quote.call_id,
+            quote.fixture.fixture_id,
+            quote.fixture.tournament_id,
+            timestamp_micros(quote.fixture.kickoff),
+            quote.fixture.home,
+            quote.fixture.away,
+            quote.teams.0,
+            quote.teams.1,
+            quote.odds.home.get(),
+            quote.odds.draw.get(),
+            quote.odds.away.get(),
+            timestamp_micros(quote.last_change_at),
+            timestamp_micros(quote.fetched_at),
+        ],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Dernier relevé de la rencontre `teams` (noms canoniques) dont le coup d'envoi tombe dans `[from ; until]` et relevé
+/// dans `[fresh_after ; before]`, avec son identifiant. `None` si l'archive n'en a pas.
+pub fn latest_lotofoot_quote(
+    conn: &Connection,
+    teams: (&str, &str),
+    kickoff: (DateTime<Utc>, DateTime<Utc>),
+    fetched: (DateTime<Utc>, DateTime<Utc>),
+) -> Result<Option<(i64, LotofootQuote)>> {
+    let row = conn
+        .query_row(
+            "SELECT id, call_id, fixture_id, tournament_id, kickoff, home_raw, away_raw, price_home, price_draw,
+                    price_away, last_change_at, fetched_at
+             FROM lotofoot_oddspapi_quote
+             WHERE home_team = ?1 AND away_team = ?2 AND kickoff BETWEEN ?3 AND ?4 AND fetched_at BETWEEN ?5 AND ?6
+             ORDER BY fetched_at DESC, id DESC LIMIT 1",
+            params![
+                teams.0,
+                teams.1,
+                timestamp_micros(kickoff.0),
+                timestamp_micros(kickoff.1),
+                timestamp_micros(fetched.0),
+                timestamp_micros(fetched.1),
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, u32>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    [row.get::<_, f64>(7)?, row.get::<_, f64>(8)?, row.get::<_, f64>(9)?],
+                    row.get::<_, String>(10)?,
+                    row.get::<_, String>(11)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((id, call_id, fixture_id, tournament_id, kick, home_raw, away_raw, prices, last, at)) =
+        row
+    else {
+        return Ok(None);
+    };
+    // La base n'accepte que des prix > 1 (contrainte CHECK) : `Odds::new` ne peut pas échouer ici.
+    let [Some(home), Some(draw), Some(away)] = prices.map(Odds::new) else {
+        return Ok(None);
+    };
+    Ok(Some((
+        id,
+        LotofootQuote {
+            call_id,
+            fixture: Fixture {
+                fixture_id,
+                tournament_id,
+                kickoff: parse_timestamp(&kick)?,
+                home: home_raw,
+                away: away_raw,
+                status_id: None,
+            },
+            teams: (teams.0.to_string(), teams.1.to_string()),
+            odds: Odds1x2 { home, draw, away },
+            last_change_at: parse_timestamp(&last)?,
+            fetched_at: parse_timestamp(&at)?,
+        },
+    )))
+}
+
+/// Coup d'envoi et compétition OddsPapi du relevé `id` (scores en direct d'une recommandation).
+pub fn lotofoot_quote_kickoff(conn: &Connection, id: i64) -> Result<Option<(u32, DateTime<Utc>)>> {
+    let row: Option<(u32, String)> = conn
+        .query_row(
+            "SELECT tournament_id, kickoff FROM lotofoot_oddspapi_quote WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    match row {
+        Some((tournament_id, kickoff)) => Ok(Some((tournament_id, parse_timestamp(&kickoff)?))),
+        None => Ok(None),
+    }
+}
+
 /// Une cote 1X2 de notre archive The Odds API (contrôle de qualité).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArchiveQuote {
@@ -291,7 +418,7 @@ mod tests {
             kickoff: at("2026-10-25T15:00:00Z"),
             home: "Angers SCO".into(),
             away: "Olympique Marseille".into(),
-            status_id: 2,
+            status_id: Some(2),
         }
     }
 
@@ -343,6 +470,61 @@ mod tests {
                 .is_err()
         );
         assert!(conn.execute("DELETE FROM oddspapi_fixture", []).is_err());
+    }
+
+    #[test]
+    fn a_lotofoot_quote_is_read_back_only_while_fresh_and_cannot_be_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open_migrated(&dir.path().join("edge.db")).unwrap();
+        let call_id = record_call(
+            &conn,
+            &NewCall {
+                called_at: at("2026-10-29T17:16:00Z"),
+                endpoint: "historical-odds",
+                params: "fixtureId=id1&bookmakers=pinnacle",
+                http_status: 200,
+                request_count: None,
+            },
+        )
+        .unwrap();
+        let odds = |h, d, a| Odds1x2 {
+            home: Odds::new(h).unwrap(),
+            draw: Odds::new(d).unwrap(),
+            away: Odds::new(a).unwrap(),
+        };
+        let quote = LotofootQuote {
+            call_id,
+            fixture: fixture(),
+            teams: ("Angers".into(), "Marseille".into()),
+            odds: odds(3.4, 3.5, 2.2),
+            last_change_at: at("2026-10-25T14:00:00.250Z"),
+            fetched_at: at("2026-10-25T14:30:00Z"),
+        };
+        let id = record_lotofoot_quote(&conn, &quote).unwrap();
+        let kickoff = (at("2026-10-25T00:00:00Z"), at("2026-10-26T00:00:00Z"));
+        let read = |fetched| {
+            latest_lotofoot_quote(&conn, ("Angers", "Marseille"), kickoff, fetched).unwrap()
+        };
+        let (read_id, read_quote) =
+            read((at("2026-10-25T10:00:00Z"), at("2026-10-25T15:00:00Z"))).unwrap();
+        assert_eq!(read_id, id);
+        assert_eq!(read_quote.odds, quote.odds);
+        assert_eq!(read_quote.last_change_at, quote.last_change_at);
+        // Relevé trop ancien, ou postérieur à la séance : ignoré.
+        assert!(read((at("2026-10-25T14:31:00Z"), at("2026-10-25T15:00:00Z"))).is_none());
+        assert!(read((at("2026-10-25T10:00:00Z"), at("2026-10-25T14:00:00Z"))).is_none());
+        assert_eq!(
+            lotofoot_quote_kickoff(&conn, id).unwrap(),
+            Some((34, at("2026-10-25T15:00:00Z")))
+        );
+        assert!(
+            conn.execute("UPDATE lotofoot_oddspapi_quote SET price_home = 9.0", [])
+                .is_err()
+        );
+        assert!(
+            conn.execute("DELETE FROM lotofoot_oddspapi_quote", [])
+                .is_err()
+        );
     }
 
     #[test]
