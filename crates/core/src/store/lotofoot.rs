@@ -5,7 +5,8 @@
 //! composition d'une grille : si la page montre d'autres rencontres pour le même numéro, la nouvelle composition est
 //! ajoutée (migration 20, `docs/sources.md` §52) et fait foi à partir de ce relevé ; rien n'est jamais apparié en silence.
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, Datelike, SecondsFormat, Utc, Weekday};
+use chrono_tz::Europe::Paris;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::journal::parse_timestamp;
@@ -439,39 +440,104 @@ pub fn latest_split(
     Ok(Some((fetch_id, split)))
 }
 
-/// Mises estimées d'une prochaine grille : médiane, sur les `window` dernières grilles de la formule de numéro inférieur,
+/// Valeurs minimales d'une case de [`stakes_estimate`] ; en dessous, on passe à la case plus large.
+const MIN_STAKES_CELL: usize = 3;
+
+/// Rapport d'une grille passée : masse du rang 2 et, si la grille elle-même est connue, sa case (jour de clôture, présence
+/// d'un pactole). Les rapports sans ligne `lotofoot_grid` n'ont pas de case : ils ne servent qu'au dernier repli.
+struct PastMass {
+    mass: f64,
+    cell: Option<(Weekday, bool)>,
+}
+
+/// Jour de la semaine d'une clôture, heure de Paris : c'est le jour où le public joue.
+fn paris_day(at: DateTime<Utc>) -> Weekday {
+    at.with_timezone(&Paris).weekday()
+}
+
+/// Rapports antérieurs à `grid`, de sa formule, du plus récent au plus ancien. Sans clôture connue, seul le numéro permet de
+/// situer un rapport : ceux-là viennent après les autres, de numéro inférieur.
+fn past_masses(conn: &Connection, grid: &GridRow) -> Result<Vec<PastMass>> {
+    let mut stmt = conn.prepare(
+        "SELECT r.winners * r.unit_gain, g.closes_at, g.jackpot IS NOT NULL
+         FROM lotofoot_rank r LEFT JOIN lotofoot_grid g ON g.game = r.game AND g.number = r.number
+         WHERE r.game = ?1 AND r.rank = 2 AND r.winners > 0 AND r.unit_gain IS NOT NULL
+           AND (g.closes_at < ?2 OR (g.closes_at IS NULL AND r.number < ?3))
+         ORDER BY g.closes_at IS NULL, g.closes_at DESC, r.number DESC",
+    )?;
+    let rows = stmt
+        .query_map(
+            params![grid.game.code(), timestamp(grid.closes_at), grid.number],
+            |row| {
+                Ok((
+                    row.get::<_, f64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, bool>(2)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter()
+        .map(|(mass, closes_at, jackpot)| {
+            // `transpose` change `Option<Result<_>>` en `Result<Option<_>>` : le `?` remonte une date illisible, et une
+            // clôture absente reste un simple `None`.
+            let cell = closes_at
+                .map(|text| parse_timestamp(&text).map(|at| (paris_day(at), jackpot)))
+                .transpose()?;
+            Ok(PastMass { mass, cell })
+        })
+        .collect()
+}
+
+/// Médiane d'une liste non vide (`0` si elle est vide : l'appelant l'écarte avant).
+fn median(values: &[f64]) -> f64 {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let mid = sorted.len() / 2;
+    match sorted.len() {
+        0 => 0.0,
+        n if n % 2 == 1 => sorted[mid],
+        _ => (sorted[mid - 1] + sorted[mid]) / 2.0,
+    }
+}
+
+/// Mises estimées d'une prochaine grille : médiane, sur les `window` dernières grilles de la même formule closes avant elle,
 /// de la masse du rang 2 divisée par sa part des mises (55 % de 70 %). `None` sans aucun rapport.
 ///
-/// L'espérance d'un ticket dépend peu des mises (environ `0,7 · p(c)/q(c)` quand les concurrents sont nombreux) : une
-/// estimation à 20 % près suffit.
-pub fn stakes_estimate(
-    conn: &Connection,
-    game: Game,
-    before: u32,
-    window: usize,
-) -> Result<Option<Euros>> {
-    let share = game.rank_shares()[1] * PAYOUT_RATE;
-    let mut stmt = conn.prepare(
-        "SELECT winners * unit_gain FROM lotofoot_rank
-         WHERE game = ?1 AND rank = 2 AND number < ?2 AND winners > 0 AND unit_gain IS NOT NULL
-         ORDER BY number DESC LIMIT ?3",
-    )?;
-    let mut masses = stmt
-        .query_map(params![game.code(), before, int(window)], |row| {
-            row.get::<_, f64>(0)
-        })?
-        .collect::<rusqlite::Result<Vec<f64>>>()?;
+/// Les grilles comparées sont celles de même jour et de même présence d'un pactole ; sous [`MIN_STAKES_CELL`] valeurs, celles
+/// de même jour, puis toutes. Les mises varient du simple au double selon le jour et sont plus fortes avec un pactole. Sans
+/// pactole, cette erreur pèse peu : masses et concurrents croissent ensemble (élasticité de l'espérance aux mises de −0,02).
+/// Avec un pactole, la masse du rang 1 est fixe : des mises sous-estimées font surestimer l'espérance (élasticité de −0,5,
+/// `docs/sources.md` §64).
+pub fn stakes_estimate(conn: &Connection, grid: &GridRow, window: usize) -> Result<Option<Euros>> {
+    let share = grid.game.rank_shares()[1] * PAYOUT_RATE;
+    let past = past_masses(conn, grid)?;
+    let day = paris_day(grid.closes_at);
+    let cell = Some((day, grid.jackpot.is_some()));
+    // `past.iter()` emprunte la liste sans la consommer : les trois lectures partent de la même liste, déjà triée du plus
+    // récent au plus ancien.
+    let by_cell: Vec<f64> = past
+        .iter()
+        .filter(|p| p.cell == cell)
+        .map(|p| p.mass)
+        .collect();
+    let by_day: Vec<f64> = past
+        .iter()
+        .filter(|p| p.cell.is_some_and(|(past_day, _)| past_day == day))
+        .map(|p| p.mass)
+        .collect();
+    let masses = if by_cell.len() >= MIN_STAKES_CELL {
+        by_cell
+    } else if by_day.len() >= MIN_STAKES_CELL {
+        by_day
+    } else {
+        past.iter().map(|p| p.mass).collect()
+    };
     if masses.is_empty() {
         return Ok(None);
     }
-    masses.sort_by(f64::total_cmp);
-    let mid = masses.len() / 2;
-    let median = if masses.len() % 2 == 1 {
-        masses[mid]
-    } else {
-        (masses[mid - 1] + masses[mid]) / 2.0
-    };
-    Ok(Euros::new(median / share))
+    let recent = &masses[..window.min(masses.len())];
+    Ok(Euros::new(median(recent) / share))
 }
 
 /// Signes sortis d'une grille, si les résultats de toutes ses rencontres sont connus.
@@ -988,13 +1054,84 @@ mod tests {
         )
         .unwrap();
         record_grid_page(&mut conn, f, Game::Lf7, &page(133, None)).unwrap();
-        let stakes = stakes_estimate(&conn, Game::Lf7, 133, 8)
-            .unwrap()
-            .unwrap()
-            .get();
+        let open = target(Game::Lf7, 133, "2026-10-25T16:10:00Z", None);
+        let stakes = stakes_estimate(&conn, &open, 8).unwrap().unwrap().get();
         // Masses du rang 2 : 95 241,4 ; 118 258,4 ; 74 050,2 → médiane 95 241,4 / 0,385.
         assert!((stakes - 2393.0 * 39.8 / 0.385).abs() < 1e-6);
-        assert!(stakes_estimate(&conn, Game::Lf8, 200, 8).unwrap().is_none());
+        let other = target(Game::Lf8, 200, "2026-10-25T16:10:00Z", None);
+        assert!(stakes_estimate(&conn, &other, 8).unwrap().is_none());
+    }
+
+    fn target(game: Game, number: u32, closes_at: &str, jackpot: Option<f64>) -> GridRow {
+        GridRow {
+            game,
+            number,
+            closes_at: at(closes_at),
+            jackpot: jackpot.and_then(Euros::new),
+            matches: Vec::new(),
+        }
+    }
+
+    /// Grille LF7 close, de masse du rang 2 `gagnants × 10 €`.
+    fn closed_grid(
+        conn: &Connection,
+        fetch: i64,
+        number: u32,
+        closes_at: &str,
+        jackpot: Option<f64>,
+        winners: u32,
+    ) {
+        conn.execute(
+            "INSERT INTO lotofoot_grid (game, number, closes_at, jackpot, fetch_id) VALUES ('lf7', ?1, ?2, ?3, ?4)",
+            params![number, closes_at, jackpot, fetch],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO lotofoot_rank (game, number, rank, winners, unit_gain, fetch_id) VALUES ('lf7', ?1, 2, ?2, 10.0, ?3)",
+            params![number, winners, fetch],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn stakes_use_the_same_day_and_jackpot_then_wider_cells() {
+        let conn = db();
+        let f = record_fetch(
+            &conn,
+            at("2026-10-24T09:00:00Z"),
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        // Trois dimanches à pactole, un dimanche sans, un lundi sans.
+        closed_grid(&conn, f, 10, "2026-10-04T16:00:00Z", Some(1e5), 300);
+        closed_grid(&conn, f, 11, "2026-10-11T16:00:00Z", Some(1e5), 310);
+        closed_grid(&conn, f, 12, "2026-10-18T16:00:00Z", Some(1e5), 320);
+        closed_grid(&conn, f, 13, "2026-10-25T16:00:00Z", None, 100);
+        closed_grid(&conn, f, 14, "2026-10-26T18:00:00Z", None, 50);
+        // Pas de fuite du futur : une grille close après la cible ne compte jamais, malgré sa case et son numéro.
+        closed_grid(&conn, f, 15, "2026-11-08T16:00:00Z", Some(1e5), 9000);
+        let estimate = |grid: &GridRow, window| {
+            stakes_estimate(&conn, grid, window).unwrap().unwrap().get() * 0.385
+        };
+        // Même jour, même pactole : 3 000, 3 100, 3 200.
+        let sunday = target(Game::Lf7, 16, "2026-11-01T16:00:00Z", Some(1e5));
+        assert!((estimate(&sunday, 8) - 3100.0).abs() < 1e-6);
+        // La fenêtre garde les plus récentes : 3 100, 3 200.
+        assert!((estimate(&sunday, 2) - 3150.0).abs() < 1e-6);
+        // Une seule valeur dans la case : repli sur le jour (1 000, 3 000, 3 100, 3 200).
+        let no_jackpot = target(Game::Lf7, 16, "2026-11-01T16:00:00Z", None);
+        assert!((estimate(&no_jackpot, 8) - 3050.0).abs() < 1e-6);
+        // Un seul lundi : repli sur toutes les grilles (500, 1 000, 3 000, 3 100, 3 200).
+        let monday = target(Game::Lf7, 16, "2026-11-02T18:00:00Z", None);
+        assert!((estimate(&monday, 8) - 3000.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_day_of_a_closing_is_read_in_paris() {
+        // Samedi 23 h 30 UTC : déjà dimanche à Paris.
+        assert_eq!(paris_day(at("2026-10-24T23:30:00Z")), Weekday::Sun);
     }
 
     #[test]

@@ -26,8 +26,9 @@ use crate::ingest::aliases::Aliases;
 use crate::ingest::snapshot::{Clock, Fetch};
 use crate::store::lotofoot::{self as store, GridRow, NewReco, NewSession, RecoRow};
 
-/// Version du modèle, enregistrée avec chaque recommandation.
-pub const MODEL_VERSION: &str = "lotofoot-2";
+/// Version du modèle, enregistrée avec chaque recommandation. `lotofoot-2` : vivier de 64 candidats (§63) ; `lotofoot-3` :
+/// mises estimées par jour et pactole (§65).
+pub const MODEL_VERSION: &str = "lotofoot-3";
 
 /// Âge maximal de la répartition utilisée : au-delà, le relevé horaire a manqué et la grille est écartée.
 pub const MAX_SPLIT_AGE_HOURS: i64 = 3;
@@ -298,8 +299,7 @@ pub fn run(
                 continue;
             }
         };
-        let Some(stakes) = store::stakes_estimate(conn, row.game, row.number, STAKES_WINDOW)?
-        else {
+        let Some(stakes) = store::stakes_estimate(conn, &row, STAKES_WINDOW)? else {
             report.skipped.push(skip(
                 "aucun rapport passé pour estimer les mises".to_string(),
             ));
