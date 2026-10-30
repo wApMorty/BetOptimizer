@@ -19,6 +19,7 @@ use super::model::{FROZEN, GridModel, PESSIMISTIC_LOW_MULT, PESSIMISTIC_SHRINK, 
 use super::odds::{self, LeagueSearch, MatchMarket, Source};
 use super::oddspapi::{self, Access};
 use super::optimize::{self, Candidate};
+use super::settle;
 use crate::config::Config;
 use crate::domain::Probs1x2;
 use crate::error::Result;
@@ -102,6 +103,8 @@ pub struct MonthBudget {
     pub month: NaiveDate,
     /// Budget du mois (budget mensuel en vigueur à la séance).
     pub budget: u32,
+    /// Gains recyclés dans ce mois, en euros entiers : ils s'ajoutent à ce que le mois peut encore miser (§67).
+    pub recycled: u32,
     /// Tickets déjà recommandés en vigueur ce mois avant la séance (hors grilles que la séance remplace).
     pub spent_before: u32,
     /// Tickets retenus par la séance pour ce mois.
@@ -111,7 +114,7 @@ pub struct MonthBudget {
 impl MonthBudget {
     /// Ce qui reste après la séance.
     pub fn left(&self) -> u32 {
-        self.budget.saturating_sub(self.spent_before + self.chosen)
+        (self.budget + self.recycled).saturating_sub(self.spent_before + self.chosen)
     }
 }
 
@@ -470,6 +473,7 @@ pub fn run(
         &recommended,
         &replaced,
         &ready,
+        started,
     )?;
     let ranked = optimize::select(all, request.threshold, optimize::MAX_TICKETS);
     report.chosen = within_budget(ranked, &mut report.months, &ready);
@@ -481,11 +485,17 @@ pub fn run(
         .map(|grid| (grid.game.code(), grid.number, grid.year))
         .collect();
     if !dry_run && (!report.chosen.is_empty() || !replaces.is_empty()) {
+        let recycled: Vec<(String, u32)> = report
+            .months
+            .iter()
+            .map(|m| (m.month.to_string(), m.recycled))
+            .collect();
         let params = json!({
             "kappa": FROZEN.kappa, "beta": FROZEN.beta, "phi": FROZEN.phi,
             "frequency_weight": config.lotofoot_frequency_weight, "threshold": request.threshold,
             "monthly_budget": request.monthly_budget, "abaque": abaque::VERSION,
             "pool_tickets": optimize::POOL_TICKETS, "max_tickets_per_grid": optimize::MAX_TICKETS,
+            "recycled_gains": recycled,
             "allocation": "ordre de clôture", "min_grid_age_hours": MIN_GRID_AGE_HOURS,
             "budget_since": budget_since().to_rfc3339(), "replace": request.replace, "replaces": replaces,
             "pessimistic_shrink": PESSIMISTIC_SHRINK,
@@ -545,14 +555,15 @@ pub fn run(
     Ok(report)
 }
 
-/// Budget de chaque mois où ferme une grille évaluée : tickets déjà recommandés en vigueur depuis [`budget_since`],
-/// sans compter ceux des grilles que la séance remplace.
+/// Budget de chaque mois où ferme une grille évaluée : tickets déjà recommandés en vigueur depuis [`budget_since`], sans
+/// compter ceux des grilles que la séance remplace, et gains recyclés connus à l'instant `at` de la séance.
 fn month_budgets(
     conn: &Connection,
     monthly_budget: u32,
     recommended: &[RecoRow],
     replaced: &[GridId],
     ready: &[Ready],
+    at: DateTime<Utc>,
 ) -> Result<Vec<MonthBudget>> {
     let since = budget_since();
     let mut months: Vec<MonthBudget> = Vec::new();
@@ -574,6 +585,7 @@ fn month_budgets(
         months.push(MonthBudget {
             month,
             budget: monthly_budget,
+            recycled: settle::recycled_gains(conn, recommended, month, at)?,
             spent_before: spent,
             chosen: 0,
         });
@@ -669,6 +681,7 @@ mod tests {
     use super::*;
     use crate::domain::{Euros, Quota};
     use crate::ingest::client::HttpResponse;
+    use crate::lotofoot::played;
     use crate::lotofoot::pronomatch::{GridPage, OpenGrid, PastRanks, RankLine};
     use crate::lotofoot::{Game, grid_of_2026};
     use crate::store::archive::{self, Endpoint, NewApiCall};
@@ -1102,6 +1115,91 @@ mod tests {
         .unwrap();
         assert_eq!(again.chosen.len(), 5);
         assert_eq!(again.months[0].spent_before, 0);
+    }
+
+    /// Déclare jouée la recommandation de rang 1 et publie à `published` son sans-faute, payé `gain` euros.
+    fn win_with_first_ticket(conn: &Connection, gain: f64, published: DateTime<Utc>) {
+        let recos = store::current_recos(conn).unwrap();
+        let winner = recos.iter().find(|r| r.position == 1).unwrap();
+        played::declare(
+            conn,
+            &[winner.id],
+            at("2026-10-24T10:10:00Z"),
+            Euros::new(1.0).unwrap(),
+        )
+        .unwrap();
+        let fetch_id = record_fetch(conn, published, Page::Results, 200, None).unwrap();
+        for (i, sign) in winner.ticket.signs().iter().enumerate() {
+            conn.execute(
+                "INSERT INTO lotofoot_result VALUES ('lf7', 2026, ?1, ?2, ?3, ?4)",
+                rusqlite::params![winner.grid.number, i as i64 + 1, sign.code(), fetch_id],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO lotofoot_rank VALUES ('lf7', 2026, ?1, 1, 10, ?2, ?3)",
+            rusqlite::params![winner.grid.number, gain, fetch_id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO lotofoot_rank VALUES ('lf7', 2026, ?1, 2, 10, NULL, ?2)",
+            rusqlite::params![winner.grid.number, fetch_id],
+        )
+        .unwrap();
+    }
+
+    /// Deux grilles : la première prend les 5 € du mois, son ticket n°1 gagne, puis une séance à 11 h sur la seconde.
+    fn session_after_a_win(published: DateTime<Utc>) -> SessionReport {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let mut aliases_text = String::new();
+        setup(&mut conn, &mut aliases_text);
+        for fetched in ["2026-10-24T01:30:00Z", "2026-10-24T09:30:00Z"] {
+            record_grid(&mut conn, 134, at("2026-10-25T12:00:00Z"), at(fetched));
+        }
+        let aliases = Aliases::parse(&aliases_text).unwrap();
+        let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
+            panic!("aucun appel attendu : {path}")
+        };
+        let mut first_clock = || at("2026-10-24T10:00:00Z");
+        let first = run(
+            &mut conn,
+            &Config::default(),
+            &aliases,
+            &mut first_clock,
+            &mut fetch,
+            None,
+            ask(5, 1.0, false, false),
+        )
+        .unwrap();
+        assert_eq!(first.chosen.len(), 5);
+        win_with_first_ticket(&conn, 3.9, published);
+        let mut second_clock = || at("2026-10-24T11:00:00Z");
+        run(
+            &mut conn,
+            &Config::default(),
+            &aliases,
+            &mut second_clock,
+            &mut fetch,
+            None,
+            ask(5, 1.0, false, false),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_recycled_gain_buys_as_many_tickets_and_no_more() {
+        let report = session_after_a_win(at("2026-10-24T10:30:00Z"));
+        let month = report.months[0];
+        assert_eq!((month.recycled, month.spent_before), (3, 5));
+        assert_eq!((report.chosen.len(), month.left()), (3, 0));
+    }
+
+    #[test]
+    fn a_gain_published_after_the_session_buys_nothing() {
+        let report = session_after_a_win(at("2026-10-24T12:00:00Z"));
+        assert_eq!(report.months[0].recycled, 0);
+        assert!(report.chosen.is_empty());
     }
 
     #[test]

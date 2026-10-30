@@ -7,13 +7,15 @@
 //!
 //! Rien n'est stocké : le règlement se recalcule à la demande, à partir du journal immuable.
 
+use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::Connection;
 
 use super::model::GridModel;
+use super::session::{budget_since, month_of};
 use super::{Game, Ticket};
 use crate::domain::{Euros, Outcome};
 use crate::error::Result;
-use crate::store::lotofoot::{self as store, PublishedRank};
+use crate::store::lotofoot::{self as store, PublishedRank, RecoRow};
 
 /// Règlement d'un ticket.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -165,9 +167,235 @@ pub fn played_ledgers(conn: &Connection) -> Result<(Ledger, Ledger)> {
     Ok((model, off))
 }
 
+/// Gains recyclés dans le budget de `month`, en euros entiers (§67) : ceux que connaît une séance de l'instant `at`.
+///
+/// Comptent les tickets du modèle déclarés joués avant `at`, dont la mise a compté dans le budget (`recos` : recommandations
+/// en vigueur, écrites depuis [`budget_since`]), sur les grilles qui ferment ce mois-là. Un gain reste donc rattaché au mois
+/// de sa mise, et les tickets hors modèle n'y entrent pas (CLAUDE.md, invariant 7). Une grille dont la composition a changé
+/// après la déclaration n'est pas réglée automatiquement : elle ne recycle rien.
+pub fn recycled_gains(
+    conn: &Connection,
+    recos: &[RecoRow],
+    month: NaiveDate,
+    at: DateTime<Utc>,
+) -> Result<u32> {
+    let since = budget_since();
+    let mut total = 0.0;
+    for play in store::plays(conn)? {
+        let counted = recos
+            .iter()
+            .any(|r| Some(r.id) == play.reco_id && r.created_at >= since);
+        if !counted || play.played_at > at {
+            continue;
+        }
+        let Some(grid) = store::grid(conn, play.grid)? else {
+            continue;
+        };
+        if month_of(grid.closes_at) != month
+            || store::published_after(conn, play.grid, at)?
+            || store::recomposition(conn, play.grid)?.is_some_and(|c| c.played_before)
+        {
+            continue;
+        }
+        let Some(results) = store::results(conn, play.grid)? else {
+            continue;
+        };
+        let ranks = store::ranks(conn, play.grid)?;
+        let Some(settled) = played(play.grid.game, &play.ticket, &results, &ranks) else {
+            continue;
+        };
+        total += settled.gain * play.stake / super::TICKET_PRICE;
+    }
+    // Le budget se compte en tickets d'un euro : on arrondit vers le bas, et `as` ne peut pas dépasser les bornes de `u32`.
+    Ok(total as u32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lotofoot::grid_of_2026;
+    use crate::lotofoot::played::{declare, declare_manual};
+    use crate::lotofoot::pronomatch::{GridPage, OpenGrid};
+    use crate::store::lotofoot::{
+        NewReco, NewSession, Page, record_fetch, record_grid_page, record_session,
+    };
+    use crate::store::migrate::migrate;
+
+    fn at(s: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    const OCTOBER: fn() -> NaiveDate = || NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
+
+    /// Une grille LF7 qui ferme le 25 octobre, deux tickets recommandés à `session_at`.
+    fn journal(session_at: DateTime<Utc>) -> Connection {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let f = record_fetch(
+            &conn,
+            at("2026-10-23T09:00:00Z"),
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        let page = GridPage {
+            open: Some(OpenGrid {
+                game: Game::Lf7,
+                accepting: true,
+                number: 133,
+                closes_at: at("2026-10-25T16:10:00Z"),
+                jackpot: None,
+                matches: (1..=7)
+                    .map(|i| (format!("H{i}"), format!("A{i}")))
+                    .collect(),
+                split: Some(vec![[50, 30, 20]; 7]),
+                split_at: None,
+            }),
+            history: vec![],
+        };
+        record_grid_page(&mut conn, f, Game::Lf7, &page).unwrap();
+        let tickets = [
+            Ticket::parse("1N21N21").unwrap(),
+            Ticket::parse("2N21N21").unwrap(),
+        ];
+        let recos: Vec<NewReco<'_>> = tickets
+            .iter()
+            .enumerate()
+            .map(|(i, ticket)| NewReco {
+                grid: grid_of_2026(Game::Lf7, 133),
+                ticket,
+                position: i + 1,
+                ev_base: 1.8,
+                ev_pessimistic: 1.4,
+                paid_probability: 0.02,
+                stakes_estimate: 200_000.0,
+                split_fetch_id: f,
+                inputs: "{}",
+            })
+            .collect();
+        let session = NewSession {
+            created_at: session_at,
+            model_version: "lotofoot-3",
+            params: "{}",
+            notes: "{}",
+        };
+        record_session(&mut conn, &session, &recos).unwrap();
+        conn
+    }
+
+    /// Résultats « 1N21N21 » et rapports relevés à `fetched` : 476 € au sans-faute, 29,70 € à une erreur.
+    fn publish(conn: &Connection, fetched: DateTime<Utc>) {
+        let f = record_fetch(conn, fetched, Page::Results, 200, None).unwrap();
+        for (i, outcome) in ["H", "D", "A", "H", "D", "A", "H"].iter().enumerate() {
+            conn.execute(
+                "INSERT INTO lotofoot_result VALUES ('lf7', 2026, 133, ?1, ?2, ?3)",
+                rusqlite::params![i as i64 + 1, outcome, f],
+            )
+            .unwrap();
+        }
+        for (rank, winners, gain) in [(1, 210, 476.0), (2, 3601, 29.7)] {
+            conn.execute(
+                "INSERT INTO lotofoot_rank VALUES ('lf7', 2026, 133, ?1, ?2, ?3, ?4)",
+                rusqlite::params![rank, winners, gain, f],
+            )
+            .unwrap();
+        }
+    }
+
+    fn euros(amount: f64) -> Euros {
+        Euros::new(amount).unwrap()
+    }
+
+    /// Identifiant du ticket à une erreur, gagnant de 29,70 €.
+    fn second_ticket(conn: &Connection) -> i64 {
+        store::current_recos(conn)
+            .unwrap()
+            .iter()
+            .find(|r| r.ticket.to_string() == "2N21N21")
+            .unwrap()
+            .id
+    }
+
+    const SESSION: &str = "2026-10-24T10:00:00Z";
+    const PLAYED: &str = "2026-10-24T11:00:00Z";
+    const PUBLISHED: &str = "2026-10-25T20:00:00Z";
+    const LATER: &str = "2026-10-26T10:00:00Z";
+
+    fn recycled(conn: &Connection, when: &str) -> u32 {
+        let recos = store::current_recos(conn).unwrap();
+        recycled_gains(conn, &recos, OCTOBER(), at(when)).unwrap()
+    }
+
+    #[test]
+    fn a_winning_played_ticket_is_recycled_rounded_down() {
+        let conn = journal(at(SESSION));
+        publish(&conn, at(PUBLISHED));
+        let id = second_ticket(&conn);
+        declare(&conn, &[id], at(PLAYED), euros(1.0)).unwrap();
+        assert_eq!(recycled(&conn, LATER), 29);
+    }
+
+    #[test]
+    fn a_larger_stake_is_paid_as_many_times() {
+        let conn = journal(at(SESSION));
+        publish(&conn, at(PUBLISHED));
+        let id = second_ticket(&conn);
+        declare(&conn, &[id], at(PLAYED), euros(2.0)).unwrap();
+        assert_eq!(recycled(&conn, LATER), 59);
+    }
+
+    #[test]
+    fn nothing_is_recycled_without_a_declaration() {
+        let conn = journal(at(SESSION));
+        publish(&conn, at(PUBLISHED));
+        assert_eq!(recycled(&conn, LATER), 0);
+    }
+
+    #[test]
+    fn off_model_tickets_are_not_recycled() {
+        let conn = journal(at(SESSION));
+        publish(&conn, at(PUBLISHED));
+        let ticket = Ticket::parse("1N21N22").unwrap();
+        let grid = grid_of_2026(Game::Lf7, 133);
+        declare_manual(&conn, grid, &ticket, at(PLAYED), euros(1.0)).unwrap();
+        assert_eq!(recycled(&conn, LATER), 0);
+    }
+
+    #[test]
+    fn tickets_older_than_the_budget_are_not_recycled() {
+        let conn = journal(at("2026-10-23T10:00:00Z"));
+        publish(&conn, at(PUBLISHED));
+        let id = second_ticket(&conn);
+        declare(&conn, &[id], at(PLAYED), euros(1.0)).unwrap();
+        assert_eq!(recycled(&conn, LATER), 0);
+    }
+
+    #[test]
+    fn a_session_does_not_see_a_report_or_a_play_from_its_future() {
+        let conn = journal(at(SESSION));
+        publish(&conn, at(PUBLISHED));
+        let id = second_ticket(&conn);
+        declare(&conn, &[id], at(PLAYED), euros(1.0)).unwrap();
+        assert_eq!(recycled(&conn, "2026-10-25T19:59:59Z"), 0);
+        let conn = journal(at(SESSION));
+        publish(&conn, at(PUBLISHED));
+        let id = second_ticket(&conn);
+        declare(&conn, &[id], at("2026-10-26T09:00:00Z"), euros(1.0)).unwrap();
+        assert_eq!(recycled(&conn, "2026-10-26T08:59:59Z"), 0);
+    }
+
+    #[test]
+    fn a_gain_stays_in_the_month_of_its_grid() {
+        let conn = journal(at(SESSION));
+        publish(&conn, at(PUBLISHED));
+        let id = second_ticket(&conn);
+        declare(&conn, &[id], at(PLAYED), euros(1.0)).unwrap();
+        let recos = store::current_recos(&conn).unwrap();
+        let november = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
+        let gains = recycled_gains(&conn, &recos, november, at("2026-11-02T10:00:00Z")).unwrap();
+        assert_eq!(gains, 0);
+    }
 
     fn ranks(w1: u32, g1: Option<f64>, w2: u32, g2: Option<f64>) -> Vec<PublishedRank> {
         vec![

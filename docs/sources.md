@@ -2888,4 +2888,14 @@ propre table.
 100 €, 45 % à 200 €, 75 % à 400 € (brut, entraînement). Sous « public juste » : 6 % à 100 €, 15 % à 200 €, 35 % à 400 €, avec une perte
 moyenne de 553 à 2 089 € par an. Un sans-faute n'est pas le pactole entier : il se partage entre les gagnants (162 à 1 161 € par sans-faute
 sur les trois grilles réglées d'octobre). L'espérance croît avec le budget, mais chaque euro ajouté rapporte moins, environ 0,65 € d'espérance
-de 100 à 200 € et 0,5 € de 200 à 400 €. **Aucun gain démontré** (test figé du §37). **Aucune règle de production ne change ici.**
+de 100 à 200 € et 0,5 € de 200 à 400 €. **Aucun gain démontré** (test figé du §37).
+
+**En production depuis le 2026-10-30** (choix de Paul) : `disponible du mois = budget + gains recyclés − tickets recommandés du mois`
+(`settle::recycled_gains`, `session::MonthBudget::recycled`), l'abaque restant celui du budget saisi, sans table recyclée : à 100 € et
+τ 1,7, espérance S3 de +1 235 / +1 133 € par an pour 106 / 98 € de mises par mois. Comptent les tickets du modèle déclarés joués, dont
+la mise a compté dans le budget (donc pas les tickets antérieurs au 24 octobre ni ceux d'une grille recomposée après leur déclaration),
+sur les grilles qui ferment dans le mois, résultats et rapports relevés avant la séance. Trois choix de Paul : **aucun plafond** sur les
+gains recyclés ; gain rattaché au **mois de clôture** de sa grille (une grille qui ferme le dernier jour ne recycle donc rien) ; **tickets
+hors modèle exclus** (invariant 7). Le gain compte dès la publication du rapport, avant son encaissement ; euros entiers arrondis vers le
+bas. Aucune migration, version `lotofoot-3` et abaque conservés, montants écrits dans les paramètres de séance (`recycled_gains`). La perte
+annuelle maximale de 12 budgets vaut pour les tickets recommandés, hors paris hors modèle et hors mises supérieures à 1 €.

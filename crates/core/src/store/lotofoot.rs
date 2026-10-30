@@ -686,6 +686,22 @@ pub fn results(conn: &Connection, id: GridId) -> Result<Option<Vec<Outcome>>> {
     Ok(codes.iter().map(|c| Outcome::from_code(c)).collect())
 }
 
+/// `true` si un résultat ou un rapport de la grille a été relevé après `at` : une séance de cet instant ne peut pas le
+/// connaître (CLAUDE.md, invariant 1).
+pub fn published_after(conn: &Connection, id: GridId, at: DateTime<Utc>) -> Result<bool> {
+    let later: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+             SELECT fetch_id FROM lotofoot_result WHERE game = ?1 AND year = ?2 AND number = ?3
+             UNION ALL
+             SELECT fetch_id FROM lotofoot_rank WHERE game = ?1 AND year = ?2 AND number = ?3
+         ) published JOIN lotofoot_fetch f ON f.id = published.fetch_id
+         WHERE f.fetched_at > ?4",
+        params![id.game.code(), id.year, id.number, timestamp(at)],
+        |row| row.get(0),
+    )?;
+    Ok(later > 0)
+}
+
 /// Rapport publié d'un rang : gagnants et gain unitaire.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PublishedRank {

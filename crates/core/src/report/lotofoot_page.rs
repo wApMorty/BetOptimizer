@@ -149,6 +149,8 @@ pub struct BudgetView {
     pub month: String,
     /// Tickets en vigueur des grilles qui ferment ce mois (depuis l'entrée en vigueur du budget).
     pub spent: u32,
+    /// Gains recyclés dans ce mois (euros entiers, §67).
+    pub recycled: u32,
     /// Ce qui reste.
     pub left: u32,
 }
@@ -456,12 +458,14 @@ fn budget_view(
             spent += 1;
         }
     }
+    let recycled = settle::recycled_gains(conn, recos, month, now)?;
     Ok(BudgetView {
         monthly,
         threshold: abaque::threshold(monthly).map_or(String::new(), |t| decimal(t, 1)),
         month: month_label(month),
         spent,
-        left: monthly.saturating_sub(spent),
+        recycled,
+        left: (monthly + recycled).saturating_sub(spent),
     })
 }
 
@@ -771,13 +775,19 @@ fn last_chances(outlets: &[Outlet], closes_at: DateTime<Utc>, now: DateTime<Utc>
     text
 }
 
-/// Budget restant de chaque mois après la séance : « octobre 2026 : 44 € restant(s) sur 60 € ».
+/// Budget restant de chaque mois après la séance : « octobre 2026 : 44 € restant(s) sur 60 € », suivi au besoin de
+/// « + 12 € de gains recyclés ».
 pub fn months_text(months: &[MonthBudget]) -> String {
     months
         .iter()
         .map(|m| {
+            let recycled = if m.recycled > 0 {
+                format!(" + {} € de gains recyclés", m.recycled)
+            } else {
+                String::new()
+            };
             format!(
-                "{} : {} € restant(s) sur {} €",
+                "{} : {} € restant(s) sur {} €{recycled}",
                 month_label(m.month),
                 m.left(),
                 m.budget
@@ -972,6 +982,7 @@ mod tests {
             months: vec![MonthBudget {
                 month: chrono::NaiveDate::from_ymd_opt(2026, 10, 1).unwrap(),
                 budget: 60,
+                recycled: 0,
                 spent_before: 4,
                 chosen: 1,
             }],
