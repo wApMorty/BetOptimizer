@@ -2699,3 +2699,24 @@ y serait plus contraint et le coût peut y différer. **Autre point relevé** : 
 2025), alors que la clé est `(game, number)` et que `stakes_estimate` trie par numéro.
 
 **Rien ne change en production ici.** Plan soumis à Paul (estimateur par jour et pactole), en attente de son go.
+
+## 65. Loto Foot : mises estimées par jour et pactole, effet attendu vers fin décembre (2026-10-30)
+
+**Choix de Paul du 2026-10-30** : `day_jack_8` (§64), préféré à `reg` que désignait la règle figée. Gain équivalent sur l'entraînement
+(+62 contre +67 € par an) pour quelques lignes de SQL au lieu d'une régression. Son meilleur résultat sur le test ne sert pas d'argument.
+
+**Changement** : `store::stakes_estimate` prend la grille visée et lit les rapports par une jointure sur `lotofoot_grid`, triés par clôture.
+Médiane des 8 dernières de même jour (heure de Paris) et de même présence d'un pactole ; sous 3 valeurs, même jour ; sous 3 valeurs, toutes.
+Les rapports sans ligne `lotofoot_grid` (n°125 à 132, n°138 à 145) n'ont pas de case, ne servent qu'au dernier repli, et restent filtrés par
+numéro. `MODEL_VERSION` passe à `lotofoot-2`, l'estimation changeant les prédictions à entrées égales (invariant 9). τ, l'abaque et la règle
+de sélection ne changent pas. Le protocole de dérive reprend les mises figées au journal : il n'est pas touché.
+
+**Démarrage à froid.** Sur les neuf grilles connues, l'estimation nouvelle est **identique** à l'ancienne : `lotofoot_grid` ne remonte qu'à
+octobre, aucune case n'a 3 valeurs, toutes passent par le dernier repli. Les erreurs du §64 restent donc entières pour l'instant (44 % en
+moyenne sur les sept grilles réglées). Délai mesuré en repartant de zéro sur l'archive 2022 (rythme voisin, environ 6,6 grilles par
+semaine) : 69 % des grilles dans leur case aux semaines 4 à 7, environ 90 % à partir de la huitième, soit **vers fin décembre**. Aucun
+amorçage par l'archive : elle s'arrête en décembre 2025 et son niveau a dix mois. Un repli intermédiaire sur le seul pactole améliore peu ce
+démarrage et n'a pas été testé par le protocole du §64 : écarté.
+
+**Contrôle** : `scripts/check.sh` vert (791 tests), dont cases et replis, fenêtre, absence de fuite du futur, jour lu à Paris. Rejeu des
+neuf grilles par la requête de production, en lecture seule.
