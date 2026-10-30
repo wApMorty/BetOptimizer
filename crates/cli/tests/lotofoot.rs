@@ -67,7 +67,7 @@ mod journal {
     use super::run_edge;
     use chrono::{Duration, Utc};
     use edge_core::lotofoot::pronomatch::{GridPage, OpenGrid};
-    use edge_core::lotofoot::{Game, Ticket};
+    use edge_core::lotofoot::{Game, GridId, Ticket};
     use edge_core::store::lotofoot::{
         NewReco, NewSession, Page, plays, record_fetch, record_grid_page, record_session,
     };
@@ -104,8 +104,11 @@ mod journal {
             .iter()
             .enumerate()
             .map(|(i, ticket)| NewReco {
-                game: Game::Lf7,
-                number: 133,
+                grid: GridId {
+                    game: Game::Lf7,
+                    year: 2026,
+                    number: 133,
+                },
                 ticket,
                 position: i + 1,
                 ev_base: 1.8,

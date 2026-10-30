@@ -246,7 +246,7 @@ def journal_grids():
     path = os.path.expanduser("~/.local/share/edge/edge.db")
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     rows = db.execute("""select game, number, ticket, ev_pessimistic, inputs from lotofoot_reco r
-                         where session_id = (select max(session_id) from lotofoot_reco x where x.game = r.game and x.number = r.number)
+                         where session_id = (select max(session_id) from lotofoot_reco x where x.game = r.game and x.year = r.year and x.number = r.number)
                          order by session_id desc, position""").fetchall()
     grids = {}
     for game, number, ticket, ev, inputs in rows:

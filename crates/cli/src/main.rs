@@ -208,7 +208,7 @@ enum LotofootCommand {
         /// Tous les tickets de la dernière séance.
         #[arg(long)]
         last_session: bool,
-        /// Grille d'un ticket saisi à la main, au format lf7:133.
+        /// Grille d'un ticket saisi à la main : lf7:133 (année en cours) ou lf7:2026:133.
         #[arg(long, requires = "ticket")]
         grid: Option<String>,
         /// Ticket saisi à la main (1N22121) ; hors modèle s'il ne correspond à aucune recommandation.

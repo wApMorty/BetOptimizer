@@ -109,7 +109,7 @@ struct Detail {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 struct Bulletin {
     grid: String,
-    /// `lf7-133`, pour le bouton « J'ai joué cette grille ».
+    /// `lf7-2026-133`, pour le bouton « J'ai joué cette grille ».
     key: String,
     closes: String,
     /// Séance qui a choisi les tickets.
@@ -176,9 +176,9 @@ fn follow(app: &App, now: DateTime<Utc>) -> Result<Follow> {
     issues.extend(scores::stored_issues(&conn, &tracked)?);
     let mut grids: Vec<(String, Vec<MatchNow>)> = Vec::new();
     for reco in &recos {
-        let name = format!("{} n°{}", reco.game, reco.number);
+        let name = reco.grid.to_string();
         if !grids.iter().any(|(g, _)| *g == name) {
-            grids.push((name, scores::grid_now(&conn, reco.game, reco.number)?));
+            grids.push((name, scores::grid_now(&conn, reco.grid)?));
         }
     }
     Ok(Follow {
@@ -485,7 +485,10 @@ mod tests {
             html.contains("+3 %") && html.contains("2 ticket(s) limite(s)"),
             "{html}"
         );
-        assert!(html.contains("name=\"grille\" value=\"lf7-133\""), "{html}");
+        assert!(
+            html.contains("name=\"grille\" value=\"lf7-2026-133\""),
+            "{html}"
+        );
         // La séance est présentée à part des tickets.
         assert!(html.contains("Dernière séance"), "{html}");
         let html = empty().html("/lotofoot");
@@ -498,8 +501,8 @@ mod tests {
 
     #[test]
     fn a_match_in_progress_colours_the_signs_and_the_grid() {
-        use crate::lotofoot::Game;
         use crate::lotofoot::espn::Phase;
+        use crate::lotofoot::{Game, grid_of_2026};
         use crate::store::lotofoot_live::{LiveScore, upsert_score};
 
         let sample = sample();
@@ -507,8 +510,7 @@ mod tests {
         // Première rencontre en cours, 1 – 0 : le double 12 de la grille a un signe juste (1) et un faux (2).
         upsert_score(
             &conn,
-            Game::Lf7,
-            133,
+            grid_of_2026(Game::Lf7, 133),
             1,
             &LiveScore {
                 league: "fra.2".to_string(),
@@ -553,15 +555,21 @@ mod tests {
 
     #[test]
     fn a_played_grid_with_all_its_results_is_no_longer_shown() {
-        use crate::lotofoot::Game;
         use crate::lotofoot::pronomatch::GridResult;
+        use crate::lotofoot::{Game, grid_of_2026};
         use crate::store::lotofoot::{Page as FetchPage, record_fetch, record_results};
 
         let sample = sample();
         let mut conn = crate::store::open_migrated(&sample.app.paths.db_file).unwrap();
         // Les deux tickets du LF7 n°133 sont joués : la grille passe dans « En cours ».
         let stake = crate::domain::Euros::new(1.0).unwrap();
-        crate::lotofoot::played::declare_grid(&conn, Game::Lf7, 133, sample.now, stake).unwrap();
+        crate::lotofoot::played::declare_grid(
+            &conn,
+            grid_of_2026(Game::Lf7, 133),
+            sample.now,
+            stake,
+        )
+        .unwrap();
         let html = sample.html("/lotofoot");
         assert!(html.contains("En cours"), "{html}");
         assert!(html.contains("LF7 n°133"), "{html}");
@@ -570,7 +578,7 @@ mod tests {
         let result = GridResult {
             game: Some(Game::Lf7),
             number: 133,
-            date: None,
+            date: chrono::NaiveDate::from_ymd_opt(2026, 10, 25),
             matches: (1..=7)
                 .map(|i| {
                     (

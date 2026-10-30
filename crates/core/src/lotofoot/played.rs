@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 
-use super::{Game, Ticket};
+use super::{GridId, Ticket};
 use crate::domain::Euros;
 use crate::error::{Error, Result};
 use crate::store::lotofoot::{self as store, NewPlay, RecoRow};
@@ -59,19 +59,15 @@ pub fn declare_last_session(
 /// Déclare joués les tickets en vigueur d'une grille (bouton « J'ai joué cette grille »).
 pub fn declare_grid(
     conn: &Connection,
-    game: Game,
-    number: u32,
+    grid: GridId,
     now: DateTime<Utc>,
     stake: Euros,
 ) -> Result<Declared> {
     let recos = store::current_recos(conn)?;
-    let chosen: Vec<&RecoRow> = recos
-        .iter()
-        .filter(|r| (r.game, r.number) == (game, number))
-        .collect();
+    let chosen: Vec<&RecoRow> = recos.iter().filter(|r| r.grid == grid).collect();
     if chosen.is_empty() {
         return Err(Error::Input(format!(
-            "aucun ticket en vigueur pour la grille {game} n°{number}"
+            "aucun ticket en vigueur pour la grille {grid}"
         )));
     }
     write(conn, &chosen, now, stake)
@@ -97,8 +93,7 @@ fn write(
             conn,
             &NewPlay {
                 played_at: now,
-                game: reco.game,
-                number: reco.number,
+                grid: reco.grid,
                 ticket: &reco.ticket,
                 stake,
                 reco_id: Some(reco.id),
@@ -123,27 +118,27 @@ pub enum Manual {
 /// Déclare joué un ticket saisi à la main sur une grille relevée.
 pub fn declare_manual(
     conn: &Connection,
-    game: Game,
-    number: u32,
+    grid: GridId,
     ticket: &Ticket,
     now: DateTime<Utc>,
     stake: Euros,
 ) -> Result<Manual> {
-    if ticket.len() != game.matches() {
+    if ticket.len() != grid.game.matches() {
         return Err(Error::Input(format!(
-            "{game} : {} signes attendus, {} donnés",
-            game.matches(),
+            "{} : {} signes attendus, {} donnés",
+            grid.game,
+            grid.game.matches(),
             ticket.len()
         )));
     }
-    if store::grid(conn, game, number)?.is_none() {
+    if store::grid(conn, grid)?.is_none() {
         return Err(Error::Input(format!(
-            "{game} n°{number} inconnue : elle n'a jamais été relevée"
+            "{grid} inconnue : elle n'a jamais été relevée"
         )));
     }
     let reco_id = store::current_recos(conn)?
         .iter()
-        .find(|r| r.game == game && r.number == number && r.ticket == *ticket)
+        .find(|r| r.grid == grid && r.ticket == *ticket)
         .map(|r| r.id);
     if let Some(id) = reco_id
         && store::plays(conn)?.iter().any(|p| p.reco_id == Some(id))
@@ -154,8 +149,7 @@ pub fn declare_manual(
         conn,
         &NewPlay {
             played_at: now,
-            game,
-            number,
+            grid,
             ticket,
             stake,
             reco_id,
@@ -168,6 +162,7 @@ pub fn declare_manual(
 mod tests {
     use super::*;
     use crate::lotofoot::pronomatch::{GridPage, OpenGrid};
+    use crate::lotofoot::{Game, grid_of_2026};
     use crate::store::lotofoot::{
         NewReco, NewSession, Page, record_fetch, record_grid_page, record_session,
     };
@@ -213,8 +208,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(i, ticket)| NewReco {
-                game: Game::Lf7,
-                number: 133,
+                grid: grid_of_2026(Game::Lf7, 133),
                 ticket,
                 position: i + 1,
                 ev_base: 1.8,
@@ -271,21 +265,33 @@ mod tests {
         let conn = journal();
         let now = at("2026-10-24T14:00:00Z");
         let recommended = Ticket::parse("1N21N21").unwrap();
-        let Manual::Recorded(Some(id)) =
-            declare_manual(&conn, Game::Lf7, 133, &recommended, now, one()).unwrap()
-        else {
+        let Manual::Recorded(Some(id)) = declare_manual(
+            &conn,
+            grid_of_2026(Game::Lf7, 133),
+            &recommended,
+            now,
+            one(),
+        )
+        .unwrap() else {
             panic!("le ticket recommandé doit être rattaché");
         };
         assert_eq!(
-            declare_manual(&conn, Game::Lf7, 133, &recommended, now, one()).unwrap(),
+            declare_manual(
+                &conn,
+                grid_of_2026(Game::Lf7, 133),
+                &recommended,
+                now,
+                one()
+            )
+            .unwrap(),
             Manual::AlreadyDeclared(id)
         );
         let other = Ticket::parse("1111111").unwrap();
         assert_eq!(
-            declare_manual(&conn, Game::Lf7, 133, &other, now, one()).unwrap(),
+            declare_manual(&conn, grid_of_2026(Game::Lf7, 133), &other, now, one()).unwrap(),
             Manual::Recorded(None)
         );
-        assert!(declare_manual(&conn, Game::Lf7, 999, &other, now, one()).is_err());
-        assert!(declare_manual(&conn, Game::Lf8, 133, &other, now, one()).is_err());
+        assert!(declare_manual(&conn, grid_of_2026(Game::Lf7, 999), &other, now, one()).is_err());
+        assert!(declare_manual(&conn, grid_of_2026(Game::Lf8, 133), &other, now, one()).is_err());
     }
 }

@@ -113,13 +113,13 @@ pub fn recommended(conn: &Connection) -> Result<Ledger> {
     let mut ledger = Ledger::default();
     for reco in store::current_recos(conn)? {
         ledger.tickets += 1;
-        let Some(results) = store::results(conn, reco.game, reco.number)? else {
+        let Some(results) = store::results(conn, reco.grid)? else {
             continue;
         };
-        let ranks = store::ranks(conn, reco.game, reco.number)?;
-        let jackpot = store::grid(conn, reco.game, reco.number)?.and_then(|g| g.jackpot);
+        let ranks = store::ranks(conn, reco.grid)?;
+        let jackpot = store::grid(conn, reco.grid)?.and_then(|g| g.jackpot);
         let Some(settled) = paper(
-            reco.game,
+            reco.grid.game,
             &reco.ticket,
             &results,
             &ranks,
@@ -149,11 +149,11 @@ pub fn played_ledgers(conn: &Connection) -> Result<(Ledger, Ledger)> {
             &mut off
         };
         ledger.tickets += 1;
-        let Some(results) = store::results(conn, play.game, play.number)? else {
+        let Some(results) = store::results(conn, play.grid)? else {
             continue;
         };
-        let ranks = store::ranks(conn, play.game, play.number)?;
-        let Some(settled) = played(play.game, &play.ticket, &results, &ranks) else {
+        let ranks = store::ranks(conn, play.grid)?;
+        let Some(settled) = played(play.grid.game, &play.ticket, &results, &ranks) else {
             continue;
         };
         ledger.settled += 1;

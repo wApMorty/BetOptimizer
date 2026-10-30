@@ -52,6 +52,8 @@ pub struct OpenGrid {
 pub struct PastRanks {
     /// Numéro du tirage.
     pub number: u32,
+    /// Jour de clôture (`None` s'il est illisible) : le numéro seul ne dit pas de quelle année est la grille.
+    pub closed: Option<NaiveDate>,
     /// Rangs : nombre de gagnants et gain unitaire (`None` quand il n'y a « aucun gagnant »).
     pub ranks: Vec<RankLine>,
 }
@@ -111,7 +113,7 @@ fn normalize(text: &str) -> String {
 pub fn parse_grid_page(html: &str, game: Game, fetched_at: DateTime<Utc>) -> Result<GridPage> {
     let document = Html::parse_document(html);
     let open = parse_open_grid(&document, game, fetched_at)?;
-    let history = parse_history(&document);
+    let history = parse_history(&document, fetched_at);
     Ok(GridPage { open, history })
 }
 
@@ -210,8 +212,8 @@ fn parse_triplet(text: &str) -> Option<[u32; 3]> {
     <[u32; 3]>::try_from(values).ok()
 }
 
-/// Tableau des rapports des dernières grilles : lignes dont la première cellule est « n°… ».
-fn parse_history(document: &Html) -> Vec<PastRanks> {
+/// Tableau des rapports des dernières grilles : lignes dont la première cellule est « n°… », la deuxième le jour de clôture.
+fn parse_history(document: &Html, fetched_at: DateTime<Utc>) -> Vec<PastRanks> {
     let mut out = Vec::new();
     for row in document.select(&selector("tr")) {
         let cells: Vec<ElementRef<'_>> = row.select(&selector("td")).collect();
@@ -228,7 +230,14 @@ fn parse_history(document: &Html) -> Vec<PastRanks> {
             .filter_map(|cell| parse_history_cell(&text_of(*cell)))
             .collect();
         if !ranks.is_empty() && out.iter().all(|p: &PastRanks| p.number != number) {
-            out.push(PastRanks { number, ranks });
+            let closed = cells
+                .get(1)
+                .and_then(|c| parse_french_date(&text_of(*c), fetched_at));
+            out.push(PastRanks {
+                number,
+                closed,
+                ranks,
+            });
         }
     }
     out
@@ -383,10 +392,8 @@ const MONTHS: [&str; 12] = [
     "décembre",
 ];
 
-/// « samedi 24 octobre à 20h40 » (heure de Paris) → instant UTC. L'année n'est pas affichée : on retient celle qui
-/// place la date au plus près de `reference` (l'instant du relevé).
-fn parse_french_datetime(text: &str, reference: DateTime<Utc>) -> Option<DateTime<Utc>> {
-    let words: Vec<&str> = text.split_whitespace().collect();
+/// Jour et mois en tête d'une date française (« samedi 24 octobre … ») : le jour, le mois et l'indice du mot qui suit.
+fn day_and_month(words: &[&str]) -> Option<(u32, u32, usize)> {
     // Le jour de la semaine est facultatif ; « 1er » vaut 1.
     let start = usize::from(
         words
@@ -398,8 +405,27 @@ fn parse_french_datetime(text: &str, reference: DateTime<Utc>) -> Option<DateTim
         .iter()
         .position(|m| Some(m) == words.get(start + 1))?
         + 1;
+    Some((day, u32::try_from(month).ok()?, start + 2))
+}
+
+/// « mardi 20 octobre » → date. L'année n'est pas affichée : on retient celle qui place la date au plus près de `reference`
+/// (l'instant du relevé) ; les tableaux ne montrent que des grilles récentes, le choix est sans ambiguïté.
+fn parse_french_date(text: &str, reference: DateTime<Utc>) -> Option<NaiveDate> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let (day, month, _) = day_and_month(&words)?;
+    let today = reference.with_timezone(&Paris).date_naive();
+    (today.year() - 1..=today.year() + 1)
+        .filter_map(|y| NaiveDate::from_ymd_opt(y, month, day))
+        .min_by_key(|date| (*date - today).num_days().abs())
+}
+
+/// « samedi 24 octobre à 20h40 » (heure de Paris) → instant UTC. L'année n'est pas affichée : on retient celle qui
+/// place la date au plus près de `reference` (l'instant du relevé).
+fn parse_french_datetime(text: &str, reference: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let (day, month, next) = day_and_month(&words)?;
     // « 17h55. » : en fin de phrase (sans pactole derrière), l'heure porte le point final.
-    let time = words.get(start + 3)?.trim_end_matches('.');
+    let time = words.get(next + 1)?.trim_end_matches('.');
     let (hour, minute) = time.split_once('h')?;
     let (hour, minute): (u32, u32) = (
         hour.parse().ok()?,
@@ -409,7 +435,6 @@ fn parse_french_datetime(text: &str, reference: DateTime<Utc>) -> Option<DateTim
             minute.parse().ok()?
         },
     );
-    let month = u32::try_from(month).ok()?;
     let year = reference.with_timezone(&Paris).year();
     (year - 1..=year + 1)
         .filter_map(|y| {
@@ -464,6 +489,25 @@ mod tests {
 
     fn at(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    #[test]
+    fn a_closing_day_takes_the_year_nearest_to_the_reading() {
+        let day = |text, reading| parse_french_date(text, at(reading));
+        let date = NaiveDate::from_ymd_opt;
+        assert_eq!(
+            day("mardi 29 décembre", "2027-01-02T09:00:00Z"),
+            date(2026, 12, 29)
+        );
+        assert_eq!(
+            day("vendredi 1er janvier", "2026-12-30T09:00:00Z"),
+            date(2027, 1, 1)
+        );
+        assert_eq!(
+            day("mardi 20 octobre", "2026-10-22T09:00:00Z"),
+            date(2026, 10, 20)
+        );
+        assert_eq!(day("bientôt", "2026-10-22T09:00:00Z"), None);
     }
 
     #[test]

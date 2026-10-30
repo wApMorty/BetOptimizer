@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use crate::domain::Outcome;
 
 use super::model::{Competitors, GridModel, TicketValue};
-use super::{Game, Ticket};
+use super::{GridId, Ticket};
 
 /// Poids de la probabilité de gain dans l'objectif de la recherche gloutonne.
 pub const FREQUENCY_WEIGHT: f64 = 10.0;
@@ -112,7 +112,7 @@ pub fn best_tickets(
 #[derive(Debug, Clone, PartialEq)]
 pub struct Candidate {
     /// Grille du ticket : formule et numéro.
-    pub grid: (Game, u32),
+    pub grid: GridId,
     /// Le ticket.
     pub ticket: Ticket,
     /// Valeur dans le modèle de base.
@@ -124,7 +124,7 @@ pub struct Candidate {
 /// Candidats d'une grille : ses `POOL_TICKETS` meilleurs tickets pour le poids de fréquence `weight`, évalués dans les
 /// deux scénarios.
 pub fn candidates(
-    key: (Game, u32),
+    key: GridId,
     grid: &GridModel,
     competitors: &Competitors,
     weight: f64,
@@ -159,7 +159,7 @@ pub fn select(
             .then_with(|| a.ticket.cmp(&b.ticket))
     });
     // `retain` parcourt la liste dans l'ordre : les premiers vus de chaque grille sont ses meilleurs tickets.
-    let mut kept: HashMap<(Game, u32), usize> = HashMap::new();
+    let mut kept: HashMap<GridId, usize> = HashMap::new();
     candidates.retain(|c| {
         let count = kept.entry(c.grid).or_insert(0);
         *count += 1;
@@ -221,6 +221,7 @@ mod tests {
     use super::*;
     use crate::domain::{Euros, Probs1x2};
     use crate::lotofoot::model::FROZEN;
+    use crate::lotofoot::{Game, grid_of_2026};
 
     fn grid() -> GridModel {
         let rows_p = [
@@ -305,7 +306,12 @@ mod tests {
 
     #[test]
     fn selection_respects_the_threshold_the_cap_and_the_order() {
-        let cands = candidates((Game::Lf7, 1), &grid(), &FROZEN, FREQUENCY_WEIGHT);
+        let cands = candidates(
+            grid_of_2026(Game::Lf7, 1),
+            &grid(),
+            &FROZEN,
+            FREQUENCY_WEIGHT,
+        );
         let chosen = select(cands.clone(), 1.2, 5);
         assert!(chosen.len() <= 5);
         assert!(chosen.iter().all(|c| c.pessimistic.expected_return >= 1.2));
@@ -326,7 +332,12 @@ mod tests {
             "1222122", "1222112", "122212N", "1N22122", "122211N", "122N122", "1N22112", "12N2112",
             "12N2122", "122N112", "1N2212N", "1212112", "1N2211N", "12N211N", "1222N22", "1221122",
         ];
-        let cands = candidates((Game::Lf7, 1), &grid(), &FROZEN, FREQUENCY_WEIGHT);
+        let cands = candidates(
+            grid_of_2026(Game::Lf7, 1),
+            &grid(),
+            &FROZEN,
+            FREQUENCY_WEIGHT,
+        );
         assert_eq!(cands.len(), POOL_TICKETS);
         let chosen: Vec<String> = select(cands, 0.0, MAX_TICKETS)
             .iter()
@@ -337,16 +348,23 @@ mod tests {
 
     #[test]
     fn the_cap_applies_to_each_grid_and_not_to_the_session() {
-        let mut cands = candidates((Game::Lf7, 1), &grid(), &FROZEN, FREQUENCY_WEIGHT);
+        let mut cands = candidates(
+            grid_of_2026(Game::Lf7, 1),
+            &grid(),
+            &FROZEN,
+            FREQUENCY_WEIGHT,
+        );
         cands.extend(candidates(
-            (Game::Lf7, 2),
+            grid_of_2026(Game::Lf7, 2),
             &grid(),
             &FROZEN,
             FREQUENCY_WEIGHT,
         ));
         let chosen = select(cands, 0.0, MAX_TICKETS);
         for number in [1, 2] {
-            let on_grid = chosen.iter().filter(|c| c.grid == (Game::Lf7, number));
+            let on_grid = chosen
+                .iter()
+                .filter(|c| c.grid == grid_of_2026(Game::Lf7, number));
             assert_eq!(on_grid.count(), MAX_TICKETS);
         }
     }

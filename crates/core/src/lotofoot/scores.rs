@@ -15,7 +15,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::espn::{self, EspnGame, Phase, parse_scoreboard};
 use super::odds::canonical_matches;
-use super::{Game, Ticket};
+use super::{GridId, Ticket};
 use crate::domain::Outcome;
 use crate::error::Result;
 use crate::ingest::aliases::Aliases;
@@ -41,10 +41,8 @@ const NEARBY: Duration = Duration::hours(3);
 /// Une rencontre d'une grille recommandée, telle qu'on la cherche chez ESPN.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tracked {
-    /// Formule.
-    pub game: Game,
-    /// Numéro de la grille.
-    pub number: u32,
+    /// Grille.
+    pub grid: GridId,
     /// Position dans la grille, à partir de 1.
     pub position: u32,
     /// Équipe à domicile, nom de The Odds API.
@@ -65,18 +63,18 @@ pub fn tracked(
 ) -> Result<(Vec<Tracked>, Vec<String>)> {
     let mut out = Vec::new();
     let mut issues = Vec::new();
-    let mut seen: Vec<(Game, u32)> = Vec::new();
+    let mut seen: Vec<GridId> = Vec::new();
     for reco in recos {
-        if seen.contains(&(reco.game, reco.number)) {
+        if seen.contains(&reco.grid) {
             continue;
         }
-        seen.push((reco.game, reco.number));
+        seen.push(reco.grid);
         // Résultats officiels publiés : plus rien à suivre, ni à signaler.
-        if store::results(conn, reco.game, reco.number)?.is_some() {
+        if store::results(conn, reco.grid)?.is_some() {
             continue;
         }
-        let name = format!("{} n°{}", reco.game, reco.number);
-        let Some(grid) = store::grid(conn, reco.game, reco.number)? else {
+        let name = reco.grid.to_string();
+        let Some(grid) = store::grid(conn, reco.grid)? else {
             continue;
         };
         let teams = match canonical_matches(aliases, &grid.matches) {
@@ -105,8 +103,7 @@ pub fn tracked(
             };
             match event {
                 Some((sport_key, kickoff)) => out.push(Tracked {
-                    game: reco.game,
-                    number: reco.number,
+                    grid: reco.grid,
                     position,
                     home,
                     away,
@@ -212,8 +209,7 @@ pub fn refresh(
                         match pair(aliases, t, &board.games) {
                             Ok(game) => live::upsert_score(
                                 conn,
-                                t.game,
-                                t.number,
+                                t.grid,
                                 t.position,
                                 &LiveScore {
                                     league: league.to_string(),
@@ -246,7 +242,7 @@ fn due(conn: &Connection, t: &Tracked, now: DateTime<Utc>) -> Result<bool> {
     if now < t.kickoff || now > t.kickoff + GIVE_UP {
         return Ok(false);
     }
-    let over = live::scores(conn, t.game, t.number)?
+    let over = live::scores(conn, t.grid)?
         .iter()
         .any(|(position, score)| *position == t.position && score.phase.is_over());
     Ok(!over)
@@ -329,11 +325,11 @@ fn outcome(home_goals: u16, away_goals: u16) -> Outcome {
 }
 
 /// État de chaque rencontre d'une grille, dans l'ordre. Les résultats officiels priment sur les scores d'ESPN.
-pub fn grid_now(conn: &Connection, game: Game, number: u32) -> Result<Vec<MatchNow>> {
-    let official = store::results(conn, game, number)?;
-    let scores = live::scores(conn, game, number)?;
+pub fn grid_now(conn: &Connection, grid: GridId) -> Result<Vec<MatchNow>> {
+    let official = store::results(conn, grid)?;
+    let scores = live::scores(conn, grid)?;
     let mut out = Vec::new();
-    for index in 0..game.matches() {
+    for index in 0..grid.game.matches() {
         let position = u32::try_from(index + 1).unwrap_or(u32::MAX);
         let score = scores.iter().find(|(p, _)| *p == position).map(|(_, s)| s);
         let text = score.map_or(String::new(), |s| {
@@ -482,6 +478,7 @@ mod tests {
     use super::*;
     use crate::ingest::client::HttpResponse;
     use crate::lotofoot::pronomatch::{GridPage, OpenGrid};
+    use crate::lotofoot::{Game, grid_of_2026};
     use crate::store::lotofoot::{Page, record_fetch, record_grid_page};
     use crate::store::migrate::migrate;
 
@@ -539,8 +536,7 @@ mod tests {
             id: 1,
             session_id: 1,
             created_at: at("2026-10-24T10:00:00Z"),
-            game: Game::Lf7,
-            number: 133,
+            grid: grid_of_2026(Game::Lf7, 133),
             ticket: Ticket::parse("1N11111").unwrap(),
             position: 1,
             ev_base: 1.2,
@@ -665,7 +661,7 @@ mod tests {
         assert_eq!(stored_issues(&conn, &tracked).unwrap().len(), 1);
         drop(fetch);
         assert_eq!(calls, vec!["fra.2/scoreboard?dates=20261024"]);
-        let now = grid_now(&conn, Game::Lf7, 133).unwrap();
+        let now = grid_now(&conn, grid_of_2026(Game::Lf7, 133)).unwrap();
         assert_eq!(now[0].outcome, Some(Outcome::Home));
         assert!(now[0].live && !now[0].settled);
         assert_eq!(
@@ -710,7 +706,7 @@ mod tests {
         assert_eq!(later.watching, 0);
         drop(fetch);
         assert_eq!(count, 1);
-        let now = grid_now(&conn, Game::Lf7, 133).unwrap();
+        let now = grid_now(&conn, grid_of_2026(Game::Lf7, 133)).unwrap();
         assert_eq!(now[0].outcome, Some(Outcome::Draw));
         assert!(now[0].settled);
     }
@@ -735,7 +731,7 @@ mod tests {
             &mut fetch,
         )
         .unwrap();
-        let now = grid_now(&conn, Game::Lf7, 133).unwrap();
+        let now = grid_now(&conn, grid_of_2026(Game::Lf7, 133)).unwrap();
         assert_eq!(now[0].outcome, None);
         assert_eq!(now[0].label, "après prol. : à confirmer");
     }

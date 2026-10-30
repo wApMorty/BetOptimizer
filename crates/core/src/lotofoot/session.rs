@@ -13,7 +13,7 @@ use chrono_tz::Europe::Paris;
 use rusqlite::Connection;
 use serde_json::json;
 
-use super::Game;
+use super::GridId;
 use super::abaque;
 use super::model::{FROZEN, GridModel, PESSIMISTIC_LOW_MULT, PESSIMISTIC_SHRINK, public_split};
 use super::odds::{self, LeagueSearch, MatchMarket, Source};
@@ -56,10 +56,8 @@ pub struct Skipped {
 /// Une grille évaluée : ses mises estimées et son meilleur ticket.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Evaluated {
-    /// Formule.
-    pub game: Game,
-    /// Numéro.
-    pub number: u32,
+    /// Grille.
+    pub grid: GridId,
     /// Fin de validation.
     pub closes_at: DateTime<Utc>,
     /// Mises estimées.
@@ -231,22 +229,19 @@ pub fn run(
         .collect();
     let mut pending: Vec<Pending> = Vec::new();
     for row in store::grids_closing_after(conn, min_close)? {
-        let label = format!("{} n°{}", row.game, row.number);
+        let label = row.id.to_string();
         let skip = |reason: String| Skipped {
             grid: label.clone(),
             reason,
         };
         // Des tickets joués portent sur l'ancienne composition : on ne recalcule pas une grille qui n'est plus la leur.
-        if store::recomposition(conn, row.game, row.number)?.is_some_and(|r| r.played_before) {
+        if store::recomposition(conn, row.id)?.is_some_and(|r| r.played_before) {
             report.skipped.push(skip(
                 "rencontres changées après des tickets déclarés joués : grille bloquée, à régler à la main".to_string(),
             ));
             continue;
         }
-        let earlier: Vec<&RecoRow> = recommended
-            .iter()
-            .filter(|r| (r.game, r.number) == (row.game, row.number))
-            .collect();
+        let earlier: Vec<&RecoRow> = recommended.iter().filter(|r| r.grid == row.id).collect();
         if let Some(first) = earlier.first() {
             if !request.replace {
                 report.skipped.push(skip(format!(
@@ -263,9 +258,7 @@ pub fn run(
                 continue;
             }
         }
-        let Some((split_fetch_id, split)) =
-            store::latest_split(conn, row.game, row.number, started)?
-        else {
+        let Some((split_fetch_id, split)) = store::latest_split(conn, row.id, started)? else {
             report
                 .skipped
                 .push(skip("répartition FDJ pas encore publiée".to_string()));
@@ -400,7 +393,7 @@ pub fn run(
         canonical,
     } in pending
     {
-        let label = format!("{} n°{}", row.game, row.number);
+        let label = row.id.to_string();
         let markets: Option<Vec<MatchMarket>> =
             lookup(conn, &row, &canonical)?.into_iter().collect();
         let Some(markets) = markets else {
@@ -418,8 +411,7 @@ pub fn run(
             continue;
         };
         // Âge depuis la première apparition (une grille jamais inscrite, impossible ici, compte comme neuve).
-        let age = store::first_seen(conn, row.game, row.number)?
-            .map_or(Duration::zero(), |seen| started - seen);
+        let age = store::first_seen(conn, row.id)?.map_or(Duration::zero(), |seen| started - seen);
         let young = age < Duration::hours(MIN_GRID_AGE_HOURS);
         if young {
             report.skipped.push(Skipped {
@@ -443,7 +435,7 @@ pub fn run(
     // 3. Tickets de chaque grille, puis seuil et budget sur l'ensemble de la séance.
     let mut all: Vec<Candidate> = Vec::new();
     for grid in &ready {
-        let key = (grid.row.game, grid.row.number);
+        let key = grid.row.id;
         let candidates =
             optimize::candidates(key, &grid.model, &FROZEN, config.lotofoot_frequency_weight);
         let best = candidates
@@ -451,8 +443,7 @@ pub fn run(
             .map(|c| c.pessimistic.expected_return)
             .fold(f64::MIN, f64::max);
         report.evaluated.push(Evaluated {
-            game: grid.row.game,
-            number: grid.row.number,
+            grid: grid.row.id,
             closes_at: grid.row.closes_at,
             stakes: grid.stakes,
             best_pessimistic: best,
@@ -467,11 +458,11 @@ pub fn run(
     }
     // Grilles recalculées qui avaient une recommandation : la séance la remplace, tickets retenus ou non (une grille trop
     // jeune garde la sienne : elle n'est pas en état d'être recalculée).
-    let replaced: Vec<(Game, u32)> = ready
+    let replaced: Vec<GridId> = ready
         .iter()
         .filter(|g| !g.young)
-        .map(|g| (g.row.game, g.row.number))
-        .filter(|key| recommended.iter().any(|r| (r.game, r.number) == *key))
+        .map(|g| g.row.id)
+        .filter(|key| recommended.iter().any(|r| r.grid == *key))
         .collect();
     report.months = month_budgets(
         conn,
@@ -484,9 +475,10 @@ pub fn run(
     report.chosen = within_budget(ranked, &mut report.months, &ready);
 
     // 4. Journal immuable : la séance, ses paramètres, et chaque ticket avec tout ce qui a servi à le choisir.
-    let replaces: Vec<(&str, u32)> = replaced
+    // `[formule, numéro, année]` : `store::current_recos` lit cette forme.
+    let replaces: Vec<(&str, u32, i32)> = replaced
         .iter()
-        .map(|(game, number)| (game.code(), *number))
+        .map(|grid| (grid.game.code(), grid.number, grid.year))
         .collect();
     if !dry_run && (!report.chosen.is_empty() || !replaces.is_empty()) {
         let params = json!({
@@ -502,7 +494,7 @@ pub fn run(
         .to_string();
         let notes = json!({
             "evaluated": report.evaluated.iter().map(|e| json!({
-                "grid": format!("{} n°{}", e.game, e.number), "stakes": e.stakes, "best_pessimistic": e.best_pessimistic,
+                "grid": e.grid.to_string(), "stakes": e.stakes, "best_pessimistic": e.best_pessimistic,
             })).collect::<Vec<_>>(),
             "skipped": report.skipped.iter().map(|s| json!({"grid": s.grid, "reason": s.reason})).collect::<Vec<_>>(),
             "unknown_names": report.unknown_names,
@@ -518,7 +510,7 @@ pub fn run(
             .chosen
             .iter()
             .map(|c| {
-                let grid = ready.iter().find(|g| (g.row.game, g.row.number) == c.grid);
+                let grid = ready.iter().find(|g| g.row.id == c.grid);
                 grid.map(inputs_json).unwrap_or_default()
             })
             .collect();
@@ -528,12 +520,9 @@ pub fn run(
             .zip(&inputs)
             .enumerate()
             .filter_map(|(i, (c, inputs))| {
-                let grid = ready
-                    .iter()
-                    .find(|g| (g.row.game, g.row.number) == c.grid)?;
+                let grid = ready.iter().find(|g| g.row.id == c.grid)?;
                 Some(NewReco {
-                    game: c.grid.0,
-                    number: c.grid.1,
+                    grid: c.grid,
                     ticket: &c.ticket,
                     position: i + 1,
                     ev_base: c.base.expected_return,
@@ -562,7 +551,7 @@ fn month_budgets(
     conn: &Connection,
     monthly_budget: u32,
     recommended: &[RecoRow],
-    replaced: &[(Game, u32)],
+    replaced: &[GridId],
     ready: &[Ready],
 ) -> Result<Vec<MonthBudget>> {
     let since = budget_since();
@@ -574,10 +563,10 @@ fn month_budgets(
         }
         let mut spent = 0u32;
         for reco in recommended {
-            if reco.created_at < since || replaced.contains(&(reco.game, reco.number)) {
+            if reco.created_at < since || replaced.contains(&reco.grid) {
                 continue;
             }
-            let closes = store::grid(conn, reco.game, reco.number)?.map(|g| g.closes_at);
+            let closes = store::grid(conn, reco.grid)?.map(|g| g.closes_at);
             if closes.is_some_and(|at| month_of(at) == month) {
                 spent += 1;
             }
@@ -604,7 +593,7 @@ fn within_budget(
     let closes = |c: &Candidate| {
         ready
             .iter()
-            .find(|g| (g.row.game, g.row.number) == c.grid)
+            .find(|g| g.row.id == c.grid)
             .map(|g| g.row.closes_at)
     };
     let mut ranked = ranked;
@@ -613,7 +602,7 @@ fn within_budget(
     for candidate in ranked {
         let Some(month) = ready
             .iter()
-            .find(|g| (g.row.game, g.row.number) == candidate.grid)
+            .find(|g| g.row.id == candidate.grid)
             .map(|g| month_of(g.row.closes_at))
         else {
             continue;
@@ -638,7 +627,7 @@ fn build_model(
     let q = public_split(split)?;
     let p: Vec<Probs1x2> = markets.iter().map(|m| m.probs).collect();
     let stakes = crate::domain::Euros::new(stakes)?;
-    let masses = GridModel::masses_for(row.game, stakes, row.jackpot);
+    let masses = GridModel::masses_for(row.id.game, stakes, row.jackpot);
     GridModel::new(&p, &q, stakes, &masses)
 }
 
@@ -681,6 +670,7 @@ mod tests {
     use crate::domain::{Euros, Quota};
     use crate::ingest::client::HttpResponse;
     use crate::lotofoot::pronomatch::{GridPage, OpenGrid, PastRanks, RankLine};
+    use crate::lotofoot::{Game, grid_of_2026};
     use crate::store::archive::{self, Endpoint, NewApiCall};
     use crate::store::lotofoot::{Page, record_fetch, record_grid_page};
     use crate::store::migrate::migrate;
@@ -767,6 +757,7 @@ mod tests {
             }),
             history: vec![PastRanks {
                 number: 132,
+                closed: chrono::NaiveDate::from_ymd_opt(2026, 10, 20),
                 ranks: vec![
                     RankLine {
                         good: None,
@@ -1164,7 +1155,10 @@ mod tests {
         .unwrap();
         assert_eq!(report.chosen.len(), 5);
         assert!(
-            report.chosen.iter().all(|c| c.grid == (Game::Lf7, 134)),
+            report
+                .chosen
+                .iter()
+                .all(|c| c.grid == grid_of_2026(Game::Lf7, 134)),
             "{:?}",
             report.chosen
         );
@@ -1207,7 +1201,12 @@ mod tests {
         // Les deux grilles sont évaluées ; la jeune, qui ferme pourtant la première, ne prend aucun ticket.
         assert_eq!(report.evaluated.len(), 2);
         assert!(!report.chosen.is_empty());
-        assert!(report.chosen.iter().all(|c| c.grid == (Game::Lf7, 133)));
+        assert!(
+            report
+                .chosen
+                .iter()
+                .all(|c| c.grid == grid_of_2026(Game::Lf7, 133))
+        );
         assert!(
             report
                 .skipped

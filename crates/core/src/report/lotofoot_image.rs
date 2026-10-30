@@ -14,9 +14,9 @@ use super::theme::LIGHT;
 use crate::domain::Outcome;
 use crate::error::Result;
 use crate::format::kickoff_label;
-use crate::lotofoot::Game;
 use crate::lotofoot::bulletin::{Line, session_lines};
 use crate::lotofoot::session::SessionReport;
+use crate::lotofoot::{Game, GridId};
 
 /// Fond « papier » du bulletin et encre des cases cochées.
 const PAPER: &str = "#fbf8f0";
@@ -43,8 +43,8 @@ const MIN_WIDTH: u32 = 720;
 /// Un bulletin : une grille du Loto Foot et les grilles à y remplir.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bulletin {
-    /// Formule et numéro.
-    pub grid: (Game, u32),
+    /// Grille.
+    pub grid: GridId,
     /// Fin de validation.
     pub closes_at: DateTime<Utc>,
     /// Rencontres, dans l'ordre du bulletin.
@@ -61,7 +61,7 @@ pub fn bulletins(report: &SessionReport) -> Vec<Bulletin> {
         .evaluated
         .iter()
         .filter_map(|grid| {
-            let key = (grid.game, grid.number);
+            let key = grid.grid;
             let own: Vec<Line> = lines
                 .iter()
                 .filter(|l| l.grid == key)
@@ -151,8 +151,8 @@ fn draw_bulletin(svg: &mut String, top: u32, width: u32, bulletin: &Bulletin) {
         right - left,
         p.accent.hex()
     );
-    let (game, number) = bulletin.grid;
-    let formula = match game {
+    let number = bulletin.grid.number;
+    let formula = match bulletin.grid.game {
         Game::Lf7 => "LOTO FOOT 7",
         Game::Lf8 => "LOTO FOOT 8",
     };
@@ -281,10 +281,11 @@ pub fn session_png(report: &SessionReport, title: &str) -> Result<Option<Vec<u8>
 mod tests {
     use super::*;
     use crate::lotofoot::Ticket;
+    use crate::lotofoot::grid_of_2026;
 
     fn bulletin(lines: &[&str]) -> Bulletin {
         Bulletin {
-            grid: (Game::Lf7, 133),
+            grid: grid_of_2026(Game::Lf7, 133),
             closes_at: "2026-10-24T12:00:00Z".parse().unwrap(),
             matches: (1..=7)
                 .map(|i| (format!("Équipe {i} & Cie"), format!("Visiteur {i}")))

@@ -18,7 +18,7 @@ use crate::lotofoot::outlets::Outlet;
 use crate::lotofoot::session::{self, MonthBudget, SessionReport};
 use crate::lotofoot::settle::{self, Ledger};
 use crate::lotofoot::verify::{self, Verdict, Verification};
-use crate::lotofoot::{Game, TICKET_PRICE, sign_char};
+use crate::lotofoot::{GridId, TICKET_PRICE, sign_char};
 use crate::store::lotofoot::{self as store, RecoRow};
 
 /// Un ticket recommandé, prêt à afficher.
@@ -386,10 +386,10 @@ pub fn followed(conn: &Connection, now: DateTime<Utc>) -> Result<Followed> {
     };
     for reco in store::current_recos(conn)? {
         if played.contains(&reco.id) {
-            if store::results(conn, reco.game, reco.number)?.is_none() {
+            if store::results(conn, reco.grid)?.is_none() {
                 out.in_play.push(reco);
             }
-        } else if store::grid(conn, reco.game, reco.number)?.is_some_and(|g| g.closes_at > now) {
+        } else if store::grid(conn, reco.grid)?.is_some_and(|g| g.closes_at > now) {
             out.to_play.push(reco);
         }
     }
@@ -403,29 +403,29 @@ fn recomposed_notices(
     now: DateTime<Utc>,
     in_play: &[&RecoRow],
 ) -> Result<Vec<String>> {
-    let mut keys: Vec<(Game, u32)> = store::grids_closing_after(conn, now)?
+    let mut keys: Vec<GridId> = store::grids_closing_after(conn, now)?
         .iter()
-        .map(|g| (g.game, g.number))
+        .map(|g| g.id)
         .collect();
     for reco in in_play {
-        if !keys.contains(&(reco.game, reco.number)) {
-            keys.push((reco.game, reco.number));
+        if !keys.contains(&reco.grid) {
+            keys.push(reco.grid);
         }
     }
     let mut notices = Vec::new();
-    for (game, number) in keys {
-        let Some(change) = store::recomposition(conn, game, number)? else {
+    for id in keys {
+        let Some(change) = store::recomposition(conn, id)? else {
             continue;
         };
         let when = format!("{} à {}", long_date(change.at), clock(change.at));
         notices.push(if change.played_before {
             format!(
-                "{game} n°{number} : rencontres changées ({when}) après des tickets déclarés joués. Grille bloquée : \
+                "{id} : rencontres changées ({when}) après des tickets déclarés joués. Grille bloquée : \
                  ni recalcul ni règlement automatique, à régler à la main."
             )
         } else {
             format!(
-                "{game} n°{number} : rencontres changées ({when}). Répartitions et tickets calculés avant sont écartés ; \
+                "{id} : rencontres changées ({when}). Répartitions et tickets calculés avant sont écartés ; \
                  la prochaine séance la recalcule sur sa nouvelle composition."
             )
         });
@@ -451,7 +451,7 @@ fn budget_view(
     let since = session::budget_since();
     let mut spent = 0u32;
     for reco in recos.iter().filter(|r| r.created_at >= since) {
-        let closes = store::grid(conn, reco.game, reco.number)?.map(|g| g.closes_at);
+        let closes = store::grid(conn, reco.grid)?.map(|g| g.closes_at);
         if closes.is_some_and(|at| session::month_of(at) == month) {
             spent += 1;
         }
@@ -468,7 +468,7 @@ fn budget_view(
 /// Un groupe de tickets prêt à afficher : grilles par clôture, tickets, grilles à remplir.
 fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group> {
     let mut out = Group::default();
-    let mut seen: Vec<(Game, u32)> = Vec::new();
+    let mut seen: Vec<GridId> = Vec::new();
     // Seuil de chaque séance, lu une fois par séance.
     let mut thresholds: Vec<(i64, Option<f64>)> = Vec::new();
     for reco in recos {
@@ -480,7 +480,7 @@ fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group>
                 t
             }
         };
-        let grid = store::grid(conn, reco.game, reco.number)?;
+        let grid = store::grid(conn, reco.grid)?;
         // Délai entre la séance et la clôture : c'est la dérive possible pendant ce temps qui menace le ticket.
         let hours = grid.as_ref().map_or(1.0, |g| {
             (g.closes_at - reco.created_at).num_minutes() as f64 / 60.0
@@ -495,11 +495,11 @@ fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group>
             .as_ref()
             .map(|g| kickoff_label(g.closes_at))
             .unwrap_or_default();
-        if !seen.contains(&(reco.game, reco.number)) {
-            seen.push((reco.game, reco.number));
+        if !seen.contains(&reco.grid) {
+            seen.push(reco.grid);
             out.grids.push(GridView {
-                grid: format!("{} n°{}", reco.game, reco.number),
-                key: format!("{}-{}", reco.game.code(), reco.number),
+                grid: reco.grid.to_string(),
+                key: reco.grid.code(),
                 closes: closes.clone(),
                 session: format!(
                     "séance n°{}, {} à {}",
@@ -517,16 +517,16 @@ fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group>
                             .collect()
                     })
                     .unwrap_or_default(),
-                total: grid_total(recos, reco.game, reco.number),
+                total: grid_total(recos, reco.grid),
             });
         }
-        let status = match store::results(conn, reco.game, reco.number)? {
+        let status = match store::results(conn, reco.grid)? {
             None => "en attente".to_string(),
             Some(results) => {
-                let ranks = store::ranks(conn, reco.game, reco.number)?;
+                let ranks = store::ranks(conn, reco.grid)?;
                 let jackpot = grid.as_ref().and_then(|g| g.jackpot);
                 match settle::paper(
-                    reco.game,
+                    reco.grid.game,
                     &reco.ticket,
                     &results,
                     &ranks,
@@ -543,7 +543,7 @@ fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group>
         };
         out.tickets.push(TicketView {
             id: reco.id,
-            grid: format!("{} n°{}", reco.game, reco.number),
+            grid: reco.grid.to_string(),
             closes,
             ticket: reco.ticket.to_string(),
             ev: decimal(reco.ev_base, 2),
@@ -565,17 +565,13 @@ fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group>
 
 /// Cumul d'une grille du Loto Foot sur les tickets du groupe qui la jouent. Les multiples regroupent sans perte : on
 /// évalue directement les tickets, chacun comme une grille simple.
-fn grid_total(recos: &[&RecoRow], game: Game, number: u32) -> GridTotal {
-    let mine: Vec<&RecoRow> = recos
-        .iter()
-        .copied()
-        .filter(|r| r.game == game && r.number == number)
-        .collect();
+fn grid_total(recos: &[&RecoRow], grid: GridId) -> GridTotal {
+    let mine: Vec<&RecoRow> = recos.iter().copied().filter(|r| r.grid == grid).collect();
     let price = format!("{} €", decimal(mine.len() as f64 * TICKET_PRICE, 0));
     // Tous les tickets d'une grille du Loto Foot partagent les mêmes entrées : celles du premier suffisent.
     let Some(model) = mine
         .first()
-        .and_then(|r| GridModel::from_journal(r.game, &r.inputs))
+        .and_then(|r| GridModel::from_journal(r.grid.game, &r.inputs))
     else {
         return GridTotal {
             price,
@@ -593,7 +589,7 @@ fn grid_total(recos: &[&RecoRow], game: Game, number: u32) -> GridTotal {
 
 /// Chance et gain moyen de chaque rang d'un ticket, recalculés par le modèle à partir de ses entrées figées au journal.
 fn rank_views(reco: &RecoRow) -> Vec<RankView> {
-    GridModel::from_journal(reco.game, &reco.inputs).map_or(Vec::new(), |model| {
+    GridModel::from_journal(reco.grid.game, &reco.inputs).map_or(Vec::new(), |model| {
         views(&model.rank_odds(&reco.ticket, &FROZEN))
     })
 }
@@ -631,10 +627,7 @@ pub fn ranks_text(ranks: &[RankView]) -> String {
 
 /// Grilles à remplir pour les tickets de la séance ; `played` : numéros des tickets déclarés joués.
 fn line_views(recos: &[&RecoRow], played: &[i64]) -> Vec<LineView> {
-    let keyed: Vec<_> = recos
-        .iter()
-        .map(|r| ((r.game, r.number), &r.ticket))
-        .collect();
+    let keyed: Vec<_> = recos.iter().map(|r| ((r.grid), &r.ticket)).collect();
     session_lines(&keyed)
         .into_iter()
         .map(|l| {
@@ -644,10 +637,10 @@ fn line_views(recos: &[&RecoRow], played: &[i64]) -> Vec<LineView> {
             let model = l
                 .tickets
                 .first()
-                .and_then(|&i| GridModel::from_journal(recos[i].game, &recos[i].inputs));
+                .and_then(|&i| GridModel::from_journal(recos[i].grid.game, &recos[i].inputs));
             let ranks = model.map_or(Vec::new(), |m| line_ranks(&m, &l.line));
             LineView {
-                grid: format!("{} n°{}", l.grid.0, l.grid.1),
+                grid: l.grid.to_string(),
                 signs: l
                     .line
                     .signs()
@@ -731,9 +724,8 @@ pub fn listing_text(
             "répartition FDJ pas encore publiée"
         };
         text.push_str(&format!(
-            "**{} n°{}** : clôture **{}**{jackpot} ({state}).\n",
-            grid.game,
-            grid.number,
+            "**{}** : clôture **{}**{jackpot} ({state}).\n",
+            grid.grid,
             kickoff_label(grid.closes_at)
         ));
         if !outlets.is_empty() {
@@ -860,15 +852,13 @@ pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
         ));
     }
     for grid in &report.evaluated {
-        let key = (grid.game, grid.number);
-        let own: Vec<_> = lines.iter().filter(|l| l.grid == key).collect();
+        let own: Vec<_> = lines.iter().filter(|l| l.grid == grid.grid).collect();
         if own.is_empty() {
             continue;
         }
         text.push_str(&format!(
-            "\n**{} n°{}** — clôture {}\n",
-            grid.game,
-            grid.number,
+            "\n**{}** — clôture {}\n",
+            grid.grid,
             kickoff_label(grid.closes_at)
         ));
         for (i, (h, a)) in grid.matches.iter().enumerate() {
@@ -909,6 +899,7 @@ pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lotofoot::{Game, grid_of_2026};
     use crate::store::migrate::migrate;
 
     #[test]
@@ -945,8 +936,7 @@ mod tests {
         };
         let report = SessionReport {
             evaluated: vec![Evaluated {
-                game: Game::Lf8,
-                number: 147,
+                grid: grid_of_2026(Game::Lf8, 147),
                 closes_at: at,
                 stakes: 300_000.0,
                 best_pessimistic: 2.0,
@@ -973,7 +963,7 @@ mod tests {
             leagues: Default::default(),
             oddspapi: Default::default(),
             chosen: vec![Candidate {
-                grid: (Game::Lf8, 147),
+                grid: grid_of_2026(Game::Lf8, 147),
                 ticket: crate::lotofoot::Ticket::parse("21N12222").unwrap(),
                 base: value(2.5),
                 pessimistic: value(2.0),
@@ -1036,8 +1026,7 @@ mod tests {
             .with_timezone(&Utc);
         let text = listing_text(
             &[Listed {
-                game: Game::Lf7,
-                number: 133,
+                grid: grid_of_2026(Game::Lf7, 133),
                 closes_at: closes,
                 jackpot: Some(100_000),
                 split_published: false,

@@ -24,6 +24,9 @@ pub mod verify;
 
 use std::fmt;
 
+use chrono::{DateTime, Datelike, Utc};
+use chrono_tz::Europe::Paris;
+
 use crate::domain::Outcome;
 
 /// Formule de jeu suivie. Seuls le LF7 et le LF8 sont joués (choix de Paul du 2026-10-22 : le LF12 et le LF15 tiennent
@@ -79,6 +82,63 @@ impl fmt::Display for Game {
             Game::Lf7 => write!(f, "LF7"),
             Game::Lf8 => write!(f, "LF8"),
         }
+    }
+}
+
+/// Identité d'une grille : sa formule, son année et son numéro.
+///
+/// La FDJ renumérote chaque formule à partir de 1 chaque 1er janvier (`docs/sources.md` §66) : un numéro seul ne désigne pas
+/// une grille. `year` est l'année civile de la clôture, heure de Paris. `Copy` : trois petits champs, passés par valeur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct GridId {
+    /// Formule.
+    pub game: Game,
+    /// Année civile de la clôture, heure de Paris.
+    pub year: i32,
+    /// Numéro dans l'année.
+    pub number: u32,
+}
+
+impl GridId {
+    /// Identité d'une grille qui ferme à `closes_at`.
+    pub fn closing(game: Game, number: u32, closes_at: DateTime<Utc>) -> GridId {
+        GridId {
+            game,
+            year: closes_at.with_timezone(&Paris).year(),
+            number,
+        }
+    }
+
+    /// Forme écrite des boutons de l'application : `lf7-2026-133`.
+    pub fn code(self) -> String {
+        format!("{}-{}-{}", self.game.code(), self.year, self.number)
+    }
+
+    /// Lit la forme écrite de [`GridId::code`] ; `None` si elle est illisible.
+    pub fn parse(code: &str) -> Option<GridId> {
+        let mut parts = code.trim().split('-');
+        let id = GridId {
+            game: Game::from_code(parts.next()?)?,
+            year: parts.next()?.parse().ok()?,
+            number: parts.next()?.parse().ok()?,
+        };
+        parts.next().is_none().then_some(id)
+    }
+}
+
+impl fmt::Display for GridId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} n°{}", self.game, self.number)
+    }
+}
+
+/// Identité d'une grille de 2026, pour les tests.
+#[cfg(test)]
+pub(crate) fn grid_of_2026(game: Game, number: u32) -> GridId {
+    GridId {
+        game,
+        year: 2026,
+        number,
     }
 }
 
@@ -179,5 +239,30 @@ mod tests {
         assert_eq!(Game::from_matches(12), None);
         let shares = Game::Lf7.rank_shares();
         assert!((shares[0] + shares[1] - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_grid_belongs_to_the_paris_year_of_its_closing() {
+        let closing = |text: &str| {
+            let at = DateTime::parse_from_rfc3339(text).unwrap();
+            GridId::closing(Game::Lf7, 1, at.with_timezone(&Utc)).year
+        };
+        assert_eq!(closing("2026-12-31T22:59:00Z"), 2026);
+        // 23 h 30 UTC le 31 décembre : déjà le 1er janvier à Paris.
+        assert_eq!(closing("2026-12-31T23:30:00Z"), 2027);
+    }
+
+    #[test]
+    fn a_grid_code_reads_back() {
+        let id = GridId {
+            game: Game::Lf8,
+            year: 2027,
+            number: 12,
+        };
+        assert_eq!(id.code(), "lf8-2027-12");
+        assert_eq!(GridId::parse("lf8-2027-12"), Some(id));
+        assert_eq!(id.to_string(), "LF8 n°12");
+        assert_eq!(GridId::parse("lf8-12"), None);
+        assert_eq!(GridId::parse("lf8-2027-12-1"), None);
     }
 }

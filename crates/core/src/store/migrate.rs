@@ -31,6 +31,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0019_lotofoot_budget.sql"),
     include_str!("migrations/0020_lotofoot_match_revision.sql"),
     include_str!("migrations/0021_lotofoot_oddspapi.sql"),
+    include_str!("migrations/0022_lotofoot_year.sql"),
 ];
 
 /// Version du schéma attendue par ce programme (le nombre de migrations connues).
@@ -100,6 +101,92 @@ mod tests {
 
         assert_eq!(version, LATEST_VERSION);
         assert!(table_exists(&conn, "api_call"));
+    }
+
+    /// La migration 22 reconstruit les tables du Loto Foot : rien ne doit s'y perdre, et elles restent immuables.
+    #[test]
+    fn the_lotofoot_year_migration_keeps_every_row() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON").unwrap();
+        migrate_with(&mut conn, &MIGRATIONS[..21]).unwrap();
+        conn.execute_batch(
+            "INSERT INTO lotofoot_fetch (id, fetched_at, page, http_status) VALUES (7, '2026-10-24T09:00:00Z', 'lf7', 200);
+             INSERT INTO lotofoot_grid (game, number, closes_at, jackpot, fetch_id)
+                 VALUES ('lf7', 133, '2026-10-25T16:10:00Z', 100000.0, 7);
+             INSERT INTO lotofoot_match (game, number, position, home_raw, away_raw) VALUES ('lf7', 133, 1, 'A', 'B');
+             INSERT INTO lotofoot_match_revision (game, number, fetch_id, position, home_raw, away_raw)
+                 VALUES ('lf7', 133, 7, 1, 'C', 'D');
+             INSERT INTO lotofoot_split (fetch_id, game, number, position, q_home, q_draw, q_away)
+                 VALUES (7, 'lf7', 133, 1, 50, 30, 20);
+             INSERT INTO lotofoot_result (game, number, position, outcome, fetch_id) VALUES ('lf7', 133, 1, 'H', 7);
+             INSERT INTO lotofoot_rank (game, number, rank, winners, unit_gain, fetch_id) VALUES ('lf7', 125, 2, 3160, 26.5, 7);
+             INSERT INTO lotofoot_session (id, created_at, model_version, params, notes)
+                 VALUES (3, '2026-10-24T10:00:00Z', 'lotofoot-1', '{}', '{}');
+             INSERT INTO lotofoot_reco (id, session_id, game, number, ticket, position, ev_base, ev_pessimistic,
+                                        paid_probability, stakes_estimate, split_fetch_id, inputs)
+                 VALUES (11, 3, 'lf7', 133, '1111111', 1, 2.0, 1.8, 0.1, 200000.0, 7, '{}');
+             INSERT INTO lotofoot_play (id, played_at, game, number, ticket, stake, reco_id, off_model)
+                 VALUES (13, '2026-10-24T11:00:00Z', 'lf7', 133, '1111111', 1.0, 11, 0);
+             INSERT INTO lotofoot_alert (game, number, sent_at) VALUES ('lf7', 133, '2026-10-24T09:10:00Z');
+             INSERT INTO lotofoot_live (game, number, position, league, event_id, home_goals, away_goals, phase, label,
+                                        fetched_at)
+                 VALUES ('lf7', 133, 1, 'fra.1', '401', 1, 0, 'playing', '57''', '2026-10-25T17:00:00Z');",
+        )
+        .unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        for table in [
+            "grid",
+            "match",
+            "match_revision",
+            "split",
+            "result",
+            "rank",
+            "reco",
+            "play",
+            "alert",
+            "live",
+        ] {
+            let rows: (u32, u32) = conn
+                .query_row(
+                    &format!("SELECT COUNT(*), MIN(year) FROM lotofoot_{table}"),
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(rows, (1, 2026), "{table}");
+        }
+        let (reco, reco_of_play): (i64, i64) = conn
+            .query_row(
+                "SELECT r.id, p.reco_id FROM lotofoot_play p JOIN lotofoot_reco r ON r.id = p.reco_id",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((reco, reco_of_play), (11, 11));
+        for name in ["lotofoot_grid", "lotofoot_reco", "lotofoot_match_revision"] {
+            assert!(conn.execute(&format!("DELETE FROM {name}"), []).is_err());
+            assert!(
+                conn.execute(&format!("UPDATE {name} SET year = 1"), [])
+                    .is_err()
+            );
+        }
+        let leftovers: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE instr(sql, '_old') > 0 OR instr(name, '_old') > 0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(leftovers, 0);
+        // Un même numéro peut désormais revenir l'année suivante.
+        conn.execute(
+            "INSERT INTO lotofoot_grid (game, year, number, closes_at, fetch_id)
+             VALUES ('lf7', 2027, 133, '2027-10-25T16:10:00Z', 7)",
+            [],
+        )
+        .unwrap();
     }
 
     #[test]

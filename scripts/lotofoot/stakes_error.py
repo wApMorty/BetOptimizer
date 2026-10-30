@@ -317,10 +317,10 @@ def journal_rows(rows):
     path = os.path.expanduser("~/.local/share/edge/edge.db")
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     out = []
-    grids = db.execute("""select g.game, g.number, g.closes_at, g.jackpot, r.winners * r.unit_gain from lotofoot_grid g
-                          join lotofoot_rank r on r.game = g.game and r.number = g.number and r.rank = 2 where r.winners > 0 order by g.closes_at""").fetchall()
+    grids = db.execute("""select g.game, g.year, g.number, g.closes_at, g.jackpot, r.winners * r.unit_gain from lotofoot_grid g
+                          join lotofoot_rank r on r.game = g.game and r.year = g.year and r.number = g.number and r.rank = 2 where r.winners > 0 order by g.closes_at""").fetchall()
     known = [r for r in rows if r["deduced"]]
-    for game, number, closes, jackpot, mass in grids:
+    for game, year, number, closes, jackpot, mass in grids:
         code = int(game[2:]); close = when(closes)
         same = [r for r in known if r["game"] == code and r["known"] <= close - DECISION_LEAD]
         row = {"game": code, "close": close, "known": close + DECISION_LEAD, "day": close.astimezone(PARIS).weekday(), "jackpot": jackpot or 0.0,
@@ -328,13 +328,13 @@ def journal_rows(rows):
         reg = float(np.exp(row["level"] + ridge(row, [r for r in same if r["level"] is not None], False)))
         item = {"game": game, "number": number, "day": row["day"], "jackpot": row["jackpot"], "S": row["deduced"], "reg": reg, "journal": None}
         known.append(row)
-        reco = db.execute("select stakes_estimate, inputs from lotofoot_reco where game = ? and number = ? order by id desc limit 1", (game, number)).fetchone()
+        reco = db.execute("select stakes_estimate, inputs from lotofoot_reco where game = ? and year = ? and number = ? order by id desc limit 1", (game, year, number)).fetchone()
         if reco:
             inputs = json.loads(reco[1])
             fetch = db.execute("""select s.fetch_id from lotofoot_split s join lotofoot_fetch f on f.id = s.fetch_id
-                                  where s.game = ? and s.number = ? and f.fetched_at <= ? group by s.fetch_id having count(*) = ?
-                                  order by f.fetched_at desc limit 1""", (game, number, closes, code)).fetchone()
-            split = db.execute("select q_home, q_draw, q_away from lotofoot_split where fetch_id = ? and game = ? and number = ? order by position", (fetch[0], game, number)).fetchall()
+                                  where s.game = ? and s.year = ? and s.number = ? and f.fetched_at <= ? group by s.fetch_id having count(*) = ?
+                                  order by f.fetched_at desc limit 1""", (game, year, number, closes, code)).fetchone()
+            split = db.execute("select q_home, q_draw, q_away from lotofoot_split where fetch_id = ? and game = ? and year = ? and number = ? order by position", (fetch[0], game, year, number)).fetchall()
             last = [[x / sum(line) for x in line] for line in split]
             item.update(journal=reco[0], p=inputs["p"], q=inputs["q"], last=last)
         out.append(item)

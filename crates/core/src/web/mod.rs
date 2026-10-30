@@ -275,13 +275,8 @@ fn post(
         "/bonus/offre" => entry::offer(app, &empty, Some(form), now)?,
         "/bonus/regler" => act(app, &Action::SettleBonusAuto, "/bonus", now),
         "/bonus/relever" => pages::bonus::refresh(app, now),
-        "/lotofoot/jouee" => match lotofoot_grid(form.get("grille")) {
-            Some((game, number)) => act(
-                app,
-                &Action::LotofootPlayedGrid { game, number },
-                "/lotofoot",
-                now,
-            ),
+        "/lotofoot/jouee" => match crate::lotofoot::GridId::parse(form.get("grille")) {
+            Some(grid) => act(app, &Action::LotofootPlayedGrid(grid), "/lotofoot", now),
             None => act(app, &Action::LotofootPlayedSession, "/lotofoot", now),
         },
         "/lotofoot/optimiser" => pages::lotofoot::optimize(app, form, now),
@@ -450,15 +445,6 @@ fn message(status: u16, title: &str, text: &str) -> Response {
     };
     let html = render("message.html", MESSAGE_TEMPLATE, &page).unwrap_or_else(|_| text.to_string());
     Response::html(status, html)
-}
-
-/// Grille d'un bouton « J'ai joué cette grille » (`lf7-133`), `None` si le champ est absent ou illisible.
-fn lotofoot_grid(text: &str) -> Option<(crate::lotofoot::Game, u32)> {
-    let (game, number) = text.trim().split_once('-')?;
-    Some((
-        crate::lotofoot::Game::from_code(game)?,
-        number.parse().ok()?,
-    ))
 }
 
 #[cfg(test)]

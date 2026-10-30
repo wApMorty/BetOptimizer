@@ -19,7 +19,7 @@ use rusqlite::Connection;
 use statrs::distribution::{DiscreteCDF, Poisson};
 
 use super::model::{FROZEN, GridModel, public_split};
-use super::{Game, Ticket};
+use super::{Game, GridId, Ticket};
 use crate::domain::{Euros, Outcome};
 use crate::error::Result;
 use crate::store::lotofoot as store;
@@ -84,14 +84,14 @@ pub fn calibration(conn: &Connection) -> Result<Vec<Band>> {
             predicted: 0.0,
         })
         .collect();
-    for (game, number) in store::settled_grids(conn)? {
-        let (Some(results), Some(split)) = (
-            store::results(conn, game, number)?,
-            store::final_split(conn, game, number)?,
-        ) else {
+    for id in store::settled_grids(conn)? {
+        let game = id.game;
+        let (Some(results), Some(split)) =
+            (store::results(conn, id)?, store::final_split(conn, id)?)
+        else {
             continue;
         };
-        let ranks = store::ranks(conn, game, number)?;
+        let ranks = store::ranks(conn, id)?;
         let Some(stakes) = actual_stakes(game, &ranks) else {
             continue;
         };
@@ -203,7 +203,7 @@ pub fn verify(conn: &Connection, now: DateTime<Utc>) -> Result<Verification> {
     let first_session = recos.iter().map(|r| r.created_at).min();
 
     // Tickets réglés, regroupés par grille (la simulation tire une seule issue par grille et par tirage).
-    let mut by_grid: BTreeMap<(Game, u32), (GridModel, Vec<Ticket>)> = BTreeMap::new();
+    let mut by_grid: BTreeMap<GridId, (GridModel, Vec<Ticket>)> = BTreeMap::new();
     let mut frequency = Frequency {
         settled: 0,
         observed: 0,
@@ -212,13 +212,13 @@ pub fn verify(conn: &Connection, now: DateTime<Utc>) -> Result<Verification> {
     };
     let mut realized = 0.0;
     for reco in &recos {
-        let Some(results) = store::results(conn, reco.game, reco.number)? else {
+        let Some(results) = store::results(conn, reco.grid)? else {
             continue;
         };
-        let ranks = store::ranks(conn, reco.game, reco.number)?;
-        let jackpot = store::grid(conn, reco.game, reco.number)?.and_then(|g| g.jackpot);
+        let ranks = store::ranks(conn, reco.grid)?;
+        let jackpot = store::grid(conn, reco.grid)?.and_then(|g| g.jackpot);
         let Some(settled) = super::settle::paper(
-            reco.game,
+            reco.grid.game,
             &reco.ticket,
             &results,
             &ranks,
@@ -227,7 +227,7 @@ pub fn verify(conn: &Connection, now: DateTime<Utc>) -> Result<Verification> {
         ) else {
             continue;
         };
-        let Some(model) = GridModel::from_journal(reco.game, &reco.inputs) else {
+        let Some(model) = GridModel::from_journal(reco.grid.game, &reco.inputs) else {
             continue;
         };
         frequency.settled += 1;
@@ -235,7 +235,7 @@ pub fn verify(conn: &Connection, now: DateTime<Utc>) -> Result<Verification> {
         frequency.expected += reco.paid_probability;
         realized += settled.gain;
         by_grid
-            .entry((reco.game, reco.number))
+            .entry(reco.grid)
             .or_insert_with(|| (model, Vec::new()))
             .1
             .push(reco.ticket.clone());
@@ -294,7 +294,7 @@ pub fn verify(conn: &Connection, now: DateTime<Utc>) -> Result<Verification> {
 /// Loi du gain total des tickets réglés : pour chaque tirage, une issue par grille tirée selon le marché, et le gain
 /// espéré de chaque ticket sachant cette issue.
 fn simulate(
-    by_grid: &BTreeMap<(Game, u32), (GridModel, Vec<Ticket>)>,
+    by_grid: &BTreeMap<GridId, (GridModel, Vec<Ticket>)>,
     realized: f64,
     settled: usize,
 ) -> GainCheck {
@@ -439,7 +439,7 @@ mod tests {
         let result = GridResult {
             game: Some(Game::Lf7),
             number: 133,
-            date: None,
+            date: chrono::NaiveDate::from_ymd_opt(2026, 10, 25),
             matches: (1..=7)
                 .map(|i| (format!("H{i}"), format!("A{i}"), Outcome::Home))
                 .collect(),

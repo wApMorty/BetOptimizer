@@ -4,16 +4,18 @@
 //! un rapport déjà connu n'est pas réécrit (`INSERT OR IGNORE`) : la première observation fait foi. Seule exception, la
 //! composition d'une grille : si la page montre d'autres rencontres pour le même numéro, la nouvelle composition est
 //! ajoutée (migration 20, `docs/sources.md` §52) et fait foi à partir de ce relevé ; rien n'est jamais apparié en silence.
+//!
+//! Une grille s'identifie par [`GridId`] : la FDJ renumérote chaque formule tous les 1er janvier (migration 22, §66).
 
-use chrono::{DateTime, Datelike, SecondsFormat, Utc, Weekday};
+use chrono::{DateTime, Datelike, Duration, SecondsFormat, Utc, Weekday};
 use chrono_tz::Europe::Paris;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::journal::parse_timestamp;
 use crate::domain::{Euros, Outcome};
 use crate::error::{Error, Result};
-use crate::lotofoot::pronomatch::{GridPage, GridResult};
-use crate::lotofoot::{Game, PAYOUT_RATE, Ticket};
+use crate::lotofoot::pronomatch::{GridPage, GridResult, OpenGrid, RankLine};
+use crate::lotofoot::{Game, GridId, PAYOUT_RATE, Ticket};
 
 fn timestamp(at: DateTime<Utc>) -> String {
     at.to_rfc3339_opts(SecondsFormat::Secs, true)
@@ -69,13 +71,60 @@ pub fn fetch_time(conn: &Connection, fetch_id: i64) -> Result<DateTime<Utc>> {
 }
 
 /// Ce qu'a écrit le relevé de la page d'une formule.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GridRecord {
     /// Répartitions de rencontres écrites (0 si la FDJ n'en a pas publié).
     pub splits: usize,
     /// Les rencontres de la grille en cours diffèrent de la composition en vigueur : la nouvelle composition a été
     /// enregistrée et fait foi à partir de ce relevé.
     pub recomposed: bool,
+    /// La grille en cours n'a pas été écrite : sa clôture ou son numéro contredit ce qui est connu ([`refusal`]).
+    pub refused: Option<String>,
+    /// Lignes de rapports non écrites, faute de jour de clôture lisible : leur année serait devinée.
+    pub undated: usize,
+}
+
+/// Écart maximal entre deux clôtures relevées pour une même grille. Au-delà, ce n'est plus un report : la grille a changé.
+const MAX_CLOSE_SHIFT_DAYS: i64 = 7;
+
+/// Raison de refuser la grille en cours d'une page, `None` si elle est cohérente avec la base :
+/// - grille connue, mais clôture éloignée de plus de [`MAX_CLOSE_SHIFT_DAYS`] jours : ce serait une autre grille ;
+/// - grille nouvelle, mais de numéro inférieur à une grille déjà close plus tôt la même année : dans une année, les numéros
+///   croissent avec la clôture (1 109 grilles, `docs/sources.md` §66), l'année attribuée serait donc fausse.
+///
+/// Un refus ne se transforme jamais en recomposition : l'année d'une grille ne se devine pas.
+fn refusal(conn: &Connection, id: GridId, closes_at: DateTime<Utc>) -> Result<Option<String>> {
+    let known: Option<String> = conn
+        .query_row(
+            "SELECT closes_at FROM lotofoot_grid WHERE game = ?1 AND year = ?2 AND number = ?3",
+            params![id.game.code(), id.year, id.number],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(known) = known {
+        let known = parse_timestamp(&known)?;
+        if (closes_at - known).abs() > Duration::days(MAX_CLOSE_SHIFT_DAYS) {
+            return Ok(Some(format!(
+                "{id} : clôture du {} au lieu du {} déjà connu",
+                timestamp(closes_at),
+                timestamp(known)
+            )));
+        }
+        return Ok(None);
+    }
+    // `MIN` sur aucune ligne donne NULL, lu en `None`.
+    let later: Option<u32> = conn.query_row(
+        "SELECT MIN(number) FROM lotofoot_grid
+         WHERE game = ?1 AND year = ?2 AND number > ?3 AND closes_at < ?4",
+        params![id.game.code(), id.year, id.number, timestamp(closes_at)],
+        |row| row.get(0),
+    )?;
+    Ok(later.map(|number| {
+        format!(
+            "{id} : numéro inférieur au n°{number} de {}, déjà clos avant elle",
+            id.year
+        )
+    }))
 }
 
 /// Enregistre ce qu'a montré la page d'une formule : la grille en cours, sa composition si elle a changé, sa
@@ -92,51 +141,113 @@ pub fn record_grid_page(
     let tx = conn.transaction()?;
     let mut record = GridRecord::default();
     if let Some(grid) = &page.open {
-        tx.execute(
-            "INSERT OR IGNORE INTO lotofoot_grid (game, number, closes_at, jackpot, fetch_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![game.code(), grid.number, timestamp(grid.closes_at), grid.jackpot.map(Euros::get), fetch_id],
-        )?;
-        // `&tx` : une transaction s'utilise comme une connexion (elle s'y déréférence) ; on lit donc la composition
-        // dans la transaction même, avant d'écrire.
-        let current = matches(&tx, game, grid.number)?;
-        let first = current.is_empty();
-        record.recomposed = !first && current != grid.matches;
-        for (i, (home, away)) in grid.matches.iter().enumerate() {
-            if first {
-                tx.execute(
-                    "INSERT INTO lotofoot_match (game, number, position, home_raw, away_raw) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![game.code(), grid.number, int(i + 1), home, away],
-                )?;
-            } else if record.recomposed {
-                tx.execute(
-                    "INSERT INTO lotofoot_match_revision (game, number, fetch_id, position, home_raw, away_raw)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![game.code(), grid.number, fetch_id, int(i + 1), home, away],
-                )?;
-            }
-        }
-        if let Some(split) = &grid.split {
-            for (i, q) in split.iter().enumerate() {
-                tx.execute(
-                    "INSERT INTO lotofoot_split (fetch_id, game, number, position, q_home, q_draw, q_away, split_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![fetch_id, game.code(), grid.number, int(i + 1), q[0], q[1], q[2], grid.split_at.map(timestamp)],
-                )?;
-                record.splits += 1;
-            }
+        let id = GridId::closing(game, grid.number, grid.closes_at);
+        record.refused = refusal(&tx, id, grid.closes_at)?;
+        if record.refused.is_none() {
+            write_open_grid(&tx, fetch_id, id, grid, &mut record)?;
         }
     }
     for past in &page.history {
+        let Some(closed) = past.closed else {
+            record.undated += 1;
+            continue;
+        };
+        let id = GridId {
+            game,
+            year: closed.year(),
+            number: past.number,
+        };
         for (i, rank) in past.ranks.iter().enumerate().take(2) {
-            tx.execute(
-                "INSERT OR IGNORE INTO lotofoot_rank (game, number, rank, winners, unit_gain, fetch_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![game.code(), past.number, int(i + 1), rank.winners, rank.unit_gain.map(Euros::get), fetch_id],
-            )?;
+            write_rank(&tx, id, int(i + 1), rank, fetch_id)?;
         }
     }
     tx.commit()?;
     Ok(record)
+}
+
+/// Écrit la grille en cours : sa ligne si elle est nouvelle, sa composition si elle a changé, sa répartition.
+fn write_open_grid(
+    conn: &Connection,
+    fetch_id: i64,
+    id: GridId,
+    grid: &OpenGrid,
+    record: &mut GridRecord,
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO lotofoot_grid (game, year, number, closes_at, jackpot, fetch_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            id.game.code(),
+            id.year,
+            id.number,
+            timestamp(grid.closes_at),
+            grid.jackpot.map(Euros::get),
+            fetch_id
+        ],
+    )?;
+    let current = matches(conn, id)?;
+    let first = current.is_empty();
+    record.recomposed = !first && current != grid.matches;
+    for (i, (home, away)) in grid.matches.iter().enumerate() {
+        if first {
+            conn.execute(
+                "INSERT INTO lotofoot_match (game, year, number, position, home_raw, away_raw)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![id.game.code(), id.year, id.number, int(i + 1), home, away],
+            )?;
+        } else if record.recomposed {
+            conn.execute(
+                "INSERT INTO lotofoot_match_revision (game, year, number, fetch_id, position, home_raw, away_raw)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![id.game.code(), id.year, id.number, fetch_id, int(i + 1), home, away],
+            )?;
+        }
+    }
+    if let Some(split) = &grid.split {
+        for (i, q) in split.iter().enumerate() {
+            conn.execute(
+                "INSERT INTO lotofoot_split (fetch_id, game, year, number, position, q_home, q_draw, q_away, split_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    fetch_id,
+                    id.game.code(),
+                    id.year,
+                    id.number,
+                    int(i + 1),
+                    q[0],
+                    q[1],
+                    q[2],
+                    grid.split_at.map(timestamp)
+                ],
+            )?;
+            record.splits += 1;
+        }
+    }
+    Ok(())
+}
+
+/// Écrit le rapport d'un rang, s'il n'est pas déjà connu.
+fn write_rank(
+    conn: &Connection,
+    id: GridId,
+    rank: i64,
+    line: &RankLine,
+    fetch_id: i64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO lotofoot_rank (game, year, number, rank, winners, unit_gain, fetch_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            id.game.code(),
+            id.year,
+            id.number,
+            rank,
+            line.winners,
+            line.unit_gain.map(Euros::get),
+            fetch_id
+        ],
+    )?;
+    Ok(())
 }
 
 /// Ce qu'a écrit le relevé de la page des résultats.
@@ -151,8 +262,9 @@ pub struct ResultsRecord {
 
 /// Enregistre les résultats et rapports des grilles LF7 et LF8 de la page des résultats.
 ///
-/// Pour une grille connue, les rencontres de la page doivent être celles de la composition en vigueur : les signes sont
-/// écrits par position. Une grille dont la composition a changé après des tickets déclarés joués n'est pas réglée : ces
+/// L'année de la grille vient de la date affichée, égale au jour de clôture ; sans date, la grille n'est pas écrite. Pour
+/// une grille connue, les rencontres de la page doivent être celles de la composition en vigueur : les signes sont écrits
+/// par position. Une grille dont la composition a changé après des tickets déclarés joués n'est pas réglée : ces
 /// tickets portent sur des rencontres qui ne sont plus celles de la grille, ils se règlent à la main.
 pub fn record_results(
     conn: &mut Connection,
@@ -166,8 +278,19 @@ pub fn record_results(
         if result.matches.len() != game.matches() {
             continue;
         }
-        let label = format!("{game} n°{}", result.number);
-        let current = matches(&tx, game, result.number)?;
+        let Some(date) = result.date else {
+            record.refused.push(format!(
+                "{game} n°{} : date illisible, année inconnue, résultats non écrits",
+                result.number
+            ));
+            continue;
+        };
+        let id = GridId {
+            game,
+            year: date.year(),
+            number: result.number,
+        };
+        let current = matches(&tx, id)?;
         let shown: Vec<(String, String)> = result
             .matches
             .iter()
@@ -175,30 +298,27 @@ pub fn record_results(
             .collect();
         if !current.is_empty() && current != shown {
             record.refused.push(format!(
-                "{label} : les rencontres des résultats diffèrent de la composition enregistrée, résultats non écrits"
+                "{id} : les rencontres des résultats diffèrent de la composition enregistrée, résultats non écrits"
             ));
             continue;
         }
-        if recomposition(&tx, game, result.number)?.is_some_and(|r| r.played_before) {
+        if recomposition(&tx, id)?.is_some_and(|r| r.played_before) {
             record.refused.push(format!(
-                "{label} : composition changée après des tickets déclarés joués, résultats non écrits (règlement à la main)"
+                "{id} : composition changée après des tickets déclarés joués, résultats non écrits (règlement à la main)"
             ));
             continue;
         }
         let mut written = 0;
         for (i, (_, _, outcome)) in result.matches.iter().enumerate() {
             written += tx.execute(
-                "INSERT OR IGNORE INTO lotofoot_result (game, number, position, outcome, fetch_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![game.code(), result.number, int(i + 1), outcome.code(), fetch_id],
+                "INSERT OR IGNORE INTO lotofoot_result (game, year, number, position, outcome, fetch_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![id.game.code(), id.year, id.number, int(i + 1), outcome.code(), fetch_id],
             )?;
         }
         record.new += usize::from(written > 0);
         for (i, rank) in result.ranks.iter().enumerate().take(2) {
-            tx.execute(
-                "INSERT OR IGNORE INTO lotofoot_rank (game, number, rank, winners, unit_gain, fetch_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![game.code(), result.number, int(i + 1), rank.winners, rank.unit_gain.map(Euros::get), fetch_id],
-            )?;
+            write_rank(&tx, id, int(i + 1), rank, fetch_id)?;
         }
     }
     tx.commit()?;
@@ -208,10 +328,8 @@ pub fn record_results(
 /// Une grille connue, avec ses rencontres.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GridRow {
-    /// Formule.
-    pub game: Game,
-    /// Numéro.
-    pub number: u32,
+    /// Identité de la grille.
+    pub id: GridId,
     /// Fin de validation.
     pub closes_at: DateTime<Utc>,
     /// Gain minimum garanti du rang 1.
@@ -221,11 +339,11 @@ pub struct GridRow {
 }
 
 /// `true` si l'alerte « nouvelle grille » de cette grille a déjà été envoyée.
-pub fn alerted(conn: &Connection, game: Game, number: u32) -> Result<bool> {
+pub fn alerted(conn: &Connection, id: GridId) -> Result<bool> {
     let found: Option<i64> = conn
         .query_row(
-            "SELECT 1 FROM lotofoot_alert WHERE game = ?1 AND number = ?2",
-            rusqlite::params![game.code(), number],
+            "SELECT 1 FROM lotofoot_alert WHERE game = ?1 AND year = ?2 AND number = ?3",
+            params![id.game.code(), id.year, id.number],
             |row| row.get(0),
         )
         .optional()?;
@@ -233,15 +351,10 @@ pub fn alerted(conn: &Connection, game: Game, number: u32) -> Result<bool> {
 }
 
 /// Note l'alerte d'une grille comme envoyée (une seule fois : une seconde écriture est ignorée).
-pub fn record_alert(
-    conn: &Connection,
-    game: Game,
-    number: u32,
-    sent_at: DateTime<Utc>,
-) -> Result<()> {
+pub fn record_alert(conn: &Connection, id: GridId, sent_at: DateTime<Utc>) -> Result<()> {
     conn.execute(
-        "INSERT OR IGNORE INTO lotofoot_alert (game, number, sent_at) VALUES (?1, ?2, ?3)",
-        rusqlite::params![game.code(), number, timestamp(sent_at)],
+        "INSERT OR IGNORE INTO lotofoot_alert (game, year, number, sent_at) VALUES (?1, ?2, ?3, ?4)",
+        params![id.game.code(), id.year, id.number, timestamp(sent_at)],
     )?;
     Ok(())
 }
@@ -268,15 +381,15 @@ pub fn budget_at(conn: &Connection, at: DateTime<Utc>) -> Result<Option<u32>> {
 
 /// Première apparition d'une grille dans un relevé (le relevé qui l'a inscrite) : sert à son âge. Si sa composition a
 /// changé, l'âge part du relevé qui a vu la composition en vigueur : les répartitions antérieures ne comptent pas (§52).
-pub fn first_seen(conn: &Connection, game: Game, number: u32) -> Result<Option<DateTime<Utc>>> {
-    if let Some(fetch_id) = revision(conn, game, number)? {
+pub fn first_seen(conn: &Connection, id: GridId) -> Result<Option<DateTime<Utc>>> {
+    if let Some(fetch_id) = revision(conn, id)? {
         return fetch_time(conn, fetch_id).map(Some);
     }
     let seen: Option<String> = conn
         .query_row(
             "SELECT f.fetched_at FROM lotofoot_grid g JOIN lotofoot_fetch f ON f.id = g.fetch_id
-             WHERE g.game = ?1 AND g.number = ?2",
-            params![game.code(), number],
+             WHERE g.game = ?1 AND g.year = ?2 AND g.number = ?3",
+            params![id.game.code(), id.year, id.number],
             |row| row.get(0),
         )
         .optional()?;
@@ -286,40 +399,48 @@ pub fn first_seen(conn: &Connection, game: Game, number: u32) -> Result<Option<D
 /// Grilles qui ferment après `after`, dans l'ordre de clôture.
 pub fn grids_closing_after(conn: &Connection, after: DateTime<Utc>) -> Result<Vec<GridRow>> {
     let mut stmt = conn.prepare(
-        "SELECT game, number, closes_at, jackpot FROM lotofoot_grid WHERE closes_at > ?1 ORDER BY closes_at, game",
+        "SELECT game, year, number, closes_at, jackpot FROM lotofoot_grid WHERE closes_at > ?1 ORDER BY closes_at, game",
     )?;
     let heads = stmt
         .query_map([timestamp(after)], |row| {
             Ok((
                 row.get::<_, String>(0)?,
-                row.get::<_, u32>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<f64>>(3)?,
+                row.get::<_, i32>(1)?,
+                row.get::<_, u32>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<f64>>(4)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     heads
         .into_iter()
-        .map(|(game, number, closes_at, jackpot)| {
-            let game = Game::from_code(&game)
-                .ok_or_else(|| Error::Data(format!("formule inconnue en base : {game}")))?;
-            Ok(GridRow {
-                game,
+        .map(|(game, year, number, closes_at, jackpot)| {
+            let id = GridId {
+                game: game_of(&game)?,
+                year,
                 number,
+            };
+            Ok(GridRow {
+                id,
                 closes_at: parse_timestamp(&closes_at)?,
                 jackpot: jackpot.and_then(Euros::new),
-                matches: matches(conn, game, number)?,
+                matches: matches(conn, id)?,
             })
         })
         .collect()
 }
 
-/// Une grille par sa formule et son numéro.
-pub fn grid(conn: &Connection, game: Game, number: u32) -> Result<Option<GridRow>> {
+/// Formule d'un code lu en base.
+fn game_of(code: &str) -> Result<Game> {
+    Game::from_code(code).ok_or_else(|| Error::Data(format!("formule inconnue en base : {code}")))
+}
+
+/// Une grille par son identité.
+pub fn grid(conn: &Connection, id: GridId) -> Result<Option<GridRow>> {
     let head = conn
         .query_row(
-            "SELECT closes_at, jackpot FROM lotofoot_grid WHERE game = ?1 AND number = ?2",
-            params![game.code(), number],
+            "SELECT closes_at, jackpot FROM lotofoot_grid WHERE game = ?1 AND year = ?2 AND number = ?3",
+            params![id.game.code(), id.year, id.number],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<f64>>(1)?)),
         )
         .optional()?;
@@ -327,32 +448,33 @@ pub fn grid(conn: &Connection, game: Game, number: u32) -> Result<Option<GridRow
         return Ok(None);
     };
     Ok(Some(GridRow {
-        game,
-        number,
+        id,
         closes_at: parse_timestamp(&closes_at)?,
         jackpot: jackpot.and_then(Euros::new),
-        matches: matches(conn, game, number)?,
+        matches: matches(conn, id)?,
     }))
 }
 
 /// Composition en vigueur d'une grille, rencontres dans l'ordre : celle de sa dernière révision, ou à défaut la première
 /// composition (`lotofoot_match`). Vide si la grille est inconnue.
-fn matches(conn: &Connection, game: Game, number: u32) -> Result<Vec<(String, String)>> {
-    let rows = match revision(conn, game, number)? {
+fn matches(conn: &Connection, id: GridId) -> Result<Vec<(String, String)>> {
+    let rows = match revision(conn, id)? {
         Some(fetch_id) => conn
             .prepare(
                 "SELECT home_raw, away_raw FROM lotofoot_match_revision
-                 WHERE game = ?1 AND number = ?2 AND fetch_id = ?3 ORDER BY position",
+                 WHERE game = ?1 AND year = ?2 AND number = ?3 AND fetch_id = ?4 ORDER BY position",
             )?
-            .query_map(params![game.code(), number, fetch_id], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?
+            .query_map(
+                params![id.game.code(), id.year, id.number, fetch_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?
             .collect::<rusqlite::Result<Vec<_>>>()?,
         None => conn
             .prepare(
-                "SELECT home_raw, away_raw FROM lotofoot_match WHERE game = ?1 AND number = ?2 ORDER BY position",
+                "SELECT home_raw, away_raw FROM lotofoot_match
+                 WHERE game = ?1 AND year = ?2 AND number = ?3 ORDER BY position",
             )?
-            .query_map(params![game.code(), number], |row| {
+            .query_map(params![id.game.code(), id.year, id.number], |row| {
                 Ok((row.get(0)?, row.get(1)?))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?,
@@ -361,11 +483,11 @@ fn matches(conn: &Connection, game: Game, number: u32) -> Result<Vec<(String, St
 }
 
 /// Relevé de la dernière révision de composition d'une grille, `None` si elle n'a jamais changé.
-fn revision(conn: &Connection, game: Game, number: u32) -> Result<Option<i64>> {
+fn revision(conn: &Connection, id: GridId) -> Result<Option<i64>> {
     // `MAX` sur aucune ligne donne NULL, lu en `None`.
     let fetch_id = conn.query_row(
-        "SELECT MAX(fetch_id) FROM lotofoot_match_revision WHERE game = ?1 AND number = ?2",
-        params![game.code(), number],
+        "SELECT MAX(fetch_id) FROM lotofoot_match_revision WHERE game = ?1 AND year = ?2 AND number = ?3",
+        params![id.game.code(), id.year, id.number],
         |row| row.get(0),
     )?;
     Ok(fetch_id)
@@ -384,14 +506,14 @@ pub struct Recomposition {
 }
 
 /// Dernier changement de composition d'une grille, `None` si elle n'en a jamais eu.
-pub fn recomposition(conn: &Connection, game: Game, number: u32) -> Result<Option<Recomposition>> {
-    let Some(fetch_id) = revision(conn, game, number)? else {
+pub fn recomposition(conn: &Connection, id: GridId) -> Result<Option<Recomposition>> {
+    let Some(fetch_id) = revision(conn, id)? else {
         return Ok(None);
     };
     let at = fetch_time(conn, fetch_id)?;
     let played: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM lotofoot_play WHERE game = ?1 AND number = ?2 AND played_at < ?3",
-        params![game.code(), number, timestamp(at)],
+        "SELECT COUNT(*) FROM lotofoot_play WHERE game = ?1 AND year = ?2 AND number = ?3 AND played_at < ?4",
+        params![id.game.code(), id.year, id.number, timestamp(at)],
         |row| row.get(0),
     )?;
     Ok(Some(Recomposition {
@@ -406,21 +528,21 @@ pub fn recomposition(conn: &Connection, game: Game, number: u32) -> Result<Optio
 /// rencontres (§52). Les identifiants de relevé croissent avec le temps (clé `INTEGER PRIMARY KEY`, rien n'est supprimé).
 pub fn latest_split(
     conn: &Connection,
-    game: Game,
-    number: u32,
+    id: GridId,
     at: DateTime<Utc>,
 ) -> Result<Option<(i64, Vec<[u32; 3]>)>> {
-    let since = revision(conn, game, number)?.unwrap_or(0);
+    let since = revision(conn, id)?.unwrap_or(0);
     let fetch_id: Option<i64> = conn
         .query_row(
             "SELECT s.fetch_id FROM lotofoot_split s JOIN lotofoot_fetch f ON f.id = s.fetch_id
-             WHERE s.game = ?1 AND s.number = ?2 AND f.fetched_at <= ?3 AND s.fetch_id >= ?5
-             GROUP BY s.fetch_id HAVING COUNT(*) = ?4 ORDER BY f.fetched_at DESC LIMIT 1",
+             WHERE s.game = ?1 AND s.year = ?2 AND s.number = ?3 AND f.fetched_at <= ?4 AND s.fetch_id >= ?6
+             GROUP BY s.fetch_id HAVING COUNT(*) = ?5 ORDER BY f.fetched_at DESC LIMIT 1",
             params![
-                game.code(),
-                number,
+                id.game.code(),
+                id.year,
+                id.number,
                 timestamp(at),
-                int(game.matches()),
+                int(id.game.matches()),
                 since
             ],
             |row| row.get(0),
@@ -430,12 +552,14 @@ pub fn latest_split(
         return Ok(None);
     };
     let mut stmt = conn.prepare(
-        "SELECT q_home, q_draw, q_away FROM lotofoot_split WHERE fetch_id = ?1 AND game = ?2 AND number = ?3 ORDER BY position",
+        "SELECT q_home, q_draw, q_away FROM lotofoot_split
+         WHERE fetch_id = ?1 AND game = ?2 AND year = ?3 AND number = ?4 ORDER BY position",
     )?;
     let split = stmt
-        .query_map(params![fetch_id, game.code(), number], |row| {
-            Ok([row.get(0)?, row.get(1)?, row.get(2)?])
-        })?
+        .query_map(
+            params![fetch_id, id.game.code(), id.year, id.number],
+            |row| Ok([row.get(0)?, row.get(1)?, row.get(2)?]),
+        )?
         .collect::<rusqlite::Result<Vec<[u32; 3]>>>()?;
     Ok(Some((fetch_id, split)))
 }
@@ -455,19 +579,25 @@ fn paris_day(at: DateTime<Utc>) -> Weekday {
     at.with_timezone(&Paris).weekday()
 }
 
-/// Rapports antérieurs à `grid`, de sa formule, du plus récent au plus ancien. Sans clôture connue, seul le numéro permet de
-/// situer un rapport : ceux-là viennent après les autres, de numéro inférieur.
+/// Rapports antérieurs à `grid`, de sa formule, du plus récent au plus ancien, à cheval sur les années. Sans clôture connue,
+/// seuls l'année et le numéro permettent de situer un rapport : ceux-là viennent après les autres, de numéro inférieur.
 fn past_masses(conn: &Connection, grid: &GridRow) -> Result<Vec<PastMass>> {
     let mut stmt = conn.prepare(
         "SELECT r.winners * r.unit_gain, g.closes_at, g.jackpot IS NOT NULL
-         FROM lotofoot_rank r LEFT JOIN lotofoot_grid g ON g.game = r.game AND g.number = r.number
+         FROM lotofoot_rank r
+         LEFT JOIN lotofoot_grid g ON g.game = r.game AND g.year = r.year AND g.number = r.number
          WHERE r.game = ?1 AND r.rank = 2 AND r.winners > 0 AND r.unit_gain IS NOT NULL
-           AND (g.closes_at < ?2 OR (g.closes_at IS NULL AND r.number < ?3))
-         ORDER BY g.closes_at IS NULL, g.closes_at DESC, r.number DESC",
+           AND (g.closes_at < ?2 OR (g.closes_at IS NULL AND (r.year, r.number) < (?3, ?4)))
+         ORDER BY g.closes_at IS NULL, g.closes_at DESC, r.year DESC, r.number DESC",
     )?;
     let rows = stmt
         .query_map(
-            params![grid.game.code(), timestamp(grid.closes_at), grid.number],
+            params![
+                grid.id.game.code(),
+                timestamp(grid.closes_at),
+                grid.id.year,
+                grid.id.number
+            ],
             |row| {
                 Ok((
                     row.get::<_, f64>(0)?,
@@ -510,7 +640,7 @@ fn median(values: &[f64]) -> f64 {
 /// Avec un pactole, la masse du rang 1 est fixe : des mises sous-estimées font surestimer l'espérance (élasticité de −0,5,
 /// `docs/sources.md` §64).
 pub fn stakes_estimate(conn: &Connection, grid: &GridRow, window: usize) -> Result<Option<Euros>> {
-    let share = grid.game.rank_shares()[1] * PAYOUT_RATE;
+    let share = grid.id.game.rank_shares()[1] * PAYOUT_RATE;
     let past = past_masses(conn, grid)?;
     let day = paris_day(grid.closes_at);
     let cell = Some((day, grid.jackpot.is_some()));
@@ -541,14 +671,16 @@ pub fn stakes_estimate(conn: &Connection, grid: &GridRow, window: usize) -> Resu
 }
 
 /// Signes sortis d'une grille, si les résultats de toutes ses rencontres sont connus.
-pub fn results(conn: &Connection, game: Game, number: u32) -> Result<Option<Vec<Outcome>>> {
+pub fn results(conn: &Connection, id: GridId) -> Result<Option<Vec<Outcome>>> {
     let mut stmt = conn.prepare(
-        "SELECT outcome FROM lotofoot_result WHERE game = ?1 AND number = ?2 ORDER BY position",
+        "SELECT outcome FROM lotofoot_result WHERE game = ?1 AND year = ?2 AND number = ?3 ORDER BY position",
     )?;
     let codes = stmt
-        .query_map(params![game.code(), number], |row| row.get::<_, String>(0))?
+        .query_map(params![id.game.code(), id.year, id.number], |row| {
+            row.get::<_, String>(0)
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    if codes.len() != game.matches() {
+    if codes.len() != id.game.matches() {
         return Ok(None);
     }
     Ok(codes.iter().map(|c| Outcome::from_code(c)).collect())
@@ -566,12 +698,13 @@ pub struct PublishedRank {
 }
 
 /// Rapports publiés d'une grille, par rang croissant.
-pub fn ranks(conn: &Connection, game: Game, number: u32) -> Result<Vec<PublishedRank>> {
+pub fn ranks(conn: &Connection, id: GridId) -> Result<Vec<PublishedRank>> {
     let mut stmt = conn.prepare(
-        "SELECT rank, winners, unit_gain FROM lotofoot_rank WHERE game = ?1 AND number = ?2 ORDER BY rank",
+        "SELECT rank, winners, unit_gain FROM lotofoot_rank
+         WHERE game = ?1 AND year = ?2 AND number = ?3 ORDER BY rank",
     )?;
     let rows = stmt
-        .query_map(params![game.code(), number], |row| {
+        .query_map(params![id.game.code(), id.year, id.number], |row| {
             Ok(PublishedRank {
                 rank: row.get(0)?,
                 winners: row.get(1)?,
@@ -598,10 +731,8 @@ pub struct NewSession<'a> {
 /// Un ticket recommandé à enregistrer.
 #[derive(Debug, Clone)]
 pub struct NewReco<'a> {
-    /// Formule.
-    pub game: Game,
-    /// Numéro de la grille.
-    pub number: u32,
+    /// Grille.
+    pub grid: GridId,
     /// Ticket.
     pub ticket: &'a Ticket,
     /// Rang dans la séance (1 : meilleur).
@@ -634,13 +765,14 @@ pub fn record_session(
     let session_id = tx.last_insert_rowid();
     for reco in recos {
         tx.execute(
-            "INSERT INTO lotofoot_reco (session_id, game, number, ticket, position, ev_base, ev_pessimistic,
+            "INSERT INTO lotofoot_reco (session_id, game, year, number, ticket, position, ev_base, ev_pessimistic,
                  paid_probability, stakes_estimate, split_fetch_id, inputs)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 session_id,
-                reco.game.code(),
-                reco.number,
+                reco.grid.game.code(),
+                reco.grid.year,
+                reco.grid.number,
                 reco.ticket.to_string(),
                 int(reco.position),
                 reco.ev_base,
@@ -703,10 +835,8 @@ pub struct RecoRow {
     pub session_id: i64,
     /// Instant de la séance.
     pub created_at: DateTime<Utc>,
-    /// Formule.
-    pub game: Game,
-    /// Numéro de la grille.
-    pub number: u32,
+    /// Grille.
+    pub grid: GridId,
     /// Ticket.
     pub ticket: Ticket,
     /// Rang dans la séance.
@@ -731,19 +861,23 @@ pub struct RecoRow {
 ///
 /// Un ticket calculé sur une répartition antérieure à la composition en vigueur de sa grille n'est plus en vigueur
 /// (§52), sauf s'il a été déclaré joué : il reste alors suivi, et la grille est bloquée ([`Recomposition`]).
+///
+/// `replaces` liste `[formule, numéro, année]` ; les séances écrites avant la migration 22, immuables, n'ont pas d'année :
+/// elles ne peuvent désigner que 2026 (§66).
 pub fn current_recos(conn: &Connection) -> Result<Vec<RecoRow>> {
     let mut stmt = conn.prepare(
-        "SELECT r.id, r.session_id, s.created_at, r.game, r.number, r.ticket, r.position, r.ev_base, r.ev_pessimistic,
+        "SELECT r.id, r.session_id, s.created_at, r.game, r.year, r.number, r.ticket, r.position, r.ev_base, r.ev_pessimistic,
                 r.paid_probability, r.stakes_estimate, r.inputs
          FROM lotofoot_reco r JOIN lotofoot_session s ON s.id = r.session_id
          WHERE r.session_id = (SELECT MAX(r2.session_id) FROM lotofoot_reco r2
-                               WHERE r2.game = r.game AND r2.number = r.number)
+                               WHERE r2.game = r.game AND r2.year = r.year AND r2.number = r.number)
            AND NOT EXISTS (SELECT 1 FROM lotofoot_session s2, json_each(s2.params, '$.replaces') j
                            WHERE s2.id > r.session_id
                              AND json_extract(j.value, '$[0]') = r.game
-                             AND json_extract(j.value, '$[1]') = r.number)
+                             AND json_extract(j.value, '$[1]') = r.number
+                             AND COALESCE(json_extract(j.value, '$[2]'), 2026) = r.year)
            AND (r.split_fetch_id >= COALESCE((SELECT MAX(v.fetch_id) FROM lotofoot_match_revision v
-                                              WHERE v.game = r.game AND v.number = r.number), 0)
+                                              WHERE v.game = r.game AND v.year = r.year AND v.number = r.number), 0)
                 OR EXISTS (SELECT 1 FROM lotofoot_play p WHERE p.reco_id = r.id))
          ORDER BY r.session_id, r.position",
     )?;
@@ -754,14 +888,15 @@ pub fn current_recos(conn: &Connection) -> Result<Vec<RecoRow>> {
                 row.get::<_, i64>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
-                row.get::<_, u32>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, u32>(6)?,
-                row.get::<_, f64>(7)?,
+                row.get::<_, i32>(4)?,
+                row.get::<_, u32>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, u32>(7)?,
                 row.get::<_, f64>(8)?,
                 row.get::<_, f64>(9)?,
                 row.get::<_, f64>(10)?,
-                row.get::<_, String>(11)?,
+                row.get::<_, f64>(11)?,
+                row.get::<_, String>(12)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -772,6 +907,7 @@ pub fn current_recos(conn: &Connection) -> Result<Vec<RecoRow>> {
                 session_id,
                 created_at,
                 game,
+                year,
                 number,
                 ticket,
                 position,
@@ -785,9 +921,11 @@ pub fn current_recos(conn: &Connection) -> Result<Vec<RecoRow>> {
                     id,
                     session_id,
                     created_at: parse_timestamp(&created_at)?,
-                    game: Game::from_code(&game)
-                        .ok_or_else(|| Error::Data(format!("formule inconnue en base : {game}")))?,
-                    number,
+                    grid: GridId {
+                        game: game_of(&game)?,
+                        year,
+                        number,
+                    },
                     ticket: Ticket::parse(&ticket).ok_or_else(|| {
                         Error::Data(format!("ticket illisible en base : {ticket}"))
                     })?,
@@ -808,10 +946,8 @@ pub fn current_recos(conn: &Connection) -> Result<Vec<RecoRow>> {
 pub struct NewPlay<'a> {
     /// Instant de la déclaration.
     pub played_at: DateTime<Utc>,
-    /// Formule.
-    pub game: Game,
-    /// Numéro de la grille.
-    pub number: u32,
+    /// Grille.
+    pub grid: GridId,
     /// Ticket.
     pub ticket: &'a Ticket,
     /// Mise (1 € pour une grille simple).
@@ -823,12 +959,13 @@ pub struct NewPlay<'a> {
 /// Enregistre un ticket joué ; renvoie son identifiant. `off_model` vaut 1 exactement quand `reco_id` est absent.
 pub fn record_play(conn: &Connection, play: &NewPlay<'_>) -> Result<i64> {
     conn.execute(
-        "INSERT INTO lotofoot_play (played_at, game, number, ticket, stake, reco_id, off_model)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO lotofoot_play (played_at, game, year, number, ticket, stake, reco_id, off_model)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             timestamp(play.played_at),
-            play.game.code(),
-            play.number,
+            play.grid.game.code(),
+            play.grid.year,
+            play.grid.number,
             play.ticket.to_string(),
             play.stake.get(),
             play.reco_id,
@@ -845,10 +982,8 @@ pub struct PlayRow {
     pub id: i64,
     /// Instant de la déclaration.
     pub played_at: DateTime<Utc>,
-    /// Formule.
-    pub game: Game,
-    /// Numéro de la grille.
-    pub number: u32,
+    /// Grille.
+    pub grid: GridId,
     /// Ticket.
     pub ticket: Ticket,
     /// Mise.
@@ -860,7 +995,7 @@ pub struct PlayRow {
 /// Tous les tickets joués, du plus ancien au plus récent.
 pub fn plays(conn: &Connection) -> Result<Vec<PlayRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, played_at, game, number, ticket, stake, reco_id FROM lotofoot_play ORDER BY id",
+        "SELECT id, played_at, game, year, number, ticket, stake, reco_id FROM lotofoot_play ORDER BY id",
     )?;
     let raw = stmt
         .query_map([], |row| {
@@ -868,57 +1003,70 @@ pub fn plays(conn: &Connection) -> Result<Vec<PlayRow>> {
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
-                row.get::<_, u32>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, f64>(5)?,
-                row.get::<_, Option<i64>>(6)?,
+                row.get::<_, i32>(3)?,
+                row.get::<_, u32>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, f64>(6)?,
+                row.get::<_, Option<i64>>(7)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     raw.into_iter()
-        .map(|(id, played_at, game, number, ticket, stake, reco_id)| {
-            Ok(PlayRow {
-                id,
-                played_at: parse_timestamp(&played_at)?,
-                game: Game::from_code(&game)
-                    .ok_or_else(|| Error::Data(format!("formule inconnue en base : {game}")))?,
-                number,
-                ticket: Ticket::parse(&ticket)
-                    .ok_or_else(|| Error::Data(format!("ticket illisible en base : {ticket}")))?,
-                stake,
-                reco_id,
-            })
-        })
+        .map(
+            |(id, played_at, game, year, number, ticket, stake, reco_id)| {
+                Ok(PlayRow {
+                    id,
+                    played_at: parse_timestamp(&played_at)?,
+                    grid: GridId {
+                        game: game_of(&game)?,
+                        year,
+                        number,
+                    },
+                    ticket: Ticket::parse(&ticket).ok_or_else(|| {
+                        Error::Data(format!("ticket illisible en base : {ticket}"))
+                    })?,
+                    stake,
+                    reco_id,
+                })
+            },
+        )
         .collect()
 }
 
 /// Répartition finale d'une grille (dernier relevé avant sa clôture), pour la vérification du modèle.
-pub fn final_split(conn: &Connection, game: Game, number: u32) -> Result<Option<Vec<[u32; 3]>>> {
-    let Some(grid) = grid(conn, game, number)? else {
+pub fn final_split(conn: &Connection, id: GridId) -> Result<Option<Vec<[u32; 3]>>> {
+    let Some(grid) = grid(conn, id)? else {
         return Ok(None);
     };
-    Ok(latest_split(conn, game, number, grid.closes_at)?.map(|(_, split)| split))
+    Ok(latest_split(conn, id, grid.closes_at)?.map(|(_, split)| split))
 }
 
-/// Grilles dont les résultats sont connus, par formule et numéro croissants.
-pub fn settled_grids(conn: &Connection) -> Result<Vec<(Game, u32)>> {
+/// Grilles dont les résultats sont connus, par formule, année et numéro croissants.
+pub fn settled_grids(conn: &Connection) -> Result<Vec<GridId>> {
     let mut stmt = conn.prepare(
-        "SELECT game, number FROM lotofoot_result GROUP BY game, number ORDER BY game, number",
+        "SELECT game, year, number FROM lotofoot_result GROUP BY game, year, number ORDER BY game, year, number",
     )?;
     let raw = stmt
         .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i32>(1)?,
+                row.get::<_, u32>(2)?,
+            ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(raw
         .into_iter()
-        .filter_map(|(game, number)| Game::from_code(&game).map(|g| (g, number)))
+        .filter_map(|(game, year, number)| {
+            Game::from_code(&game).map(|game| GridId { game, year, number })
+        })
         .collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lotofoot::grid_of_2026;
     use crate::lotofoot::pronomatch::{OpenGrid, PastRanks, RankLine};
     use crate::store::migrate::migrate;
 
@@ -949,14 +1097,17 @@ mod tests {
             history: vec![
                 PastRanks {
                     number: 131,
+                    closed: chrono::NaiveDate::from_ymd_opt(2026, 10, 20),
                     ranks: vec![rank(135, 578.0), rank(2393, 39.8)],
                 },
                 PastRanks {
                     number: 130,
+                    closed: chrono::NaiveDate::from_ymd_opt(2026, 10, 20),
                     ranks: vec![rank(588, 170.0), rank(7124, 16.6)],
                 },
                 PastRanks {
                     number: 129,
+                    closed: chrono::NaiveDate::from_ymd_opt(2026, 10, 20),
                     ranks: vec![rank(2539, 24.0), rank(17631, 4.2)],
                 },
             ],
@@ -1027,18 +1178,30 @@ mod tests {
         assert_eq!(grids.len(), 1);
         assert_eq!(grids[0].matches.len(), 7);
         // Pas de fuite du futur : à 10 h 30, seul le relevé de 10 h est visible.
-        let (id, split) = latest_split(&conn, Game::Lf7, 133, at("2026-10-24T10:30:00Z"))
-            .unwrap()
-            .unwrap();
+        let (id, split) = latest_split(
+            &conn,
+            grid_of_2026(Game::Lf7, 133),
+            at("2026-10-24T10:30:00Z"),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!((id, split[0]), (f2, [50, 30, 20]));
-        let (id, _) = latest_split(&conn, Game::Lf7, 133, at("2026-10-24T12:00:00Z"))
-            .unwrap()
-            .unwrap();
+        let (id, _) = latest_split(
+            &conn,
+            grid_of_2026(Game::Lf7, 133),
+            at("2026-10-24T12:00:00Z"),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(id, f3);
         assert!(
-            latest_split(&conn, Game::Lf7, 133, at("2026-10-24T09:30:00Z"))
-                .unwrap()
-                .is_none()
+            latest_split(
+                &conn,
+                grid_of_2026(Game::Lf7, 133),
+                at("2026-10-24T09:30:00Z")
+            )
+            .unwrap()
+            .is_none()
         );
     }
 
@@ -1064,8 +1227,7 @@ mod tests {
 
     fn target(game: Game, number: u32, closes_at: &str, jackpot: Option<f64>) -> GridRow {
         GridRow {
-            game,
-            number,
+            id: GridId::closing(game, number, at(closes_at)),
             closes_at: at(closes_at),
             jackpot: jackpot.and_then(Euros::new),
             matches: Vec::new(),
@@ -1082,12 +1244,14 @@ mod tests {
         winners: u32,
     ) {
         conn.execute(
-            "INSERT INTO lotofoot_grid (game, number, closes_at, jackpot, fetch_id) VALUES ('lf7', ?1, ?2, ?3, ?4)",
+            "INSERT INTO lotofoot_grid (game, year, number, closes_at, jackpot, fetch_id)
+             VALUES ('lf7', 2026, ?1, ?2, ?3, ?4)",
             params![number, closes_at, jackpot, fetch],
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO lotofoot_rank (game, number, rank, winners, unit_gain, fetch_id) VALUES ('lf7', ?1, 2, ?2, 10.0, ?3)",
+            "INSERT INTO lotofoot_rank (game, year, number, rank, winners, unit_gain, fetch_id)
+             VALUES ('lf7', 2026, ?1, 2, ?2, 10.0, ?3)",
             params![number, winners, fetch],
         )
         .unwrap();
@@ -1160,8 +1324,7 @@ mod tests {
             notes: "{}",
         };
         let reco = NewReco {
-            game: Game::Lf7,
-            number: 133,
+            grid: grid_of_2026(Game::Lf7, 133),
             ticket: &ticket,
             position: 1,
             ev_base: 1.8,
@@ -1183,8 +1346,7 @@ mod tests {
         assert!(conn.execute("DELETE FROM lotofoot_session", []).is_err());
         let play = NewPlay {
             played_at: at("2026-10-24T13:00:00Z"),
-            game: Game::Lf7,
-            number: 133,
+            grid: grid_of_2026(Game::Lf7, 133),
             ticket: &ticket,
             stake: Euros::new(1.0).unwrap(),
             reco_id: Some(recos[0].id),
@@ -1252,7 +1414,7 @@ mod tests {
         GridResult {
             game: Some(Game::Lf7),
             number: 133,
-            date: None,
+            date: chrono::NaiveDate::from_ymd_opt(2026, 10, 25),
             matches: matches
                 .iter()
                 .map(|(h, a)| (h.to_string(), a.to_string(), Outcome::Home))
@@ -1270,8 +1432,7 @@ mod tests {
             notes: "{}",
         };
         let reco = NewReco {
-            game: Game::Lf7,
-            number: 133,
+            grid: grid_of_2026(Game::Lf7, 133),
             ticket,
             position: 1,
             ev_base: 11.0,
@@ -1302,7 +1463,10 @@ mod tests {
         let ticket = Ticket::parse("1111111").unwrap();
         recommend(&mut conn, f1, &ticket);
         assert_eq!(current_recos(&conn).unwrap().len(), 1);
-        assert_eq!(recomposition(&conn, Game::Lf7, 133).unwrap(), None);
+        assert_eq!(
+            recomposition(&conn, grid_of_2026(Game::Lf7, 133)).unwrap(),
+            None
+        );
 
         // La grille ouvre avec d'autres rencontres : nouvelle composition, rattachée au relevé qui l'a vue.
         let f2 = grid_fetch(&conn, "2026-10-24T06:07:00Z");
@@ -1315,22 +1479,33 @@ mod tests {
         .unwrap();
         assert!(opened.recomposed);
         assert_eq!(opened.splits, 7);
-        let grid = grid(&conn, Game::Lf7, 133).unwrap().unwrap();
+        let grid = grid(&conn, grid_of_2026(Game::Lf7, 133)).unwrap().unwrap();
         assert_eq!(grid.matches[5], ("Fribourg".into(), "Bayern Munich".into()));
-        let change = recomposition(&conn, Game::Lf7, 133).unwrap().unwrap();
+        let change = recomposition(&conn, grid_of_2026(Game::Lf7, 133))
+            .unwrap()
+            .unwrap();
         assert_eq!((change.fetch_id, change.played_before), (f2, false));
         assert_eq!(
-            first_seen(&conn, Game::Lf7, 133).unwrap(),
+            first_seen(&conn, grid_of_2026(Game::Lf7, 133)).unwrap(),
             Some(at("2026-10-24T06:07:00Z"))
         );
         // La répartition antérieure ne vaut plus : avant le nouveau relevé, il n'y en a aucune.
         assert_eq!(
-            latest_split(&conn, Game::Lf7, 133, at("2026-10-24T05:00:00Z")).unwrap(),
+            latest_split(
+                &conn,
+                grid_of_2026(Game::Lf7, 133),
+                at("2026-10-24T05:00:00Z")
+            )
+            .unwrap(),
             None
         );
-        let (split_fetch, split) = latest_split(&conn, Game::Lf7, 133, at("2026-10-24T07:00:00Z"))
-            .unwrap()
-            .unwrap();
+        let (split_fetch, split) = latest_split(
+            &conn,
+            grid_of_2026(Game::Lf7, 133),
+            at("2026-10-24T07:00:00Z"),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!((split_fetch, split[0]), (f2, [40, 30, 30]));
         // Le ticket calculé sur l'ancienne composition n'est plus en vigueur, mais reste au journal.
         assert!(current_recos(&conn).unwrap().is_empty());
@@ -1357,7 +1532,7 @@ mod tests {
         let refused = record_results(&mut conn, r, &[results_of(&ANNOUNCED)]).unwrap();
         assert_eq!(refused.new, 0);
         assert!(refused.refused[0].contains("LF7 n°133"), "{refused:?}");
-        assert_eq!(results(&conn, Game::Lf7, 133).unwrap(), None);
+        assert_eq!(results(&conn, grid_of_2026(Game::Lf7, 133)).unwrap(), None);
         let written = record_results(&mut conn, r, &[results_of(&OPENED)]).unwrap();
         assert_eq!((written.new, written.refused.len()), (1, 0));
     }
@@ -1387,8 +1562,7 @@ mod tests {
             &conn,
             &NewPlay {
                 played_at: at("2026-10-24T04:00:00Z"),
-                game: Game::Lf7,
-                number: 133,
+                grid: grid_of_2026(Game::Lf7, 133),
                 ticket: &ticket,
                 stake: Euros::new(1.0).unwrap(),
                 reco_id: Some(reco_id),
@@ -1404,7 +1578,9 @@ mod tests {
         )
         .unwrap();
         record_grid_page(&mut conn, f2, Game::Lf7, &composed(&OPENED, None)).unwrap();
-        let change = recomposition(&conn, Game::Lf7, 133).unwrap().unwrap();
+        let change = recomposition(&conn, grid_of_2026(Game::Lf7, 133))
+            .unwrap()
+            .unwrap();
         assert!(change.played_before);
         // Le ticket joué reste suivi ; ses résultats ne sont pas réglés automatiquement.
         assert_eq!(current_recos(&conn).unwrap().len(), 1);
@@ -1414,6 +1590,322 @@ mod tests {
         assert!(record.refused[0].contains("à la main"), "{record:?}");
     }
 
+    /// Page d'une grille LF7 `number` qui ferme à `closes` (rencontres propres au tag), avec les rapports donnés.
+    fn year_page(
+        number: u32,
+        closes: &str,
+        tag: &str,
+        split: bool,
+        history: Vec<PastRanks>,
+    ) -> GridPage {
+        GridPage {
+            open: Some(OpenGrid {
+                game: Game::Lf7,
+                accepting: true,
+                number,
+                closes_at: at(closes),
+                jackpot: None,
+                matches: (1..=7)
+                    .map(|i| (format!("{tag}H{i}"), format!("{tag}A{i}")))
+                    .collect(),
+                split: split.then(|| vec![[50, 30, 20]; 7]),
+                split_at: None,
+            }),
+            history,
+        }
+    }
+
+    fn past(number: u32, closed: (i32, u32, u32), winners: u32) -> PastRanks {
+        PastRanks {
+            number,
+            closed: chrono::NaiveDate::from_ymd_opt(closed.0, closed.1, closed.2),
+            ranks: vec![rank(100, 500.0), rank(winners, 10.0)],
+        }
+    }
+
+    fn lf7(year: i32, number: u32) -> GridId {
+        GridId {
+            game: Game::Lf7,
+            year,
+            number,
+        }
+    }
+
+    fn results_page(
+        number: u32,
+        date: Option<(i32, u32, u32)>,
+        tag: &str,
+        gain: f64,
+    ) -> GridResult {
+        GridResult {
+            game: Some(Game::Lf7),
+            number,
+            date: date.and_then(|(y, m, d)| chrono::NaiveDate::from_ymd_opt(y, m, d)),
+            matches: (1..=7)
+                .map(|i| (format!("{tag}H{i}"), format!("{tag}A{i}"), Outcome::Away))
+                .collect(),
+            ranks: vec![rank(7, gain), rank(77, gain / 10.0)],
+        }
+    }
+
+    /// Le scénario du §66 : une grille de 2027 reprend le numéro d'une grille de 2026, avec un ticket jamais joué.
+    #[test]
+    fn a_new_year_reuses_numbers_without_touching_the_old_grid() {
+        let mut conn = db();
+        let grid_fetch = |conn: &Connection, when: &str| {
+            record_fetch(conn, at(when), Page::Grid(Game::Lf7), 200, None).unwrap()
+        };
+        let f1 = grid_fetch(&conn, "2026-10-24T09:00:00Z");
+        let old = year_page(133, "2026-10-25T16:10:00Z", "A", true, Vec::new());
+        record_grid_page(&mut conn, f1, Game::Lf7, &old).unwrap();
+        let ticket = Ticket::parse("1111111").unwrap();
+        recommend(&mut conn, f1, &ticket);
+        let r1 = record_fetch(&conn, at("2026-10-26T09:00:00Z"), Page::Results, 200, None).unwrap();
+        let old_results = results_page(133, Some((2026, 10, 25)), "A", 500.0);
+        assert_eq!(
+            record_results(&mut conn, r1, &[old_results]).unwrap().new,
+            1
+        );
+        let before = current_recos(&conn).unwrap();
+        assert_eq!(before.len(), 1);
+
+        let f2 = grid_fetch(&conn, "2027-10-20T09:00:00Z");
+        let new = year_page(133, "2027-10-24T16:10:00Z", "B", true, Vec::new());
+        let record = record_grid_page(&mut conn, f2, Game::Lf7, &new).unwrap();
+        // Pas de fausse recomposition : c'est une autre grille, visible, avec ses rencontres.
+        assert!(!record.recomposed);
+        assert_eq!(record.refused, None);
+        let open = grids_closing_after(&conn, at("2027-10-20T10:00:00Z")).unwrap();
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].id, lf7(2027, 133));
+        assert_eq!(open[0].matches[0], ("BH1".to_string(), "BA1".to_string()));
+        assert_eq!(
+            latest_split(&conn, lf7(2027, 133), at("2027-10-21T09:00:00Z"))
+                .unwrap()
+                .map(|(fetch, _)| fetch),
+            Some(f2)
+        );
+
+        // Rien ne bouge pour 2026 : composition, ticket non joué, bilan.
+        let old_grid = grid(&conn, lf7(2026, 133)).unwrap().unwrap();
+        assert_eq!(old_grid.matches[0], ("AH1".to_string(), "AA1".to_string()));
+        assert_eq!(old_grid.closes_at, at("2026-10-25T16:10:00Z"));
+        assert_eq!(recomposition(&conn, lf7(2026, 133)).unwrap(), None);
+        assert_eq!(current_recos(&conn).unwrap(), before);
+
+        // Résultats et rapports de chaque année restent séparés.
+        let r2 = record_fetch(&conn, at("2027-10-25T09:00:00Z"), Page::Results, 200, None).unwrap();
+        let new_results = results_page(133, Some((2027, 10, 24)), "B", 900.0);
+        let written = record_results(&mut conn, r2, &[new_results]).unwrap();
+        assert_eq!((written.new, written.refused.len()), (1, 0));
+        let gain = |year| {
+            ranks(&conn, lf7(year, 133)).unwrap()[0]
+                .unit_gain
+                .map(Euros::get)
+        };
+        assert_eq!((gain(2026), gain(2027)), (Some(500.0), Some(900.0)));
+        assert_eq!(
+            settled_grids(&conn).unwrap(),
+            vec![lf7(2026, 133), lf7(2027, 133)]
+        );
+    }
+
+    #[test]
+    fn past_ranks_take_the_year_of_their_closing_day() {
+        let mut conn = db();
+        let f = record_fetch(
+            &conn,
+            at("2027-01-02T09:00:00Z"),
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        let mut page = year_page(1, "2027-01-03T13:55:00Z", "N", false, Vec::new());
+        page.history = vec![past(165, (2026, 12, 30), 3000)];
+        record_grid_page(&mut conn, f, Game::Lf7, &page).unwrap();
+        assert_eq!(ranks(&conn, lf7(2026, 165)).unwrap().len(), 2);
+        assert!(ranks(&conn, lf7(2027, 165)).unwrap().is_empty());
+        // Le n°1 de janvier voit le rapport de décembre : sa fenêtre passe à cheval sur l'année.
+        let open = grids_closing_after(&conn, at("2027-01-02T10:00:00Z")).unwrap();
+        let stakes = stakes_estimate(&conn, &open[0], 8).unwrap().unwrap().get();
+        assert!((stakes - 3000.0 * 10.0 / 0.385).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_line_without_a_readable_date_is_refused_not_guessed() {
+        let mut conn = db();
+        let f = record_fetch(
+            &conn,
+            at("2027-01-02T09:00:00Z"),
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        let mut undated = past(165, (2026, 12, 30), 3000);
+        undated.closed = None;
+        let page = GridPage {
+            open: None,
+            history: vec![undated],
+        };
+        let record = record_grid_page(&mut conn, f, Game::Lf7, &page).unwrap();
+        assert_eq!(record.undated, 1);
+        assert_eq!(rank_rows(&conn), 0);
+
+        let r = record_fetch(&conn, at("2027-01-02T09:00:00Z"), Page::Results, 200, None).unwrap();
+        let record = record_results(&mut conn, r, &[results_page(1, None, "N", 90.0)]).unwrap();
+        assert_eq!(record.new, 0);
+        assert!(record.refused[0].contains("date illisible"), "{record:?}");
+        assert_eq!(rank_rows(&conn), 0);
+    }
+
+    fn rank_rows(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM lotofoot_rank", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_closing_that_contradicts_the_year_is_refused_not_recomposed() {
+        let mut conn = db();
+        let f1 = record_fetch(
+            &conn,
+            at("2027-03-01T09:00:00Z"),
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        let page = year_page(40, "2027-03-02T18:00:00Z", "A", false, Vec::new());
+        record_grid_page(&mut conn, f1, Game::Lf7, &page).unwrap();
+
+        // Même identité, clôture à un mois : ce n'est plus la même grille.
+        let f2 = record_fetch(
+            &conn,
+            at("2027-04-01T09:00:00Z"),
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        let moved = year_page(
+            40,
+            "2027-04-02T18:00:00Z",
+            "B",
+            true,
+            vec![past(39, (2027, 2, 28), 500)],
+        );
+        let record = record_grid_page(&mut conn, f2, Game::Lf7, &moved).unwrap();
+        assert!(!record.recomposed);
+        assert!(record.refused.is_some_and(|r| r.contains("clôture")));
+        let kept = grid(&conn, lf7(2027, 40)).unwrap().unwrap();
+        assert_eq!(kept.matches[0], ("AH1".to_string(), "AA1".to_string()));
+        assert_eq!(recomposition(&conn, lf7(2027, 40)).unwrap(), None);
+        assert_eq!(
+            latest_split(&conn, lf7(2027, 40), at("2027-04-02T09:00:00Z")).unwrap(),
+            None
+        );
+        // Les rapports de la page restent écrits : leur année se lit à part.
+        assert_eq!(ranks(&conn, lf7(2027, 39)).unwrap().len(), 2);
+
+        // Un report de quelques jours reste la même grille.
+        let f3 = record_fetch(
+            &conn,
+            at("2027-03-02T09:00:00Z"),
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        let shifted = year_page(40, "2027-03-05T18:00:00Z", "A", false, Vec::new());
+        let record = record_grid_page(&mut conn, f3, Game::Lf7, &shifted).unwrap();
+        assert_eq!(record.refused, None);
+
+        // Numéro inférieur à une grille close plus tôt la même année : l'année attribuée serait fausse.
+        let low = year_page(3, "2027-05-02T18:00:00Z", "C", false, Vec::new());
+        let f4 = record_fetch(
+            &conn,
+            at("2027-05-01T09:00:00Z"),
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        let record = record_grid_page(&mut conn, f4, Game::Lf7, &low).unwrap();
+        assert!(record.refused.is_some_and(|r| r.contains("n°40")));
+        assert_eq!(grid(&conn, lf7(2027, 3)).unwrap(), None);
+    }
+
+    #[test]
+    fn replaces_without_a_year_only_mean_2026() {
+        let mut conn = db();
+        let f1 = record_fetch(
+            &conn,
+            at("2026-10-24T09:00:00Z"),
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        record_grid_page(
+            &mut conn,
+            f1,
+            Game::Lf7,
+            &page(133, Some(vec![[50, 30, 20]; 7])),
+        )
+        .unwrap();
+        let f2 = record_fetch(
+            &conn,
+            at("2027-10-24T09:00:00Z"),
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        let next = year_page(133, "2027-10-25T16:10:00Z", "B", true, Vec::new());
+        record_grid_page(&mut conn, f2, Game::Lf7, &next).unwrap();
+        let ticket = Ticket::parse("1111111").unwrap();
+        let reco = |grid, split_fetch_id| NewReco {
+            grid,
+            ticket: &ticket,
+            position: 1,
+            ev_base: 2.0,
+            ev_pessimistic: 1.8,
+            paid_probability: 0.1,
+            stakes_estimate: 200_000.0,
+            split_fetch_id,
+            inputs: "{}",
+        };
+        let session = |params: &'static str| NewSession {
+            created_at: at("2027-10-24T10:00:00Z"),
+            model_version: "lotofoot-3",
+            params,
+            notes: "{}",
+        };
+        record_session(
+            &mut conn,
+            &session("{}"),
+            &[reco(lf7(2026, 133), f1), reco(lf7(2027, 133), f2)],
+        )
+        .unwrap();
+        // Séance écrite avant la migration 22 : `[formule, numéro]`, soit 2026.
+        record_session(&mut conn, &session(r#"{"replaces": [["lf7", 133]]}"#), &[]).unwrap();
+        let current: Vec<GridId> = current_recos(&conn)
+            .unwrap()
+            .iter()
+            .map(|r| r.grid)
+            .collect();
+        assert_eq!(current, vec![lf7(2027, 133)]);
+        // Séance récente : l'année est dite.
+        record_session(
+            &mut conn,
+            &session(r#"{"replaces": [["lf7", 133, 2027]]}"#),
+            &[],
+        )
+        .unwrap();
+        assert!(current_recos(&conn).unwrap().is_empty());
+    }
+
     #[test]
     fn results_are_kept_for_lf7_and_lf8_only() {
         let mut conn = db();
@@ -1421,7 +1913,7 @@ mod tests {
         let lf7 = GridResult {
             game: Some(Game::Lf7),
             number: 132,
-            date: None,
+            date: chrono::NaiveDate::from_ymd_opt(2026, 10, 25),
             matches: (0..7)
                 .map(|_| ("a".to_string(), "b".to_string(), Outcome::Draw))
                 .collect(),
@@ -1441,11 +1933,14 @@ mod tests {
         // Un second relevé identique n'écrit rien de nouveau.
         assert_eq!(record_results(&mut conn, f, &[lf7]).unwrap().new, 0);
         assert_eq!(
-            results(&conn, Game::Lf7, 132).unwrap(),
+            results(&conn, grid_of_2026(Game::Lf7, 132)).unwrap(),
             Some(vec![Outcome::Draw; 7])
         );
-        let ranks = ranks(&conn, Game::Lf7, 132).unwrap();
+        let ranks = ranks(&conn, grid_of_2026(Game::Lf7, 132)).unwrap();
         assert_eq!(ranks[1].winners, 2393);
-        assert_eq!(settled_grids(&conn).unwrap(), vec![(Game::Lf7, 132)]);
+        assert_eq!(
+            settled_grids(&conn).unwrap(),
+            vec![grid_of_2026(Game::Lf7, 132)]
+        );
     }
 }

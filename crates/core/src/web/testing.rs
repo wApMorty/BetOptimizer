@@ -9,7 +9,7 @@ use crate::config::{Config, GrandLotoEdition, ServeToken};
 use crate::domain::{Euros, Event, Odds, Quota, Quote};
 use crate::ingest::aliases::Aliases;
 use crate::lotofoot::pronomatch::{GridPage, OpenGrid};
-use crate::lotofoot::{Game, Ticket};
+use crate::lotofoot::{Game, Ticket, grid_of_2026};
 use crate::market::margin::MarginMethod;
 use crate::paths::Paths;
 use crate::store::archive::{Endpoint, NewApiCall, record_api_call, record_snapshot};
@@ -205,8 +205,7 @@ fn lotofoot_session(conn: &mut Connection, now: DateTime<Utc>) {
         .iter()
         .enumerate()
         .map(|(i, ticket)| NewReco {
-            game: Game::Lf7,
-            number: 133,
+            grid: grid_of_2026(Game::Lf7, 133),
             ticket,
             position: i + 1,
             ev_base: 1.8,

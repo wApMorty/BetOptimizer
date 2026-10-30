@@ -3,7 +3,7 @@
 //! La logique vit dans `edge_core::lotofoot` ; ce fichier lit la configuration, branche les vrais clients et affiche.
 
 use anyhow::{Context, Result, bail};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use edge_core::config::{Config, WEBHOOK_ENV};
 use edge_core::domain::Euros;
 use edge_core::format::{chance, decimal, kickoff_label};
@@ -17,7 +17,7 @@ use edge_core::lotofoot::played::{self, Declared, Manual};
 use edge_core::lotofoot::session::{self, Request, SessionReport};
 use edge_core::lotofoot::settle::{self, Ledger};
 use edge_core::lotofoot::verify;
-use edge_core::lotofoot::{Game, Ticket};
+use edge_core::lotofoot::{Game, GridId, Ticket};
 use edge_core::notify::discord;
 use edge_core::paths::Paths;
 use edge_core::report::lotofoot_page;
@@ -123,9 +123,8 @@ fn print_session(report: &SessionReport, dry_run: bool) {
     println!("\nSéance Loto Foot{mode}");
     for e in &report.evaluated {
         println!(
-            "  {} n°{} (clôture {}) : mises estimées {} €, meilleur ticket à {} (scénario défavorable)",
-            e.game,
-            e.number,
+            "  {} (clôture {}) : mises estimées {} €, meilleur ticket à {} (scénario défavorable)",
+            e.grid,
             kickoff_label(e.closes_at),
             decimal(e.stakes, 0),
             decimal(e.best_pessimistic, 2)
@@ -169,10 +168,9 @@ fn print_session(report: &SessionReport, dry_run: bool) {
     println!("\n{} ticket(s) à 1 € :", report.chosen.len());
     for (i, c) in report.chosen.iter().enumerate() {
         println!(
-            "  {:>2}. {} n°{}  {}  gagne {}, espérance {} (défavorable {})",
+            "  {:>2}. {}  {}  gagne {}, espérance {} (défavorable {})",
             i + 1,
-            c.grid.0,
-            c.grid.1,
+            c.grid,
             c.ticket,
             chance(c.base.paid_probability),
             decimal(c.base.expected_return, 2),
@@ -198,20 +196,20 @@ fn print_lines(report: &SessionReport) {
     );
     for l in &lines {
         let ranks: Vec<String> = l.tickets.iter().map(|i| (i + 1).to_string()).collect();
-        let outlook = report
-            .evaluated
-            .iter()
-            .find(|e| (e.game, e.number) == l.grid)
-            .map_or(String::new(), |e| {
-                format!(
-                    ", {}",
-                    lotofoot_page::ranks_text(&lotofoot_page::line_ranks(&e.model, &l.line))
-                )
-            });
+        let outlook =
+            report
+                .evaluated
+                .iter()
+                .find(|e| e.grid == l.grid)
+                .map_or(String::new(), |e| {
+                    format!(
+                        ", {}",
+                        lotofoot_page::ranks_text(&lotofoot_page::line_ranks(&e.model, &l.line))
+                    )
+                });
         println!(
-            "  {} n°{}  {}  {} €{outlook}  (tickets {})",
-            l.grid.0,
-            l.grid.1,
+            "  {}  {}  {} €{outlook}  (tickets {})",
+            l.grid,
             l.line,
             l.line.combinations(),
             ranks.join(", ")
@@ -225,12 +223,30 @@ pub struct PlayedOptions {
     pub ids: Vec<i64>,
     /// Tous les tickets de la dernière séance.
     pub last_session: bool,
-    /// Grille d'un ticket saisi à la main (`lf7:133`).
+    /// Grille d'un ticket saisi à la main (`lf7:133`, année en cours, ou `lf7:2026:133`).
     pub grid: Option<String>,
     /// Ticket saisi à la main (`1N22121`).
     pub ticket: Option<String>,
     /// Mise par ticket.
     pub stake: f64,
+}
+
+/// Grille d'une option : `lf7:133` (année en cours, heure de Paris) ou `lf7:2026:133`.
+fn parse_grid(text: &str, now: DateTime<Utc>) -> Option<GridId> {
+    let parts: Vec<&str> = text.split(':').collect();
+    match parts[..] {
+        [game, number] => Some(GridId::closing(
+            Game::from_code(game)?,
+            number.parse().ok()?,
+            now,
+        )),
+        [game, year, number] => Some(GridId {
+            game: Game::from_code(game)?,
+            year: year.parse().ok()?,
+            number: number.parse().ok()?,
+        }),
+        _ => None,
+    }
 }
 
 /// `edge lotofoot played` : enregistre les tickets réellement joués (journal immuable ; hors modèle si aucune
@@ -255,18 +271,16 @@ pub fn played(paths: &Paths, options: &PlayedOptions) -> Result<()> {
         written += print_declared(&played::declare_last_session(&conn, now, stake)?);
     }
     if let (Some(grid), Some(code)) = (&options.grid, &options.ticket) {
-        let (game, number) = grid
-            .split_once(':')
-            .and_then(|(g, n)| Some((Game::from_code(g)?, n.parse::<u32>().ok()?)))
-            .context("grille attendue au format lf7:133")?;
+        let grid =
+            parse_grid(grid, now).context("grille attendue au format lf7:133 ou lf7:2026:133")?;
         let ticket = Ticket::parse(code).context("ticket attendu au format 1N22121")?;
-        match played::declare_manual(&conn, game, number, &ticket, now, stake)? {
-            Manual::AlreadyDeclared(id) => println!(
-                "  {game} n°{number} {ticket} : ticket recommandé n°{id} déjà déclaré joué, ignoré"
-            ),
+        match played::declare_manual(&conn, grid, &ticket, now, stake)? {
+            Manual::AlreadyDeclared(id) => {
+                println!("  {grid} {ticket} : ticket recommandé n°{id} déjà déclaré joué, ignoré")
+            }
             Manual::Recorded(reco_id) => {
                 println!(
-                    "  {game} n°{number} {ticket} enregistré{}",
+                    "  {grid} {ticket} enregistré{}",
                     if reco_id.is_none() {
                         " (hors modèle)"
                     } else {
@@ -338,4 +352,25 @@ fn print_ledger(label: &str, l: &Ledger) {
         )),
         l.paid
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_grid_option_defaults_to_the_current_year() {
+        let now = DateTime::parse_from_rfc3339("2027-02-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let grid = |year, number| GridId {
+            game: Game::Lf7,
+            year,
+            number,
+        };
+        assert_eq!(parse_grid("lf7:12", now), Some(grid(2027, 12)));
+        assert_eq!(parse_grid("lf7:2026:133", now), Some(grid(2026, 133)));
+        assert_eq!(parse_grid("lf7", now), None);
+        assert_eq!(parse_grid("lf9:12", now), None);
+    }
 }

@@ -8,17 +8,15 @@
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 
-use super::Game;
+use super::GridId;
 use crate::error::Result;
 use crate::store::lotofoot as store;
 
 /// Une grille à signaler.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Listed {
-    /// Formule.
-    pub game: Game,
-    /// Numéro.
-    pub number: u32,
+    /// Grille.
+    pub grid: GridId,
     /// Fin de validation, en UTC.
     pub closes_at: DateTime<Utc>,
     /// Pactole annoncé, en euros entiers.
@@ -31,16 +29,15 @@ pub struct Listed {
 pub fn pending(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<Listed>> {
     let mut listed = Vec::new();
     for row in store::grids_closing_after(conn, now)? {
-        if store::alerted(conn, row.game, row.number)? {
+        if store::alerted(conn, row.id)? {
             continue;
         }
         listed.push(Listed {
-            game: row.game,
-            number: row.number,
+            grid: row.id,
             closes_at: row.closes_at,
             // Un pactole est un montant rond en euros : l'arrondi ne perd rien.
             jackpot: row.jackpot.map(|j| j.get().round() as u32),
-            split_published: store::latest_split(conn, row.game, row.number, now)?.is_some(),
+            split_published: store::latest_split(conn, row.id, now)?.is_some(),
         });
     }
     Ok(listed)
@@ -49,7 +46,7 @@ pub fn pending(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<Listed>> {
 /// Note les alertes comme envoyées (à appeler seulement après un envoi réussi).
 pub fn record(conn: &Connection, listed: &[Listed], sent_at: DateTime<Utc>) -> Result<()> {
     for grid in listed {
-        store::record_alert(conn, grid.game, grid.number, sent_at)?;
+        store::record_alert(conn, grid.grid, sent_at)?;
     }
     Ok(())
 }
@@ -58,6 +55,7 @@ pub fn record(conn: &Connection, listed: &[Listed], sent_at: DateTime<Utc>) -> R
 mod tests {
     use super::*;
     use crate::domain::Euros;
+    use crate::lotofoot::Game;
     use crate::lotofoot::pronomatch::{GridPage, OpenGrid};
     use crate::store::lotofoot::{Page, record_fetch, record_grid_page};
     use crate::store::migrate::migrate;
@@ -106,7 +104,7 @@ mod tests {
         let first = pending(&conn, now).unwrap();
         assert_eq!(first.len(), 1, "{first:?}");
         assert_eq!(
-            (first[0].game, first[0].number, first[0].jackpot),
+            (first[0].grid.game, first[0].grid.number, first[0].jackpot),
             (Game::Lf8, 147, Some(150_000))
         );
         assert!(!first[0].split_published);

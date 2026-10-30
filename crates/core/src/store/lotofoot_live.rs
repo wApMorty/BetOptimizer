@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::journal::parse_timestamp;
 use crate::error::{Error, Result};
-use crate::lotofoot::Game;
+use crate::lotofoot::GridId;
 use crate::lotofoot::espn::Phase;
 
 fn timestamp(at: DateTime<Utc>) -> String {
@@ -38,22 +38,22 @@ pub struct LiveScore {
 /// Écrit (ou remplace) le dernier score d'une rencontre, `position` comptée à partir de 1.
 pub fn upsert_score(
     conn: &Connection,
-    game: Game,
-    number: u32,
+    grid: GridId,
     position: u32,
     score: &LiveScore,
 ) -> Result<()> {
     conn.execute(
-        "INSERT INTO lotofoot_live (game, number, position, league, event_id, home_goals, away_goals, phase, label,
+        "INSERT INTO lotofoot_live (game, year, number, position, league, event_id, home_goals, away_goals, phase, label,
                                     fetched_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-         ON CONFLICT (game, number, position) DO UPDATE SET
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+         ON CONFLICT (game, year, number, position) DO UPDATE SET
             league = excluded.league, event_id = excluded.event_id, home_goals = excluded.home_goals,
             away_goals = excluded.away_goals, phase = excluded.phase, label = excluded.label,
             fetched_at = excluded.fetched_at",
         params![
-            game.code(),
-            number,
+            grid.game.code(),
+            grid.year,
+            grid.number,
             position,
             score.league,
             score.event_id,
@@ -68,13 +68,13 @@ pub fn upsert_score(
 }
 
 /// Derniers scores connus d'une grille, avec leur position (à partir de 1).
-pub fn scores(conn: &Connection, game: Game, number: u32) -> Result<Vec<(u32, LiveScore)>> {
+pub fn scores(conn: &Connection, grid: GridId) -> Result<Vec<(u32, LiveScore)>> {
     let mut stmt = conn.prepare(
         "SELECT position, league, event_id, home_goals, away_goals, phase, label, fetched_at
-         FROM lotofoot_live WHERE game = ?1 AND number = ?2 ORDER BY position",
+         FROM lotofoot_live WHERE game = ?1 AND year = ?2 AND number = ?3 ORDER BY position",
     )?;
     let rows = stmt
-        .query_map(params![game.code(), number], |row| {
+        .query_map(params![grid.game.code(), grid.year, grid.number], |row| {
             Ok((
                 row.get::<_, u32>(0)?,
                 row.get::<_, String>(1)?,

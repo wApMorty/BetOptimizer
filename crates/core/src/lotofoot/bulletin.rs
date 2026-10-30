@@ -10,7 +10,7 @@ use std::fmt;
 use crate::domain::Outcome;
 
 use super::optimize::MAX_TICKETS;
-use super::{Game, Ticket, sign_char};
+use super::{Game, GridId, Ticket, sign_char};
 
 /// Une grille à remplir : pour chaque rencontre, un, deux ou trois signes (simple, double, triple).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -108,7 +108,7 @@ impl fmt::Display for Line {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionLine {
     /// Grille du Loto Foot : formule et numéro.
-    pub grid: (Game, u32),
+    pub grid: GridId,
     /// La grille à remplir, simple ou multiple.
     pub line: Line,
     /// Rangs (à partir de 0) des tickets qu'elle contient dans la liste de la séance.
@@ -119,8 +119,8 @@ pub struct SessionLine {
 /// grilles du Loto Foot viennent dans l'ordre de leur premier ticket, chacune avec ses grilles à remplir.
 ///
 /// `tickets` emprunte les tickets de la séance (`&Ticket`) : on ne fait que les lire, les recopier serait inutile.
-pub fn session_lines(tickets: &[((Game, u32), &Ticket)]) -> Vec<SessionLine> {
-    let mut keys: Vec<(Game, u32)> = Vec::new();
+pub fn session_lines(tickets: &[(GridId, &Ticket)]) -> Vec<SessionLine> {
+    let mut keys: Vec<GridId> = Vec::new();
     for (key, _) in tickets {
         if !keys.contains(key) {
             keys.push(*key);
@@ -133,7 +133,7 @@ pub fn session_lines(tickets: &[((Game, u32), &Ticket)]) -> Vec<SessionLine> {
             .filter(|&i| tickets[i].0 == key)
             .collect();
         let own: Vec<Ticket> = ranks.iter().map(|&i| tickets[i].1.clone()).collect();
-        for line in group(key.0, &own) {
+        for line in group(key.game, &own) {
             let contained = line.tickets();
             let mut members: Vec<usize> = ranks
                 .iter()
@@ -278,6 +278,7 @@ fn exact_cover(count: usize, candidates: &[(Line, u32)]) -> Option<Vec<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lotofoot::grid_of_2026;
 
     fn tickets(codes: &[&str]) -> Vec<Ticket> {
         codes.iter().map(|c| Ticket::parse(c).unwrap()).collect()
@@ -380,17 +381,17 @@ mod tests {
     fn session_lines_keep_each_grid_apart_and_point_to_the_session_ranks() {
         let a = tickets(&["1111111", "21N12222", "N111111", "21N12122"]);
         let session = [
-            ((Game::Lf7, 133), &a[0]),
-            ((Game::Lf8, 146), &a[1]),
-            ((Game::Lf7, 133), &a[2]),
-            ((Game::Lf8, 146), &a[3]),
+            (grid_of_2026(Game::Lf7, 133), &a[0]),
+            (grid_of_2026(Game::Lf8, 146), &a[1]),
+            (grid_of_2026(Game::Lf7, 133), &a[2]),
+            (grid_of_2026(Game::Lf8, 146), &a[3]),
         ];
         let lines = session_lines(&session);
         assert_eq!(lines.len(), 2);
-        assert_eq!(lines[0].grid, (Game::Lf7, 133));
+        assert_eq!(lines[0].grid, grid_of_2026(Game::Lf7, 133));
         assert_eq!(lines[0].line.to_string(), "1N 1 1 1 1 1 1");
         assert_eq!(lines[0].tickets, [0, 2]);
-        assert_eq!(lines[1].grid, (Game::Lf8, 146));
+        assert_eq!(lines[1].grid, grid_of_2026(Game::Lf8, 146));
         assert_eq!(lines[1].line.to_string(), "2 1 N 1 2 12 2 2");
         assert_eq!(lines[1].tickets, [1, 3]);
     }

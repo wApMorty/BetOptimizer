@@ -119,7 +119,17 @@ pub fn run(conn: &mut Connection, now: Clock, fetch: Fetch, pause: Pause) -> Res
                     let fetch_id = store::record_fetch(conn, at, Page::Grid(game), 200, None)?;
                     let record = store::record_grid_page(conn, fetch_id, game, &page)?;
                     report.splits += record.splits;
-                    if let Some(grid) = &page.open {
+                    if record.undated > 0 {
+                        report.warnings.push(format!(
+                            "{game} : {} ligne(s) de rapports sans jour de clôture lisible, non écrites",
+                            record.undated
+                        ));
+                    }
+                    let written = record.refused.is_none();
+                    // `extend` prend le refus (un `Option` se parcourt comme une liste de zéro ou un élément) : il n'est
+                    // plus lu ensuite, inutile de le copier.
+                    report.warnings.extend(record.refused);
+                    if let Some(grid) = page.open.as_ref().filter(|_| written) {
                         if record.recomposed {
                             report.warnings.push(format!(
                                 "{game} n°{} : les rencontres ont changé, nouvelle composition enregistrée ; \
@@ -205,7 +215,7 @@ mod tests {
         format!(
             "<p><b>Loto Foot {n} n°{number}</b> · grille ouverte · clôture samedi 24 octobre à 16h55 · répartition des joueurs relevée samedi 24 octobre à 11h55.</p>\
              <table><thead><tr><th>#</th><th>Match</th><th>Joueurs</th></tr></thead><tbody>{rows}</tbody></table>\
-             <table><tbody><tr><td>n°{}</td><td>x</td><td><b>100 €</b><small>10 gagnants</small></td><td><b>5 €</b><small>2000 gagnants</small></td></tr></tbody></table>",
+             <table><tbody><tr><td>n°{}</td><td>vendredi 23 octobre</td><td><b>100 €</b><small>10 gagnants</small></td><td><b>5 €</b><small>2000 gagnants</small></td></tr></tbody></table>",
             number - 1
         )
     }
