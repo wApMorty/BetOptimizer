@@ -2899,3 +2899,41 @@ gains recyclés ; gain rattaché au **mois de clôture** de sa grille (une grill
 hors modèle exclus** (invariant 7). Le gain compte dès la publication du rapport, avant son encaissement ; euros entiers arrondis vers le
 bas. Aucune migration, version `lotofoot-3` et abaque conservés, montants écrits dans les paramètres de séance (`recycled_gains`). La perte
 annuelle maximale de 12 budgets vaut pour les tickets recommandés, hors paris hors modèle et hors mises supérieures à 1 €.
+
+## 68. Loto Foot : relever le plafond ne réduit pas la variance à 100 € par mois, il concentre le budget (2026-10-30)
+
+**Hypothèse de Paul** : plus de tickets par grille donnent des gains plus fréquents, donc moins de variance et plus de gains recyclés.
+
+**Étude** (`scripts/lotofoot/plafond_variance.py`, protocole figé en tête, sorties dans `~/.local/share/edge/etudes/data/lf/`) : vivier du
+§63, gains recyclés du §67, 2 000 tirages par grille, scénario S3 et « public juste ». Trois lots : entraînement, test, et « riches »
+(42 grilles d'au moins 27 tickets ≥ 1,7, dont 4 LF7, à l'image des cinq grilles d'octobre 2026). 7 plafonds × 2 budgets × 6 τ × 3 lots, soit
+252 configurations ; les plafonds 8 et 12 ont été ajoutés après lecture de la première passe. Étude descriptive, sans choix de règle. Les
+moyennes sont simulées (binomiale négative) et dépassent l'espérance analytique des §49 et §67.
+
+À 100 € par mois, τ = 1,7, par an (entraînement / test / riches) :
+
+| Plafond | Moyenne | Écart type | Médiane | Année en perte | Grilles payées | Mois avec un gain |
+|---|---|---|---|---|---|---|
+| 8 | +1 072 / +871 / +2 075 € | 3 515 / 2 983 / 4 448 € | −120 / −158 / +454 € | 54,2 / 56,3 / 42,4 % | 2,84 / 2,30 / 5,21 | 20,9 / 17,4 / 28,3 % |
+| 12 | +1 399 / +1 103 / +2 175 € | 4 210 / 3 448 / 4 904 € | −122 / −162 / +317 € | 53,0 / 55,0 / 45,3 % | 3,08 / 2,73 / 5,49 | 21,8 / 20,0 / 26,5 % |
+| 16 | +1 514 / +1 204 / +2 332 € | 4 831 / 3 786 / 5 511 € | −178 / −209 / +161 € | 54,4 / 55,8 / 47,7 % | 3,08 / 2,86 / 5,21 | 21,1 / 20,3 / 23,8 % |
+| 32 | +1 659 / +1 433 / +2 632 € | 5 373 / 4 288 / 6 478 € | −333 / −204 / −230 € | 57,5 / 54,3 / 52,3 % | 2,91 / 2,89 / 5,37 | 18,8 / 19,3 / 21,3 % |
+| 64 | +1 662 / +1 583 / +2 763 € | 5 635 / 4 821 / 7 275 € | −456 / −300 / −570 € | 60,1 / 56,1 / 55,9 % | 2,77 / 2,82 / 5,29 | 17,5 / 18,3 / 20,0 % |
+
+**Lecture.** Le budget étant saturé, plus de tickets par grille signifie moins de grilles (10,5 à 8,0 grilles par mois de 16 à 32 sur
+l'entraînement, 10,8 à 7,0 sur les riches). Or les tickets d'une même grille tombent ensemble quand une rencontre déjoue la base commune,
+alors que deux grilles sont indépendantes : le nombre de grilles payées ne bouge pas, les mois avec un gain deviennent plus rares et
+l'écart type monte de 11 à 18 % de 16 à 32. La moyenne monte aussi, de 145 à 300 € par an, et la médiane baisse. **L'hypothèse est
+fausse à 100 € par mois** ; c'est un arbitrage moyenne contre régularité, et le plafond bas va dans le sens de la régularité.
+
+**À 200 € par mois**, sur les grilles ordinaires, le budget n'est pas saturé et l'hypothèse tient en partie : de 16 à 32, grilles payées
+4,12 → 4,67 et 3,48 → 4,25, année en perte 49,0 → 48,0 % et 51,6 → 47,8 %, médiane +45 → +151 € et −58 → +130 €, écart type rapporté à la
+moyenne 2,71 → 2,51 et 2,80 → 2,43, pour un écart type absolu en hausse de 20 à 24 %. Sur les grilles riches, le budget sature de nouveau et
+le gain en régularité disparaît (année en perte 34,6 → 36,4 %, mois avec un gain 42,3 → 38,1 %).
+
+**Pour gagner plus souvent**, abaisser τ agit davantage que le plafond, mais seulement sur les grilles ordinaires : à 100 € et 16 tickets,
+τ = 1,5 donne 4,46 / 4,31 grilles payées par an contre 3,08 / 2,86, et 25,4 / 26,4 % de mois avec un gain contre 21,1 / 20,3 %, pour
+129 / 118 € de mises par mois au lieu de 106 / 98 €. Sur les grilles riches, τ ne change rien : 16 tickets y dépassent déjà 1,7.
+
+**Sous « public juste »**, le plafond change peu : −655 € par an à 16, −683 € à 32 sur l'entraînement. Aucun gain démontré (§37).
+**Aucune règle de production ne change ici.**
