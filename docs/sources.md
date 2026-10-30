@@ -2634,3 +2634,109 @@ S3 après le seuil τ, 16 tickets au plus par grille (`optimize::MAX_TICKETS`). 
 `max_tickets_per_grid` s'ajoutent aux paramètres écrits avec chaque séance. Abaque inchangé : ses τ sont ceux de cette règle à 60, 100 et
 200 €, à un pas près à 400 € (τ* 1,3 contre 1,2). Le test `selection_matches_the_study_pool` fige l'accord avec l'étude. La recherche de
 64 candidats prend environ 13 ms par grille LF8 en release. Le bulletin, le journal et le règlement ne changent pas.
+
+## 66. Loto Foot : la numérotation repart de 1 chaque 1er janvier, la clé `(game, number)` casse à l'automne 2027 (2026-10-30)
+
+**Constat** (suite du §64). La FDJ renumérote LF7 et LF8 chaque année ; la base identifie une grille par `(game, number)` et écrit en
+`INSERT OR IGNORE`. Rien n'a cassé : nos données commencent en octobre 2026. **Aucun code n'a changé ici.** Cette section a été écrite sur une
+branche issue de `master` : §64 et §65 sont sur la branche de l'estimateur de mises, d'où le saut de numéro.
+
+**Moment de la remise à zéro, archive FDJ.** `gid`, l'identifiant de la grille sur le site FDJ, croît sans jamais repartir de zéro. Sur les
+copies brutes (2021 à juin 2026), l'écart `gid − numéro` est **unique pour chaque année civile de clôture** : LF7 3 654, 3 966, 4 230, 4 463,
+4 642, 4 817 ; LF8 32, 101, 222, 356, 524, 697, soit 1 187 grilles sans exception. La frontière est donc l'année civile, pas la saison
+sportive. Dans les 1 109 grilles LF7 et LF8 de `grids_fdj_all.json`, le numéro ne baisse qu'aux quatre passages d'année, jamais entre deux.
+
+| Passage | LF7 : dernière → première vue | LF8 : dernière → première vue | Grilles dans l'année (LF7 / LF8) |
+|---|---|---|---|
+| 2021 → 2022 | n°312, 30/12 → n°1, 02/01 | n°68, 27/12 → n°2, 08/01 | 312 / — |
+| 2022 → 2023 | n°263, 28/12 → n°1, 01/01 | n°121, 31/12 → n°1, 04/01 | 264 / 121 |
+| 2023 → 2024 | n°233, 30/12 → n°2, 05/01 | n°134, 29/12 → n°1, 01/01 | 233 / 134 |
+| 2024 → 2025 | n°179, 29/12 → n°1, 01/01 | n°164, 22/12 → n°2, 04/01 | 179 / 168 |
+| 2025 → 2026 | archive arrêtée au 04/12 → n°4, 08/01 | archive arrêtée au 26/11 → n°5, 09/01 | 175 / 173 |
+
+Nombre de grilles dans l'année : différence de deux écarts successifs ; il inclut les grilles absentes de l'archive. Les clôtures les plus
+proches de la frontière sont le 31/12 à 14 h 55 (UTC, encore n°121) et le 01/01 à 13 h 55 (déjà n°1). Une grille close le 31 décembre et jouée le
+1er janvier n'a jamais été vue : cas non observé. Le passage 2025 → 2026 est déduit des écarts : les premiers numéros de 2026 manquent à l'archive.
+
+**Sources de production.** prono-match n'a aucune copie Wayback autour de janvier 2026 (`cdx` vide) : **son comportement au passage d'année
+n'est pas observé**, seulement déduit. Ses numéros et ceux de la FDJ ne se recoupent pas sur une même grille (FDJ arrêtée au n°79 LF8 de juin 2026).
+Trois faits comptent pour une clé par année :
+
+- la grille en cours donne sa clôture ; l'année, absente de l'affichage, est déjà déduite du relevé par `parse_french_datetime` ;
+- le tableau des rapports passés affiche « mardi 20 octobre » en deuxième colonne, que `parse_history` ignore aujourd'hui : l'année s'en déduit de
+  même, sur huit grilles récentes ;
+- la page des résultats affiche `29/10/2026`, lu dans `GridResult.date` mais jamais utilisé, et égal au jour de clôture sur les deux grilles
+  vérifiées (LF7 n°135, LF8 n°149). Elle ne montre que la dernière grille de chaque formule.
+
+prono-match n'expose pas `gid` : il ne peut pas servir de clé sans lire le site FDJ en production.
+
+**Ce qui suppose un numéro unique** : les clés de `lotofoot_grid`, `_match`, `_match_revision`, `_split`, `_result`, `_rank`, `_reco`, `_play`,
+`_alert`, `_live` ; `(Game, u32)` dans `Candidate.grid`, `session::run`, `played`, `settle`, `verify`, `scores` ; le bouton `lf7-133`, l'option
+`lf7:133`, et `replaces` dans les paramètres de 14 séances (`[code, numéro]`, JSON immuable lu par `current_recos`). Suppose un numéro
+**croissant** : `store::stakes_estimate` sur `master`. Ne dépendent pas du numéro : budget mensuel (`month_of` sur la clôture),
+`grids_closing_after`, `latest_split` (hormis sa clé).
+
+**Mesure** : passage d'année rejoué sur une copie de la base de production par les fonctions de `store` (test jetable, non conservé).
+
+| Date probable | Grille de 2027 | Effet mesuré |
+|---|---|---|
+| Janvier 2027, code de `master` | n°1 | `stakes_estimate` rend `None` : grille écartée (« aucun rapport passé ») |
+| Janvier 2027, code de `master` | n°2 à 8 | fenêtre de 1 à 7 grilles au lieu de 8 |
+| Septembre-octobre 2027 | LF7 n°125 à 132, LF8 n°138 à 145 | grille vue et recommandable, mais ses rapports sont ignorés : le n°125 se règle aux gains de 2026 (320 €, 26,50 €) |
+| Dès le n°126 | fenêtre de mises | rapports de 2026 mêlés à ceux de 2027 : à n°130, relevé 1 pour n°125 à 129 |
+| Fin octobre 2027 | LF7 ≥ n°133, LF8 ≥ n°146, jusqu'au dernier numéro de 2026 | **grille invisible** : clôture de 2026 conservée, 0 grille ouverte pour la séance, aucune alerte, aucun ticket |
+| Même date | mêmes grilles | fausse « nouvelle composition » ; grille bloquée si elle avait des tickets joués en 2026, résultats refusés (« règlement à la main ») |
+| Même date | **bilan de 2026** | composition remplacée : les tickets recommandés mais non joués quittent `current_recos`. Sur la copie : 79 → 47 tickets (LF7 n°136, LF8 n°150). Les signes et rapports de 2026 ne bougent pas |
+
+Le dernier effet n'était pas attendu : l'archive garde tout, mais le suivi du modèle se fausse rétroactivement. La grille perdue compte aussi : au
+rythme de 2026 (3,2 LF7 et 3,4 LF8 par semaine), environ 60 grilles sont invisibles de fin octobre à fin décembre 2027 (numéros finaux de 2026
+estimés à 163 et 180), soit environ un cinquième de l'année, donc de l'espérance S3 du §63 : espérance de modèle, aucun gain démontré.
+
+Dates de 2027 : par analogie. Le rythme a beaucoup changé, d'où une fourchette (première grille vue à ce numéro ou juste après) :
+
+| Seuil | 2022 | 2023 | 2024 | 2025 | 2026 |
+|---|---|---|---|---|---|
+| LF7 n°125 | 02/06 | 02/07 (n°126) | 25/08 (n°126) | 28/09 (n°131) | 05/10 |
+| LF7 n°133 | 15/06 | 10/08 (n°153) | 12/09 | 12/10 (n°138) | 25/10 |
+| LF8 n°138 | jamais | jamais | 06/11 (n°140) | 13/10 (n°139) | 09/10 |
+| LF8 n°146 | jamais | jamais | 19/11 | 07/11 (n°151) | 23/10 |
+
+Au pire (rythme de 2022), le LF7 casse en juin 2027 ; au rythme récent, en octobre.
+
+**Interaction avec le §65.** La branche de l'estimateur trie les rapports par clôture, via une jointure sur `lotofoot_grid` : une fois fusionnée,
+le n°1 de 2027 voit les grilles de 2026 (requête rejouée sur la copie : 3 rapports au 2026-10-30 contre 0 sur `master`). **Le problème de janvier
+disparaît donc avec le §65**, sans autre changement. Il reste la jointure `g.game = r.game AND g.number = r.number`, à compléter par la clé choisie,
+et les collisions. Une fenêtre à cheval sur l'année ne coûte rien : sur 42 grilles de numéro ≤ 8 de 2022 à 2025 (hors grilles sans rapport de
+l'année), erreur absolue moyenne du log des mises de 0,275 à cheval, contre 0,296 sur la seule année et 0,273 hors janvier (médiane
+des mises totales de l'archive, proxy de production, archive lacunaire).
+
+**Clé : options à trancher par Paul.**
+
+| | A. Colonne `year`, clé `(game, year, number)` | B. Numéro composé `2027133` |
+|---|---|---|
+| Schéma | migration 22 : 10 tables reconstruites (une clé primaire ne se modifie pas), 26 déclencheurs recréés, 3 325 lignes | aucun changement ; lignes de 2026 laissées en `133` |
+| Immuabilité | contenu identique, mais les tables sont recopiées (sauvegarde, comptes vérifiés) | rien n'est touché |
+| Lisibilité | SQL explicite, `GridId { game, year, number }` remplace `(Game, u32)`, et le compilateur montre chaque site | encodage dans un entier, deux formats en base, à décoder à chaque affichage |
+| Tri | `ORDER BY year, number` | automatique |
+| `replaces` déjà écrits | sans année : `COALESCE(…, 2026)` dans `current_recos` | inchangés |
+
+**Année retenue dans les deux cas** : année civile de la clôture, heure de Paris. La saison sportive est exclue par les données ci-dessus, et un
+surrogate `grid_id` ne convient pas : 32 lignes de `lotofoot_rank` n'ont pas de grille (n°125 à 132, n°138 à 145).
+
+**Plan proposé, à valider** (rien n'est codé) :
+
+1. Attendre la fusion de la branche du §65, qui réécrit `stakes_estimate`.
+2. Clé choisie : migration avec sauvegarde préalable (option A : `PRAGMA defer_foreign_keys`, enfants avant parents), rejouée d'abord sur une copie.
+3. Année des lignes : clôture pour la grille en cours, deuxième colonne pour les rapports passés, `GridResult.date` pour les résultats. Une ligne
+   sans date lisible est refusée avec un avertissement, jamais devinée.
+4. Garde : même clé mais clôture éloignée de plus de 7 jours, ou numéro inférieur à une grille déjà close de la même année : relevé refusé pour
+   cette grille et avertissement, jamais de recomposition.
+5. Bouton `lf7-2027-133` ; `lf7:133` lu dans l'année en cours, `lf7:2026:133` pour une autre année.
+6. Tests : scénario ci-dessus (n°1, n°125, n°133 de 2027 ; grilles visibles, rapports séparés, bilan de 2026 inchangé), attribution de l'année
+   à cheval sur le 1er janvier, garde, comptes de lignes de la migration.
+
+**Échéance** : avant la première grille de 2027, annoncée vers le 30 décembre 2026. Plus tard, la migration devrait aussi rattacher les lignes de
+2027 à leur année. La séparation devient indispensable avant le n°125 LF7 de 2027 (juin au plus tôt).
+
+**Limites** : comportement de prono-match au passage d'année non observé ; grille reportée d'une année sur l'autre non observée ; numéros finaux
+de 2026 estimés ; simulation à pages synthétiques, sur une base arrêtée au 2026-10-30.
