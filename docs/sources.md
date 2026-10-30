@@ -2628,3 +2628,9 @@ fortement sur le nombre de tickets retenus. Trois grilles seulement.
 
 **Coût d'un plafond relevé** : `bulletin::exact_cover` énumère 2^tickets sous-ensembles (impossible à 32) ; plus de grilles à remplir au
 guichet ; abaque à refaire (τ dépend du plafond). **Aucune règle de production ne change ici.**
+
+**En production depuis le 2026-10-30** (choix de Paul) : vivier de 64 candidats par grille (`optimize::POOL_TICKETS`), classés par espérance
+S3 après le seuil τ, 16 tickets au plus par grille (`optimize::MAX_TICKETS`). Version du modèle `lotofoot-2` ; `pool_tickets` et
+`max_tickets_per_grid` s'ajoutent aux paramètres écrits avec chaque séance. Abaque inchangé : ses τ sont ceux de cette règle à 60, 100 et
+200 €, à un pas près à 400 € (τ* 1,3 contre 1,2). Le test `selection_matches_the_study_pool` fige l'accord avec l'étude. La recherche de
+64 candidats prend environ 13 ms par grille LF8 en release. Le bulletin, le journal et le règlement ne changent pas.

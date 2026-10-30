@@ -27,7 +27,7 @@ use crate::ingest::snapshot::{Clock, Fetch};
 use crate::store::lotofoot::{self as store, GridRow, NewReco, NewSession, RecoRow};
 
 /// Version du modèle, enregistrée avec chaque recommandation.
-pub const MODEL_VERSION: &str = "lotofoot-1";
+pub const MODEL_VERSION: &str = "lotofoot-2";
 
 /// Âge maximal de la répartition utilisée : au-delà, le relevé horaire a manqué et la grille est écartée.
 pub const MAX_SPLIT_AGE_HOURS: i64 = 3;
@@ -480,7 +480,7 @@ pub fn run(
         &replaced,
         &ready,
     )?;
-    let ranked = optimize::select(all, request.threshold, usize::MAX);
+    let ranked = optimize::select(all, request.threshold, optimize::MAX_TICKETS);
     report.chosen = within_budget(ranked, &mut report.months, &ready);
 
     // 4. Journal immuable : la séance, ses paramètres, et chaque ticket avec tout ce qui a servi à le choisir.
@@ -493,6 +493,7 @@ pub fn run(
             "kappa": FROZEN.kappa, "beta": FROZEN.beta, "phi": FROZEN.phi,
             "frequency_weight": config.lotofoot_frequency_weight, "threshold": request.threshold,
             "monthly_budget": request.monthly_budget, "abaque": abaque::VERSION,
+            "pool_tickets": optimize::POOL_TICKETS, "max_tickets_per_grid": optimize::MAX_TICKETS,
             "allocation": "ordre de clôture", "min_grid_age_hours": MIN_GRID_AGE_HOURS,
             "budget_since": budget_since().to_rfc3339(), "replace": request.replace, "replaces": replaces,
             "pessimistic_shrink": PESSIMISTIC_SHRINK,
