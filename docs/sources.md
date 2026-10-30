@@ -2628,3 +2628,74 @@ fortement sur le nombre de tickets retenus. Trois grilles seulement.
 
 **Coût d'un plafond relevé** : `bulletin::exact_cover` énumère 2^tickets sous-ensembles (impossible à 32) ; plus de grilles à remplir au
 guichet ; abaque à refaire (τ dépend du plafond). **Aucune règle de production ne change ici.**
+
+## 64. Loto Foot : l'erreur sur les mises coûte 80 à 100 € par an à 100 € par mois, et vient surtout des grilles à pactole (2026-10-30)
+
+**Question** (suite du §63) : que coûte aux séances l'estimation des mises S, connue seulement après la clôture ? **Étude**
+(`scripts/lotofoot/stakes_error.py`, protocole figé en tête, sorties dans `~/.local/share/edge/etudes/data/lf/` : `stakes_error.txt`,
+`stakes_error_entrainement.txt`) : walk-forward sur les 1 109 grilles LF7/LF8 archivées, décision à la clôture − 8 h, rapports connus 3 h
+après la dernière rencontre ; 1 093 grilles évaluées (814 d'entraînement, 279 de test). Effet sur les grilles appariées (314 + 90) :
+recherche de production relancée pour chaque Ŝ, ticket joué si son espérance S3 à Ŝ atteint τ = 1,7, compté à son espérance S3 à S vrai ;
+mois du §49, 100 € par mois. **8 configurations essayées.** Le jour et le pactole avaient été vus sur toute la période (médianes de S)
+avant de figer la liste : le test ne confirme donc pas un choix aveugle de candidats.
+
+**Erreur sur S** (Ŝ / S − 1, médiane de l'erreur absolue, part au-delà de 20 %, erreur absolue moyenne du log ; le choix se fait sur cette
+dernière, sur l'entraînement) :
+
+| Estimateur | Entraînement | Test |
+|---|---|---|
+| `prod_8` (production, 8 dernières de la formule) | 19 %, 49 %, 0,254 | 30 %, 65 %, 0,337 |
+| `win_4` | 18 %, 48 %, 0,251 | 28 %, 60 %, 0,328 |
+| `win_16` | 21 %, 51 %, 0,267 | 31 %, 67 %, 0,348 |
+| `pooled_8` (LF7 et LF8 confondus) | 20 %, 51 %, 0,273 | 26 %, 60 %, 0,324 |
+| `day_8` (même jour) | 19 %, 47 %, 0,261 | 18 %, 48 %, 0,298 |
+| `day_jack_8` (même jour, même présence d'un pactole) | 17 %, 44 %, 0,230 | **14 %, 38 %, 0,206** |
+| `reg` (niveau + jour + pactole), **retenu sur l'entraînement** | 17 %, 44 %, **0,217** | 18 %, 45 %, 0,230 |
+| `reg_comp` (`reg` + compétitions) | 18 %, 44 %, 0,217 | 17 %, 44 %, 0,227 |
+
+L'erreur de production sur le test est gonflée par l'archive lacunaire (ses « 8 dernières » sont plus anciennes qu'en production). Les
+compétitions n'apportent rien. `day_jack_8` fait mieux que `reg` sur le test : constat, non choix, puisqu'il a été lu après le gel.
+
+**Le mécanisme : le pactole.** Biais médian de production : LF7 +22 % sans pactole, −23 % avec ; LF8 +32 % sans, −36 % avec (test ;
+entraînement : +10, −15, +31, −18 %). La médiane mêle deux populations de grilles. Or l'élasticité de l'espérance aux mises en dépend :
+**−0,02 sans pactole, −0,5 avec** (d ln EV / d ln S, médiane par grille, entraînement et test concordants). Sans pactole, masses et
+concurrents croissent ensemble et l'erreur est sans effet. Avec pactole, la masse du rang 1 est fixe : des mises sous-estimées font sous-
+estimer les concurrents, donc surestimer l'espérance. Le commentaire de `stakes_estimate` (« une estimation à 20 % près suffit ») ne vaut
+que sans pactole, et l'erreur de production tombe du mauvais côté exactement là où elle compte.
+
+**Effet à 100 € par mois, τ = 1,7, espérance S3 nette par an à S vrai** (IC 95 % des écarts : bootstrap de semaines, 500 tirages) :
+
+| Estimateur | Annoncé (E / T) | Obtenu (E / T) | Écart à S connu : E | T | Écart à la production : E | T |
+|---|---|---|---|---|---|---|
+| S connu | +1 104 / +1 018 € | +1 104 / +1 018 € | — | — | +81 [+35 ; +120] | +97 [−35 ; +165] |
+| `prod_8` | +1 428 / +1 408 € | +1 022 / +921 € | −81 [−120 ; −35] | −97 [−165 ; +35] | — | — |
+| `day_jack_8` | +1 186 / +1 019 € | +1 084 / +1 011 € | −19 [−36 ; −4] | −7 [−19 ; +17] | +62 [+22 ; +100] | +91 [−33 ; +160] |
+| `reg` | +1 225 / +1 121 € | +1 090 / +963 € | −14 [−27 ; 0] | −55 [−118 ; +43] | +67 [+29 ; +103] | +42 [−4 ; +83] |
+
+- **Coût de l'erreur** : 81 € par an sur l'entraînement, 97 € sur le test, soit 7 à 10 % de l'espérance S3 du modèle. Sur le test seul,
+  l'intervalle contient 0.
+- **L'annonce est trompeuse** : la production annonce 40 à 53 % de plus que ce qu'elle obtient (+1 408 € annoncés, +921 € obtenus).
+- **Tickets** (par grille, sans budget, test) : 6,7 tickets ≥ τ annoncés pour 4,3 vrais, soit 2,4 faux positifs (0,2 avec `day_jack_8`,
+  1,2 avec `reg`) et presque aucun vrai ticket manqué. Ces faux positifs valent en moyenne 1,48 (test) et 1,55 (entraînement) à S vrai,
+  aucun sous 1 : le coût vient du budget qu'ils prennent aux grilles suivantes (dépense de 99 € par mois contre 88 € à S connu).
+- Les tables à 60 et 200 € sont dans `stakes_error.txt` ; à 200 €, τ = 1,7 n'est pas le τ* et « S connu » y dépense moins : écarts non
+  interprétables à τ fixe.
+
+**Correctif du §63** : la chute de 41 à 12 tickets du LF7 n°133 ne vient pas surtout des mises. Tickets ≥ 1,7 sur 64 : 41 à Ŝ, **30 à S**,
+**12 à S avec la dernière répartition** ; la dérive de q pèse plus que l'erreur sur S (18 tickets contre 11). LF8 n°146 : 54, 24, puis 34 (la dérive
+joue en sens inverse). LF8 n°147 : 42, 38, 38. Au plafond de production (16) : n°133 de 16 à 11 puis 9 ; n°146 de 15 à 13 puis 15 ; n°147
+de 15 à 14 puis 14.
+
+**Sept grilles récentes aux rapports connus** (S déduit des rapports, Ŝ de production recalculé par sa requête) : erreur absolue moyenne de
+44 % pour la production (LF8 n°146 −27 %, n°147 +34 %, n°148 +12 %, n°149 +128 % ; LF7 n°133 −16 %, n°134 −16 %, n°135 +77 %), 24 % pour
+`reg` (−23, −33, −42, +27 ; +5, +10, +30 %), dont le niveau reste vieilli de dix mois (l'archive s'arrête en décembre 2025, et les rapports
+n°125 à 132 et 138 à 145 n'ont pas de ligne `lotofoot_grid`). Les trois sous-estimations de la production sont les trois grilles à pactole et
+les surestimations (n°135, n°147, n°148, n°149) tombent sur des grilles sans pactole, donc sans effet : même mécanisme que sur l'historique. Sept
+grilles : ordre de grandeur.
+
+**Limites** : espérances du modèle et non gains observés (aucun gain démontré, test figé du §37 échoué) ; répartition finale pour
+l'historique ; τ de l'abaque gardé fixe ; les grilles récentes ont bien plus de tickets au-dessus du seuil que l'historique (§63), le budget
+y serait plus contraint et le coût peut y différer. **Autre point relevé** : la numérotation FDJ repart de 1 chaque année (archive 2022 à
+2025), alors que la clé est `(game, number)` et que `stakes_estimate` trie par numéro.
+
+**Rien ne change en production ici.** Plan soumis à Paul (estimateur par jour et pactole), en attente de son go.
