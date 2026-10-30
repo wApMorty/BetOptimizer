@@ -2587,3 +2587,44 @@ Déroulé, après le relevé The Odds API et seulement pour les rencontres encor
 dernier changement de prix est affichée, sans seuil. Coût : 1 requête par séance qui en a besoin. Une rencontre introuvable est
 refusée, avec des pistes (noms OddsPapi qui contiennent le nom cherché) jamais utilisées comme appariement. Les rencontres repêchées
 ne sont pas suivies en direct (pas de code ESPN pour les compétitions OddsPapi), et la page le signale.
+
+## 63. Loto Foot : plus de 16 tickets par grille ? Partage négligeable, gain modeste à 100 € par mois, aucun gain démontré (2026-10-30)
+
+**Question de Paul** : des tickets au-delà du 16e par grille rapporteraient-ils quelque chose, partage entre nos tickets déduit ? La limite
+de 16 est par grille : c'est `optimize::MAX_TICKETS`, reste du budget de 16 € du §37, jamais réexaminée lors du passage au budget mensuel.
+
+**Étude** (`scripts/lotofoot/beyond_16.py`, protocole figé en tête, sorties dans `~/.local/share/edge/etudes/data/lf/` : `beyond_16.txt`,
+`beyond_16_passe1.txt`) : les 409 grilles du §47, recherche de production prolongée à 64 tickets, valeur exacte de chaque ensemble sur les
+3^n issues avec `c · E[1 / (c + W)]`, W de Poisson (contrôlé par force brute et contre la somme de Poisson), mois simulés du §49.
+Configurations essayées : **1 860**. Le vivier et la calibration ont été ajoutés après lecture de la première passe, test compris : ce
+n'est donc plus un test figé pour eux.
+
+**Partage entre nos tickets : négligeable.** Deux tickets distincts ne sont jamais parfaits ensemble ; le partage ne porte que sur le rang
+à une erreur, où la masse est déjà très divisée. Il retire 0,1 à 0,4 % au LF7 et 0,1 à 1,2 % au LF8, jusqu'au 64e ticket. La règle « valeur
+marginale ≥ τ » ne change rien (écart sous 1 %).
+
+**La coupe à 16 ne suit pas l'espérance.** La recherche classe sur `EV + 10 · P(payé)`, le seuil sur l'espérance S3 : les tickets 17 à 24
+valent en moyenne plus que les tickets 9 à 16 (LF7 1,32 contre 1,19 ; LF8 1,65 contre 1,57). D'où la règle « vivier » : 64 candidats,
+classés par espérance S3, le plafond appliqué ensuite.
+
+| Budget / mois | Production (16) | Vivier 64, plafond 16 | Vivier 64, plafond 32 | Vivier 64, plafond 48 |
+|---|---|---|---|---|
+| 100 € | τ 1,7 : +1 097 / +1 039 € | τ 1,7 : +1 123 / +1 065 € | τ 1,8 : +1 175 / +1 114 € | τ 1,8 : +1 175 / +1 126 € |
+| 200 € | τ 1,6 : +1 821 / +1 555 € | τ 1,5 : +1 880 / +1 719 € | τ 1,7 : +2 035 / +1 832 € | τ 1,7 : +2 085 / +1 946 € |
+| 400 € | τ 1,3 : +2 742 / +2 227 € | τ 1,3 : +2 871 / +2 342 € | τ 1,5 : +3 425 / +2 954 € | τ 1,5 : +3 511 / +3 277 € |
+
+Espérance S3 nette par an, partage déduit, entraînement / test, τ* de l'entraînement. Le plafond ne pèse vraiment qu'aux gros budgets.
+
+**Résultats réels** (τ = 1,7, sans budget, 409 grilles) : gains par euro de 1,11 au plafond 16 (IC 95 % [0,00 ; 3,54]), 0,84 au plafond 64
+([0,07 ; 2,22]) ; vivier au plafond 16 : 1,23. Par groupe, sans-faute attendus / réels : 0,40 / 0 (16 premiers candidats) et 0,33 / 0
+(suivants) ; une erreur : 6,0 / 5 et 5,1 / 3. Sur le test, aucun rang atteint en 827 tickets pour 3,1 attendus : signal défavorable, mais
+ces tickets sont fortement corrélés. **Rien de tranché** : l'espérance vient surtout du sans-faute, jamais observé, et un bootstrap ne
+voit pas un événement absent.
+
+**Grilles récentes** : 33 à 54 tickets ≥ 1,7 sur 64 au calcul, loin de l'historique (LF7 1,7 en moyenne, 2 % de grilles au-delà de 16).
+Avec les mises réelles déduites des gains publiés et la dernière répartition relevée : LF7 n°133 de 41 à **12**, LF8 n°146 de 54 à 34,
+LF8 n°147 de 42 à 38. L'estimation des mises (médiane des huit dernières grilles, écart déjà noté au §54 ; 16 à 34 % ici) pèse donc
+fortement sur le nombre de tickets retenus. Trois grilles seulement.
+
+**Coût d'un plafond relevé** : `bulletin::exact_cover` énumère 2^tickets sous-ensembles (impossible à 32) ; plus de grilles à remplir au
+guichet ; abaque à refaire (τ dépend du plafond). **Aucune règle de production ne change ici.**
