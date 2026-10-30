@@ -1,12 +1,14 @@
 //! Choix des tickets : recherche gloutonne par grille, puis sélection de la séance sous un seuil et un budget.
 //!
-//! Règle (`docs/sources.md` §37, revue au §47) :
-//! 1. sur chaque grille, 16 tickets distincts choisis un à un, chacun maximisant `EV(t) + μ · P(t payé)` avec `μ = 10`
-//!    (le terme en `μ` achète un peu de fréquence de gain au prix d'un peu d'espérance) ;
+//! Règle (`docs/sources.md` §37, revue au §47 et au §63) :
+//! 1. sur chaque grille, un vivier de 64 tickets distincts choisis un à un, chacun maximisant `EV(t) + μ · P(t payé)` avec
+//!    `μ = 10` (le terme en `μ` achète un peu de fréquence de gain au prix d'un peu d'espérance) ;
 //! 2. chaque ticket est réévalué dans le scénario défavorable (« S3 ») ;
 //! 3. on garde les tickets dont l'espérance défavorable atteint le seuil τ, que l'abaque tire du budget mensuel
-//!    (`lotofoot::abaque`, §49) ; la séance les répartit grille par grille dans l'ordre de clôture, dans le budget restant
-//!    du mois (`lotofoot::session`, §51).
+//!    (`lotofoot::abaque`, §49), les 16 meilleurs par grille au plus ; la séance les répartit grille par grille dans l'ordre
+//!    de clôture, dans le budget restant du mois (`lotofoot::session`, §51).
+
+use std::collections::HashMap;
 
 use crate::domain::Outcome;
 
@@ -16,7 +18,11 @@ use super::{Game, Ticket};
 /// Poids de la probabilité de gain dans l'objectif de la recherche gloutonne.
 pub const FREQUENCY_WEIGHT: f64 = 10.0;
 
-/// Nombre maximal de tickets d'une séance (budget de 16 € à 1 € le ticket).
+/// Nombre de tickets évalués sur chaque grille avant le seuil : la recherche et le seuil ne classent pas de la même façon,
+/// et les tickets au-delà du 16e de la recherche valent souvent mieux en S3 que les derniers des 16 premiers (§63).
+pub const POOL_TICKETS: usize = 64;
+
+/// Nombre maximal de tickets retenus par grille. Une séance peut en retenir davantage si elle porte sur plusieurs grilles.
 pub const MAX_TICKETS: usize = 16;
 
 /// Passes au plus de la recherche locale (chaque passe essaie tous les changements d'un signe).
@@ -115,7 +121,7 @@ pub struct Candidate {
     pub pessimistic: TicketValue,
 }
 
-/// Candidats d'une grille : ses `MAX_TICKETS` meilleurs tickets pour le poids de fréquence `weight`, évalués dans les
+/// Candidats d'une grille : ses `POOL_TICKETS` meilleurs tickets pour le poids de fréquence `weight`, évalués dans les
 /// deux scénarios.
 pub fn candidates(
     key: (Game, u32),
@@ -125,7 +131,7 @@ pub fn candidates(
 ) -> Vec<Candidate> {
     let worse = grid.pessimistic();
     let worse_competitors = competitors.pessimistic();
-    best_tickets(grid, competitors, MAX_TICKETS, weight)
+    best_tickets(grid, competitors, POOL_TICKETS, weight)
         .into_iter()
         .map(|ticket| Candidate {
             grid: key,
@@ -137,11 +143,11 @@ pub fn candidates(
 }
 
 /// Sélection de la séance : espérance défavorable au moins égale à `threshold`, par espérance défavorable décroissante,
-/// `max_tickets` au plus. Une séance peut ne retenir aucun ticket.
+/// `max_per_grid` au plus par grille. Une séance peut ne retenir aucun ticket.
 pub fn select(
     mut candidates: Vec<Candidate>,
     threshold: f64,
-    max_tickets: usize,
+    max_per_grid: usize,
 ) -> Vec<Candidate> {
     candidates.retain(|c| c.pessimistic.expected_return >= threshold);
     // `total_cmp` ordonne aussi les flottants spéciaux : le tri ne peut pas paniquer. À égalité, le ticket le plus
@@ -152,7 +158,13 @@ pub fn select(
             .total_cmp(&a.pessimistic.expected_return)
             .then_with(|| a.ticket.cmp(&b.ticket))
     });
-    candidates.truncate(max_tickets);
+    // `retain` parcourt la liste dans l'ordre : les premiers vus de chaque grille sont ses meilleurs tickets.
+    let mut kept: HashMap<(Game, u32), usize> = HashMap::new();
+    candidates.retain(|c| {
+        let count = kept.entry(c.grid).or_insert(0);
+        *count += 1;
+        *count <= max_per_grid
+    });
     candidates
 }
 
@@ -292,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn selection_respects_the_threshold_the_budget_and_the_order() {
+    fn selection_respects_the_threshold_the_cap_and_the_order() {
         let cands = candidates((Game::Lf7, 1), &grid(), &FROZEN, FREQUENCY_WEIGHT);
         let chosen = select(cands.clone(), 1.2, 5);
         assert!(chosen.len() <= 5);
@@ -304,6 +316,39 @@ mod tests {
         );
         // Un seuil inatteignable ne retient rien : la séance peut ne rien jouer.
         assert!(select(cands, 1e9, 16).is_empty());
+    }
+
+    /// Mêmes 16 tickets que la règle « vivier » de l'étude (`scripts/lotofoot/beyond_16.py`, §63), dont six viennent
+    /// d'au-delà du 16e de la recherche.
+    #[test]
+    fn selection_matches_the_study_pool() {
+        let expected = [
+            "1222122", "1222112", "122212N", "1N22122", "122211N", "122N122", "1N22112", "12N2112",
+            "12N2122", "122N112", "1N2212N", "1212112", "1N2211N", "12N211N", "1222N22", "1221122",
+        ];
+        let cands = candidates((Game::Lf7, 1), &grid(), &FROZEN, FREQUENCY_WEIGHT);
+        assert_eq!(cands.len(), POOL_TICKETS);
+        let chosen: Vec<String> = select(cands, 0.0, MAX_TICKETS)
+            .iter()
+            .map(|c| c.ticket.to_string())
+            .collect();
+        assert_eq!(chosen, expected);
+    }
+
+    #[test]
+    fn the_cap_applies_to_each_grid_and_not_to_the_session() {
+        let mut cands = candidates((Game::Lf7, 1), &grid(), &FROZEN, FREQUENCY_WEIGHT);
+        cands.extend(candidates(
+            (Game::Lf7, 2),
+            &grid(),
+            &FROZEN,
+            FREQUENCY_WEIGHT,
+        ));
+        let chosen = select(cands, 0.0, MAX_TICKETS);
+        for number in [1, 2] {
+            let on_grid = chosen.iter().filter(|c| c.grid == (Game::Lf7, number));
+            assert_eq!(on_grid.count(), MAX_TICKETS);
+        }
     }
 
     #[test]

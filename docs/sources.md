@@ -2629,6 +2629,12 @@ fortement sur le nombre de tickets retenus. Trois grilles seulement.
 **Coût d'un plafond relevé** : `bulletin::exact_cover` énumère 2^tickets sous-ensembles (impossible à 32) ; plus de grilles à remplir au
 guichet ; abaque à refaire (τ dépend du plafond). **Aucune règle de production ne change ici.**
 
+**En production depuis le 2026-10-30** (choix de Paul) : vivier de 64 candidats par grille (`optimize::POOL_TICKETS`), classés par espérance
+S3 après le seuil τ, 16 tickets au plus par grille (`optimize::MAX_TICKETS`). Version du modèle `lotofoot-2` ; `pool_tickets` et
+`max_tickets_per_grid` s'ajoutent aux paramètres écrits avec chaque séance. Abaque inchangé : ses τ sont ceux de cette règle à 60, 100 et
+200 €, à un pas près à 400 € (τ* 1,3 contre 1,2). Le test `selection_matches_the_study_pool` fige l'accord avec l'étude. La recherche de
+64 candidats prend environ 13 ms par grille LF8 en release. Le bulletin, le journal et le règlement ne changent pas.
+
 ## 64. Loto Foot : l'erreur sur les mises coûte 80 à 100 € par an à 100 € par mois, et vient surtout des grilles à pactole (2026-10-30)
 
 **Question** (suite du §63) : que coûte aux séances l'estimation des mises S, connue seulement après la clôture ? **Étude**
@@ -2708,8 +2714,9 @@ y serait plus contraint et le coût peut y différer. **Autre point relevé** : 
 **Changement** : `store::stakes_estimate` prend la grille visée et lit les rapports par une jointure sur `lotofoot_grid`, triés par clôture.
 Médiane des 8 dernières de même jour (heure de Paris) et de même présence d'un pactole ; sous 3 valeurs, même jour ; sous 3 valeurs, toutes.
 Les rapports sans ligne `lotofoot_grid` (n°125 à 132, n°138 à 145) n'ont pas de case, ne servent qu'au dernier repli, et restent filtrés par
-numéro. `MODEL_VERSION` passe à `lotofoot-2`, l'estimation changeant les prédictions à entrées égales (invariant 9). τ, l'abaque et la règle
+numéro. `MODEL_VERSION` passe à `lotofoot-3`, l'estimation changeant les prédictions à entrées égales (invariant 9 ; `lotofoot-2` est le vivier du §63). τ, l'abaque et la règle
 de sélection ne changent pas. Le protocole de dérive reprend les mises figées au journal : il n'est pas touché.
+Les chiffres du §64 ont été mesurés avec les 16 candidats d'avant le vivier : à refaire si l'on veut un coût exact sous la règle actuelle.
 
 **Démarrage à froid.** Sur les neuf grilles connues, l'estimation nouvelle est **identique** à l'ancienne : `lotofoot_grid` ne remonte qu'à
 octobre, aucune case n'a 3 valeurs, toutes passent par le dernier repli. Les erreurs du §64 restent donc entières pour l'instant (44 % en
@@ -2718,5 +2725,5 @@ semaine) : 69 % des grilles dans leur case aux semaines 4 à 7, environ 90 % à 
 amorçage par l'archive : elle s'arrête en décembre 2025 et son niveau a dix mois. Un repli intermédiaire sur le seul pactole améliore peu ce
 démarrage et n'a pas été testé par le protocole du §64 : écarté.
 
-**Contrôle** : `scripts/check.sh` vert (791 tests), dont cases et replis, fenêtre, absence de fuite du futur, jour lu à Paris. Rejeu des
+**Contrôle** : `scripts/check.sh` vert (793 tests), dont cases et replis, fenêtre, absence de fuite du futur, jour lu à Paris. Rejeu des
 neuf grilles par la requête de production, en lecture seule.
