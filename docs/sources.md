@@ -2852,3 +2852,40 @@ de 2026 estimés ; simulation à pages synthétiques, sur une base arrêtée au 
 2026 non joué conservé ; rapports et résultats séparés), le passage du 1er janvier, la garde, `replaces` et la conservation des lignes par la
 migration. Copie de la base de production : migration appliquée par le binaire, clés étrangères et intégrité correctes, 26 déclencheurs, comptes
 inchangés, `edge lotofoot report` identique à celui du binaire installé.
+
+## 67. Loto Foot : abaque du vivier inutile, gains recyclés dans le budget mensuel (2026-10-30)
+
+**Questions de Paul** : faut-il refaire l'abaque avec le vivier du §63 ? Que donne un budget compté net des gains, ceux-ci étant rejoués
+pour revenir au budget ?
+
+**Étude** (`scripts/lotofoot/abaque_vivier.py`, protocole figé en tête, sorties dans `~/.local/share/edge/etudes/data/lf/`) : les 409 grilles
+du §47, vivier de 64 candidats, 16 tickets par grille, 2 000 tirages par grille dans trois scénarios, mois du §49. 31 τ × 20 budgets ×
+2 modes, soit 1 240 configurations ; τ* maximise l'espérance S3 sur l'entraînement, test lu ensuite. Mode « recyclé » : mises du mois moins
+gains encaissés plafonnées au budget, un gain s'ajoutant au disponible deux grilles plus tard, sans report d'un mois sur l'autre. Scénario
+« public juste » : les issues suivent la répartition du public ; il garde le pactole et n'est pas un plancher.
+
+**Abaque : à garder.** τ* identique pour 15 budgets sur 20 ; les 5 autres diffèrent d'un pas, pour +3 à +48 € par an sur l'entraînement et
+−69 à −193 € sur le test. Écart de bruit, table inchangée.
+
+**Recyclage à 100 € par mois** (entraînement / test) :
+
+| | Brut, τ 1,7 | Recyclé, τ 1,6 |
+|---|---|---|
+| Mises par mois | 97 / 92 € | 118 / 110 € |
+| Espérance S3 par an | +1 128 / +1 069 € | +1 255 / +1 176 € |
+| Simulé S3 par an | +1 338 / +1 001 € | +1 497 / +1 133 € |
+| Médiane par an | −215 / −281 € | −226 / −310 € |
+| 10e centile par an | −1 075 / −1 022 € | −1 179 / −1 123 € |
+| Année en perte | 55,7 / 59,0 % | 55,3 / 58,4 % |
+| Au moins un sans-faute par an | 22,6 / 18,0 % | 27,9 / 22,3 % |
+| Public juste : moyenne par an | −553 / −633 € | −638 / −664 € |
+
+La perte annuelle maximale reste 12 fois le budget dans les deux modes, ce qu'un budget brut relevé ne garantit pas (à 120 € brut, τ 1,7 :
++1 308 / +1 202 €, mais 1 440 € de perte maximale). τ* recyclé est plus bas d'un à deux pas selon le budget : la règle demanderait sa
+propre table.
+
+**Plus de tickets, plus de sans-faute ?** Oui sous le modèle : au moins un sans-faute par an dans 5 % des années à 20 € par mois, 23 % à
+100 €, 45 % à 200 €, 75 % à 400 € (brut, entraînement). Sous « public juste » : 6 % à 100 €, 15 % à 200 €, 35 % à 400 €, avec une perte
+moyenne de 553 à 2 089 € par an. Un sans-faute n'est pas le pactole entier : il se partage entre les gagnants (162 à 1 161 € par sans-faute
+sur les trois grilles réglées d'octobre). L'espérance croît avec le budget, mais chaque euro ajouté rapporte moins, environ 0,65 € d'espérance
+de 100 à 200 € et 0,5 € de 200 à 400 €. **Aucun gain démontré** (test figé du §37). **Aucune règle de production ne change ici.**
