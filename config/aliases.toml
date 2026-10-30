@@ -326,6 +326,8 @@
 "Lecce" = []
 "Newcastle United" = ["Newcastle"]
 "Rodez AF" = ["Rodez"]
+# Ajouté le 2026-10-30 pour le LF7 n°136 (nom de l'archive The Odds API, promu en Liga).
+"Real Racing Club de Santander" = ["Santander"]
 
 # Noms d'ESPN (scores en direct des grilles Loto Foot, docs/sources.md §46) → noms de The Odds API. Section commune à
 # toutes les compétitions. Depuis le 2026-10-24 : toutes les équipes des sept ligues archivées (Big 5, Écosse, Ligue 2),
