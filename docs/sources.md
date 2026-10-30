@@ -2730,8 +2730,9 @@ neuf grilles par la requête de production, en lecture seule.
 
 ## 66. Loto Foot : la numérotation repart de 1 chaque 1er janvier, la clé `(game, number)` casse à l'automne 2027 (2026-10-30)
 
-**Constat** (suite du §64). La FDJ renumérote LF7 et LF8 chaque année ; la base identifie une grille par `(game, number)` et écrit en
-`INSERT OR IGNORE`. Rien n'a cassé : nos données commencent en octobre 2026. **Aucun code n'a changé ici.**
+**Constat** (suite du §64). La FDJ renumérote LF7 et LF8 chaque année ; la base identifiait une grille par `(game, number)` et écrivait en
+`INSERT OR IGNORE`. Rien n'avait cassé : nos données commencent en octobre 2026. **Corrigé le 2026-10-30, voir la fin de cette section** ; les
+paragraphes suivants décrivent le code d'avant.
 
 **Moment de la remise à zéro, archive FDJ.** `gid`, l'identifiant de la grille sur le site FDJ, croît sans jamais repartir de zéro. Sur les
 copies brutes (2021 à juin 2026), l'écart `gid − numéro` est **unique pour chaque année civile de clôture** : LF7 3 654, 3 966, 4 230, 4 463,
@@ -2832,3 +2833,22 @@ surrogate `grid_id` ne convient pas : 32 lignes de `lotofoot_rank` n'ont pas de 
 
 **Limites** : comportement de prono-match au passage d'année non observé ; grille reportée d'une année sur l'autre non observée ; numéros finaux
 de 2026 estimés ; simulation à pages synthétiques, sur une base arrêtée au 2026-10-30.
+
+**Choix de Paul du 2026-10-30** : option A, après la fusion du §65. **Réalisé** :
+
+- Migration 22 : dix tables reconstruites, colonne `year` à 2026 pour toutes les lignes existantes. Clé `(game, year, number)` partout.
+- `lotofoot::GridId { game, year, number }` remplace `(Game, u32)` et les paires de champs. `MODEL_VERSION` ne change pas : à entrées égales, les
+  prédictions sont les mêmes.
+- Année lue : clôture pour la grille en cours (`GridId::closing`), jour de clôture de la deuxième colonne pour les rapports (`PastRanks.closed`),
+  `GridResult.date` pour les résultats. Sans date lisible, la ligne n'est pas écrite et le relevé l'avertit.
+- Garde `refusal` (`store/lotofoot.rs`) : même identité mais clôture éloignée de plus de 7 jours, ou numéro inférieur à une grille close plus tôt
+  la même année. La grille en cours n'est pas écrite, le relevé l'avertit ; les rapports de la page restent écrits.
+- `past_masses` joint sur l'année et situe les rapports sans grille par `(year, number)`. La fenêtre des mises passe à cheval sur l'année.
+- `replaces` s'écrit `[formule, numéro, année]` ; une entrée sans année, écrite avant la migration, vaut 2026 (`current_recos`).
+- Bouton `lf7-2026-133` ; `--grid lf7:133` vise l'année en cours, `lf7:2026:133` une autre. Affichage inchangé (« LF7 n°133 »).
+- Scripts `beyond_16.py` et `stakes_error.py` : jointures et lectures avec l'année. `drift_peek.py` garde ses numéros d'octobre 2026.
+
+**Contrôles** : `scripts/check.sh` vert (803 tests), dont le scénario de collision (grille de 2027 visible, sans fausse recomposition ; ticket de
+2026 non joué conservé ; rapports et résultats séparés), le passage du 1er janvier, la garde, `replaces` et la conservation des lignes par la
+migration. Copie de la base de production : migration appliquée par le binaire, clés étrangères et intégrité correctes, 26 déclencheurs, comptes
+inchangés, `edge lotofoot report` identique à celui du binaire installé.
