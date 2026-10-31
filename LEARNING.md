@@ -25,3 +25,4 @@ trois questions pour vérifier la compréhension, trois fichiers à relire en pr
 | 17 | Page « Grand Loto » de l'application Web (`/loto`, séance en boules, grilles jouées, EuroMillions au plafond) | [docs/learning/phase-17.md](docs/learning/phase-17.md) |
 | 18 | Suivi en direct des grilles Loto Foot (scores ESPN à l'affichage, code couleur des tickets, alias `[ESPN]`) | [docs/learning/phase-18.md](docs/learning/phase-18.md) |
 | 19 | Repli OddsPapi des séances Loto Foot (cote Pinnacle absente de The Odds API, migration 21, provenance au journal) | [docs/learning/phase-19.md](docs/learning/phase-19.md) |
+| 20 | Règle Loto Foot à prix dynamique (valeur marginale exacte, 32 tickets par grille, table gelée à la place de l'abaque, regroupement au-delà de 16 tickets) | [docs/learning/phase-20.md](docs/learning/phase-20.md) |

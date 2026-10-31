@@ -5,7 +5,7 @@
 //! rencontre, une colonne par grille à remplir (simple ou multiple, `docs/sources.md` §39), les cases à cocher dans
 //! chaque colonne ; puis le détail des tickets de la grille (espérance, règlement). Le bouton « Optimiser maintenant »
 //! enregistre le budget mensuel saisi s'il a changé, puis lance la séance comme `edge lotofoot recommend`
-//! ([`crate::lotofoot::live`]), au seuil que l'abaque tire de ce budget (§49, §51). Un ticket joué dont la grille a tous
+//! ([`crate::lotofoot::live`]), au prix dynamique du moment (§69, §70). Un ticket joué dont la grille a tous
 //! ses résultats n'est plus affiché : il reste dans le bilan.
 //!
 //! Pendant les matchs, l'affichage relève les scores chez ESPN ([`crate::lotofoot::scores`]) : score à côté de chaque
@@ -17,10 +17,10 @@ use serde::Serialize;
 
 use crate::domain::Outcome;
 use crate::error::Result;
-use crate::lotofoot::abaque;
 use crate::lotofoot::bulletin::session_lines;
 use crate::lotofoot::espn::EspnClient;
 use crate::lotofoot::live::{self, Live, Notified};
+use crate::lotofoot::price;
 use crate::lotofoot::scores::{self, MatchNow, Standing};
 use crate::lotofoot::session::{self, Request};
 use crate::lotofoot::{Ticket, sign_char};
@@ -136,7 +136,7 @@ struct Page {
     play_bulletins: Vec<Bulletin>,
     /// Grilles en cours (tickets joués, résultats attendus), en bulletins.
     live_bulletins: Vec<Bulletin>,
-    /// Bornes du budget mensuel (abaque).
+    /// Bornes du budget mensuel.
     budget_min: u32,
     /// Voir `budget_min`.
     budget_max: u32,
@@ -209,8 +209,8 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
             lotofoot,
             play_bulletins,
             live_bulletins,
-            budget_min: abaque::MIN_BUDGET,
-            budget_max: abaque::MAX_BUDGET,
+            budget_min: price::MIN_BUDGET,
+            budget_max: price::MAX_BUDGET,
             auto_refresh: follow.watching > 0,
             live_issues: follow.issues,
         },
@@ -260,7 +260,7 @@ fn bulletins(group: &Group, follow: &Follow) -> Vec<Bulletin> {
         .collect()
 }
 
-/// Bouton « Optimiser maintenant » : budget mensuel saisi (champ `budget`, euros entiers de l'abaque), enregistré s'il a
+/// Bouton « Optimiser maintenant » : budget mensuel saisi (champ `budget`, euros entiers dans les bornes), enregistré s'il a
 /// changé ; message Discord si la case `discord` est cochée. Le bouton « Enregistrer le budget » (`action=budget`)
 /// enregistre sans lancer de séance. Le résultat revient en message sur l'onglet.
 pub fn optimize(app: &App, form: &Form, now: DateTime<Utc>) -> Reply {
@@ -285,14 +285,14 @@ pub fn optimize(app: &App, form: &Form, now: DateTime<Utc>) -> Reply {
     }
 }
 
-/// Budget saisi : un nombre entier d'euros dans l'abaque.
+/// Budget saisi : un nombre entier d'euros dans les bornes.
 fn budget(text: &str) -> std::result::Result<u32, String> {
     match text.trim().parse::<u32>() {
-        Ok(euros) if abaque::threshold(euros).is_ok() => Ok(euros),
+        Ok(euros) if price::check_budget(euros).is_ok() => Ok(euros),
         _ => Err(format!(
             "budget attendu : un nombre entier d'euros par mois, de {} à {}",
-            abaque::MIN_BUDGET,
-            abaque::MAX_BUDGET
+            price::MIN_BUDGET,
+            price::MAX_BUDGET
         )),
     }
 }
@@ -496,7 +496,7 @@ mod tests {
         // Le bouton est là même sans séance, avec le budget mensuel de la configuration et son seuil.
         assert!(html.contains("action=\"/lotofoot/optimiser\""), "{html}");
         assert!(html.contains("value=\"60\""), "{html}");
-        assert!(html.contains("τ = 1,8"), "{html}");
+        assert!(html.contains("Seuil du moment"), "{html}");
     }
 
     #[test]
@@ -545,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn the_budget_must_be_whole_euros_within_the_abaque() {
+    fn the_budget_must_be_whole_euros_within_the_bounds() {
         assert_eq!(super::budget("60"), Ok(60));
         assert_eq!(super::budget(" 400 "), Ok(400));
         for wrong in ["0", "19", "401", "60,5", "", "soixante"] {

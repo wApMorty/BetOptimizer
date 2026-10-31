@@ -9,12 +9,12 @@ use serde::Serialize;
 
 use crate::error::Result;
 use crate::format::{chance, decimal, kickoff_label, long_date, rough_euros};
-use crate::lotofoot::abaque;
 use crate::lotofoot::alert::Listed;
 use crate::lotofoot::bulletin::{Line, session_lines};
 use crate::lotofoot::model::{FROZEN, GridModel, RankOdds};
 use crate::lotofoot::oddspapi;
 use crate::lotofoot::outlets::Outlet;
+use crate::lotofoot::price::{self, PriceTable};
 use crate::lotofoot::session::{self, MonthBudget, SessionReport};
 use crate::lotofoot::settle::{self, Ledger};
 use crate::lotofoot::verify::{self, Verdict, Verification};
@@ -77,11 +77,22 @@ pub fn margin(ev_pessimistic: f64, threshold: f64, hours: f64) -> (String, bool)
     )
 }
 
-/// Seuil τ noté dans les paramètres d'une séance (`None` pour une séance qui ne l'a pas noté).
+/// Seuil τ noté dans les paramètres d'une séance d'avant le prix dynamique (`None` pour une séance qui ne l'a pas noté).
 fn session_threshold(conn: &Connection, session_id: i64) -> Result<Option<f64>> {
     Ok(store::session_params(conn, session_id)?
         .and_then(|p| serde_json::from_str::<serde_json::Value>(&p).ok())
         .and_then(|p| p.get("threshold").and_then(|t| t.as_f64())))
+}
+
+/// Valeur et seuil d'un ticket : ceux de sa sélection, écrits dans ses entrées depuis le §70 ; sinon son espérance
+/// défavorable et le τ de sa séance.
+fn ticket_bar(reco: &RecoRow, session: Option<f64>) -> Option<(f64, f64)> {
+    let inputs = serde_json::from_str::<serde_json::Value>(&reco.inputs).ok();
+    let read = |key: &str| inputs.as_ref()?.get(key)?.as_f64();
+    match (read("marginal"), read("threshold")) {
+        (Some(value), Some(threshold)) => Some((value, threshold)),
+        _ => session.map(|threshold| (reco.ev_pessimistic, threshold)),
+    }
 }
 
 /// Un rang payé d'un ticket ou d'une grille : ce qu'il faut réussir, la chance d'y arriver, le gain moyen quand on y arrive.
@@ -143,7 +154,7 @@ pub struct Group {
 pub struct BudgetView {
     /// Budget mensuel en vigueur (euros).
     pub monthly: u32,
-    /// Seuil τ tiré de l'abaque (« 1,8 »), vide si le budget sort de l'abaque.
+    /// Seuil du moment selon le temps et le budget restants (« 1,84 »), vide si le budget est épuisé.
     pub threshold: String,
     /// Mois en cours (« octobre 2026 »).
     pub month: String,
@@ -315,12 +326,12 @@ pub fn page(conn: &Connection, now: DateTime<Utc>, monthly_budget: u32) -> Resul
     page.session = format!("n°{id}, {} à {}", long_date(created_at), clock(created_at));
     if let Some(params) = store::session_params(conn, id)?
         && let Ok(params) = serde_json::from_str::<serde_json::Value>(&params)
-        && let (Some(tau), Some(budget)) = (
-            params.get("threshold").and_then(|t| t.as_f64()),
-            params.get("monthly_budget").and_then(|b| b.as_u64()),
-        )
+        && let Some(budget) = params.get("monthly_budget").and_then(|b| b.as_u64())
     {
-        page.session_rule = format!("τ = {}, budget de {budget} € par mois", decimal(tau, 1));
+        page.session_rule = match params.get("threshold").and_then(|t| t.as_f64()) {
+            Some(tau) => format!("τ = {}, budget de {budget} € par mois", decimal(tau, 1)),
+            None => format!("prix dynamique, budget de {budget} € par mois"),
+        };
     }
     if let Ok(notes) = serde_json::from_str::<serde_json::Value>(&notes) {
         let list = |key: &str| -> Vec<serde_json::Value> {
@@ -459,13 +470,19 @@ fn budget_view(
         }
     }
     let recycled = settle::recycled_gains(conn, recos, month, now)?;
+    let left = (monthly + recycled).saturating_sub(spent);
+    let steps = price::MONTH_STEPS * session::month_left(now);
     Ok(BudgetView {
         monthly,
-        threshold: abaque::threshold(monthly).map_or(String::new(), |t| decimal(t, 1)),
+        threshold: if left > 0 {
+            decimal(PriceTable::frozen().threshold(steps, left), 2)
+        } else {
+            String::new()
+        },
         month: month_label(month),
         spent,
         recycled,
-        left: (monthly + recycled).saturating_sub(spent),
+        left,
     })
 }
 
@@ -489,10 +506,11 @@ fn group(conn: &Connection, recos: &[&RecoRow], played: &[i64]) -> Result<Group>
         let hours = grid.as_ref().map_or(1.0, |g| {
             (g.closes_at - reco.created_at).num_minutes() as f64 / 60.0
         });
-        let (margin, limit) = threshold.map_or((String::new(), false), |t| {
-            margin(reco.ev_pessimistic, t, hours)
+        let bar = ticket_bar(reco, threshold);
+        let (margin, limit) = bar.map_or((String::new(), false), |(value, threshold)| {
+            margin(value, threshold, hours)
         });
-        let limit_margin = threshold.map_or(String::new(), |_| {
+        let limit_margin = bar.map_or(String::new(), |_| {
             format!("{} %", decimal(limit_margin(hours) * 100.0, 1))
         });
         let closes = grid
@@ -807,11 +825,19 @@ pub fn month_label(first_day: chrono::NaiveDate) -> String {
     )
 }
 
-/// Seuil de la séance et budget qui le donne : « τ = 1,8 (budget de 60 € par mois, abaque §49) ».
+/// Seuils de la séance et budget : « seuil de 1,62 à 2,04 (prix dynamique, budget de 100 € par mois) ».
 pub fn threshold_text(report: &SessionReport) -> String {
+    let mut bars = report.thresholds.clone();
+    bars.sort_by(f64::total_cmp);
+    let seuil = match (bars.first(), bars.last()) {
+        (Some(low), Some(high)) if low != high => {
+            format!("seuil de {} à {}", decimal(*low, 2), decimal(*high, 2))
+        }
+        (Some(bar), _) => format!("seuil de {}", decimal(*bar, 2)),
+        _ => "aucun seuil calculé".to_string(),
+    };
     format!(
-        "τ = {} (budget de {} € par mois, abaque §49)",
-        decimal(report.threshold, 1),
+        "{seuil} (prix dynamique, budget de {} € par mois)",
         report.monthly_budget
     )
 }
@@ -977,6 +1003,9 @@ mod tests {
                 ticket: crate::lotofoot::Ticket::parse("21N12222").unwrap(),
                 base: value(2.5),
                 pessimistic: value(2.0),
+                marginal: 2.0,
+                threshold: 1.8,
+                budget_left: 56,
             }],
             session_id: Some(1),
             months: vec![MonthBudget {
@@ -987,7 +1016,7 @@ mod tests {
                 chosen: 1,
             }],
             monthly_budget: 60,
-            threshold: 1.8,
+            thresholds: vec![1.8],
         };
         let text = discord_text(&report, Some("http://portable.local:8737/"));
         assert!(text.contains("1 ticket(s) à 1 €"));
@@ -1002,7 +1031,9 @@ mod tests {
         assert!(text.contains("une erreur 1 sur 410 (≈ "), "{text}");
         assert!(text.contains("Inconnu FC"));
         assert!(
-            text.contains("octobre 2026 : 55 € restant(s) sur 60 € ; τ = 1,8"),
+            text.contains(
+                "octobre 2026 : 55 € restant(s) sur 60 € ; seuil de 1,80 (prix dynamique"
+            ),
             "{text}"
         );
         assert!(text.contains("<http://portable.local:8737/lotofoot>"));
@@ -1086,7 +1117,7 @@ mod tests {
         assert!(
             page.to_play.tickets.is_empty()
                 && page.in_play.tickets.is_empty()
-                && page.budget.threshold == "1,8"
+                && !page.budget.threshold.is_empty()
         );
         assert_eq!(page.verdict, "Aucune séance enregistrée.");
     }

@@ -777,7 +777,7 @@ mod tests {
     #[test]
     fn a_wrong_budget_is_refused_before_any_fetch_and_a_budget_can_be_saved_alone() {
         let sample = sample();
-        // Budget hors de l'abaque : refus immédiat, sans relevé ni séance (le test n'a pas de réseau).
+        // Budget hors des bornes : refus immédiat, sans relevé ni séance (le test n'a pas de réseau).
         let refused = sample.post("/lotofoot/optimiser", "budget=500&discord=on");
         assert_eq!(refused.location.as_deref(), Some("/lotofoot"));
         let flash = flash_of(&refused);
@@ -789,7 +789,7 @@ mod tests {
             "{:?}",
             flash_of(&saved)
         );
-        assert!(sample.html("/lotofoot").contains("τ = 1,7"));
+        assert!(sample.html("/lotofoot").contains("value=\"120\""));
         let conn = crate::store::open_migrated(&sample.app.paths.db_file).unwrap();
         assert_eq!(
             crate::store::lotofoot::current_recos(&conn).unwrap().len(),

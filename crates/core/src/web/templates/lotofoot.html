@@ -4,7 +4,7 @@
 {% block content %}
 {% macro bulletin(b, playable) %}
 <div class="card">
-  <div class="split"><div><b style="font-size: 1.1rem">{{ b.grid }}</b> <span class="chip">clôture {{ b.closes }}</span> <span class="meta">{{ b.session }}</span>{% if b.limits %} <span class="chip t-warn" title="Marge au-dessus de τ trop faible pour le délai entre la séance et la clôture : ces tickets peuvent passer sous τ d'ici là (docs/sources.md §54). Ils gardent une espérance supérieure à la mise ; à toi de voir.">{{ b.limits }} ticket(s) limite(s)</span>{% endif %}</div>
+  <div class="split"><div><b style="font-size: 1.1rem">{{ b.grid }}</b> <span class="chip">clôture {{ b.closes }}</span> <span class="meta">{{ b.session }}</span>{% if b.limits %} <span class="chip t-warn" title="Marge au-dessus du seuil trop faible pour le délai entre la séance et la clôture : ces tickets peuvent passer sous le seuil d'ici là (docs/sources.md §54). Ils gardent une espérance supérieure à la mise ; à toi de voir.">{{ b.limits }} ticket(s) limite(s)</span>{% endif %}</div>
   {% if playable and b.to_declare %}<form method="post" action="/lotofoot/jouee" class="inline"><input type="hidden" name="grille" value="{{ b.key }}"><button class="btn" type="submit" title="Déclare joués les tickets de cette grille. Un ticket déjà déclaré est ignoré, jamais doublé.">J'ai joué cette grille</button></form>{% endif %}</div>
   <div class="scroll">
   <table class="bulletin">
@@ -23,7 +23,7 @@
   <details><summary class="meta">Détail des {{ b.details|length }} ticket(s)</summary>
   <div class="scroll">
   <table>
-    <thead><tr><th>Ticket</th><th>Signes</th><th>Sans faute</th><th>Une erreur</th><th>Chance de gain</th><th class="num" title="Euros rendus en moyenne pour 1 € misé ; entre parenthèses, le scénario défavorable qui sert au seuil.">Espérance</th><th class="num" title="Espérance défavorable au-dessus du seuil τ de la séance. Le ticket est limite si sa marge est sous exp(0,044·√h) − 1, h = heures entre la séance et la clôture (4,5 % à 1 h, 8 % à 3 h, 14 % à 9 h) : il peut passer sous τ d'ici la clôture.">Marge</th><th>En direct</th><th>État</th></tr></thead>
+    <thead><tr><th>Ticket</th><th>Signes</th><th>Sans faute</th><th>Une erreur</th><th>Chance de gain</th><th class="num" title="Euros rendus en moyenne pour 1 € misé ; entre parenthèses, le scénario défavorable qui sert au seuil.">Espérance</th><th class="num" title="Valeur marginale défavorable au-dessus du seuil du ticket. Le ticket est limite si sa marge est sous exp(0,044·√h) − 1, h = heures entre la séance et la clôture (4,5 % à 1 h, 8 % à 3 h, 14 % à 9 h) : il peut passer sous le seuil d'ici la clôture.">Marge</th><th>En direct</th><th>État</th></tr></thead>
     <tbody>
     {% for d in b.details %}<tr><td>n° {{ d.id }}</td><td><code>{{ d.ticket }}</code></td>{% for r in d.ranks %}<td><b>{{ r.chance }}</b><br><span class="meta">{{ r.gain }}</span></td>{% else %}<td>—</td><td>—</td>{% endfor %}<td><b>{{ d.chance }}</b></td><td class="num">{{ d.ev }}<br><span class="meta">({{ d.ev_low }})</span></td><td class="num"><span title="Limite sous {{ d.limit_margin }} : marge requise pour le délai entre la séance et la clôture (docs/sources.md §54)">{{ d.margin }}</span>{% if d.limit %}<br><span class="chip t-warn">limite</span>{% endif %}</td><td><span class="chip {{ d.live_tone }}">{{ d.live_state }}</span></td><td><span class="chip {{ d.tone }}">{{ d.status }}</span> <span class="chip {% if d.played %}t-pos{% else %}t-warn{% endif %}">{% if d.played %}joué{% else %}pas déclaré{% endif %}</span></td></tr>
     {% endfor %}
@@ -33,25 +33,25 @@
   </details>
 </div>
 {% endmacro %}
-<div class="head"><h1>Loto Foot</h1><div class="sub">LF7 et LF8, validés au point de vente : tickets à 1 € (regroupés sans perte en grilles multiples), joués si leur espérance dans le scénario défavorable atteint le seuil τ que l'abaque tire de ton budget mensuel (<code>docs/sources.md</code> §49 et §51). Aucun pari n'est placé par le programme.</div></div>
+<div class="head"><h1>Loto Foot</h1><div class="sub">LF7 et LF8, validés au point de vente : tickets à 1 € (regroupés sans perte en grilles multiples), joués si leur valeur marginale dans le scénario défavorable atteint le seuil du prix dynamique, qui dépend du temps et du budget restants dans le mois (<code>docs/sources.md</code> §69 et §70). Aucun pari n'est placé par le programme.</div></div>
 
 <div class="card"><span class="chip {% if verdict_class == "bad" %}t-neg{% elif verdict_class %}t-warn{% else %}t-pos{% endif %}">Verdict</span> {{ verdict }}</div>
 
 <div class="tiles">
   <div class="tile"><div class="label">Budget · {{ budget.month }}</div><div class="figure acc">{{ budget.left }} €</div><div class="note">restant sur {{ budget.monthly }} €{% if budget.recycled %} + {{ budget.recycled }} € de gains recyclés{% endif %} ({{ budget.spent }} € engagés)</div></div>
-  <div class="tile"><div class="label">Seuil τ</div><div class="figure">{{ budget.threshold }}</div><div class="note">abaque, budget de {{ budget.monthly }} € par mois</div></div>
+  <div class="tile"><div class="label">Seuil du moment</div><div class="figure">{% if budget.threshold %}{{ budget.threshold }}{% else %}—{% endif %}</div><div class="note">prix dynamique, selon le temps et le budget restants</div></div>
   <div class="tile"><div class="label">À jouer</div><div class="figure {% if to_play.tickets %}wrn{% endif %}">{{ to_play.tickets|length }}</div><div class="note">{% if to_play.tickets %}{{ to_play.stake }} sur {{ to_play.grids|length }} grille(s){% else %}aucun ticket en attente{% endif %}</div></div>
   <div class="tile"><div class="label">En cours</div><div class="figure">{{ in_play.tickets|length }}</div><div class="note">tickets joués, résultats attendus</div></div>
 </div>
 
 <form class="card form" method="post" action="/lotofoot/optimiser">
   <div class="actions" style="align-items: flex-end">
-    <label class="field" style="margin: 0"><span>Budget mensuel (€, de {{ budget_min }} à {{ budget_max }}) — τ = {{ budget.threshold }}</span><input type="text" name="budget" value="{{ budget.monthly }}" inputmode="numeric"></label>
+    <label class="field" style="margin: 0"><span>Budget mensuel (€, de {{ budget_min }} à {{ budget_max }})</span><input type="text" name="budget" value="{{ budget.monthly }}" inputmode="numeric"></label>
     <label style="padding: 8px 0"><input type="checkbox" name="discord"> Envoyer sur Discord</label>
     <button class="btn" type="submit" title="Relève prono-match et les cotes manquantes (1 crédit par compétition, 8 au plus), recalcule les grilles ouvertes pas encore jouées dans l'ordre de clôture, et écrit la séance au journal.">Optimiser maintenant</button>
     <button class="btn" type="submit" name="action" value="budget" title="Enregistre le budget sans lancer de séance.">Enregistrer le budget</button>
   </div>
-  <p class="meta" style="margin: 8px 0 0">À lancer au guichet, juste avant de valider. Les grilles ouvertes se partagent le budget du mois dans l'ordre de clôture : la plus proche prend d'abord ses tickets au-dessus de τ. Une grille vue depuis moins de 8 h est évaluée sans engager de budget. Les tickets déclarés joués ne sont jamais recalculés.</p>
+  <p class="meta" style="margin: 8px 0 0">À lancer au guichet, juste avant de valider. Les grilles ouvertes se partagent le budget du mois dans l'ordre de clôture : la plus proche prend d'abord ses tickets au-dessus du seuil. Une grille vue depuis moins de 8 h est évaluée sans engager de budget. Les tickets déclarés joués ne sont jamais recalculés.</p>
 </form>
 
 <h2>À jouer<small>grilles ouvertes, tickets pas encore déclarés joués</small></h2>

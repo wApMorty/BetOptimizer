@@ -3035,3 +3035,21 @@ Les intervalles ne couvrent que l'incertitude du lot de grilles, dans l'espéran
 **Lecture.** La charge au guichet ne dépend presque pas du plafond (47,7 à 49,6 grilles par mois) : plus de tickets par grille se regroupent en
 multiples sur moins de grilles. Chaque palier rapporte de moins en moins pour le risque ajouté : en passant de 16 à 32, +123 € d'espérance pour
 −91 € sous « public juste » ; de 32 à 48, +35 € pour −71 € ; de 48 à 96, +49 € pour −200 €. Ma recommandation, en attente de Paul : **32**.
+
+**Choix de Paul du 2026-10-31 : plafond de 32 tickets par grille.**
+
+**En production depuis le 2026-10-31** (`lotofoot-4`, table `prix-2026-10-31`). Dans l'ordre de clôture, sur chaque grille, le meilleur des `3^n`
+tickets tant que sa valeur marginale S3 atteint `1 + W_t(b) − W_t(b − 1)`, `t` part du mois restant à la clôture (`session::month_left`), `b` budget
+restant du mois, gains recyclés compris, 32 tickets au plus. Le prix remplace l'abaque ; bornes du budget inchangées (20 à 400 €). Le poids μ, le
+vivier et `lotofoot_frequency_weight` disparaissent. **Aucune migration** : marginale, seuil et `b` sont écrits dans `inputs` de chaque ticket, les
+anciennes séances restent lues avec leur τ.
+
+**Table** (`scripts/lotofoot/net_price.py`, `crates/core/data/lotofoot_price.csv`, 6 500 valeurs, 47 ko) : `W` ne dépend que de ce qui reste, une table
+sert à tous les budgets. Règle d'arrêt et calcul complet coïncident (`W` concave en `b`). Réduite à un pas de 5 sur 120 en `t`, interpolée, et un pas
+de 10 au-delà de 200 €, elle donne le même revenu à 1 € près, à 3 € près à 400 € par mois. Rust : méthode de Simpson à 256 intervalles au lieu de
+la quadrature de l'étude (5·10⁻⁶ d'écart) ; mêmes tickets et mêmes valeurs que `net_core.py` sur la grille de
+référence (test `tickets_match_the_study_search`). Regroupement : couverture exacte jusqu'à 16 tickets, gloutonne au-delà (6 grilles pour 16 tickets, 11 pour 32).
+
+**Séance à blanc** du 2026-10-31 sur une copie de la base, recalcul compris : LF7 n°136, clôture le 1er novembre, budget de 100 € : seuil de 2,09 en début
+de mois, 14 tickets sur 8 grilles à remplir, 34 ms en tout ; meilleur ticket 2,755, identique à la séance n°24 du journal (16 tickets, τ 1,7, dont le dernier à
+2,01). Vérification figée du §38 inchangée : elle ignore toujours le partage entre nos tickets et mêle `lotofoot-3` et `lotofoot-4`, séparables par la version.

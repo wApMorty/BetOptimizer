@@ -89,14 +89,12 @@ serve_bind = "127.0.0.1:8737"
 # converti à cette valeur au moins. 0,53 : bas de la fourchette mesurée sur l'archive (0,53 à 0,56, meilleur match du jour).
 bonus_freebet_value = 0.53
 
-# Loto Foot (phase 14, `edge lotofoot`, docs/sources.md §37, §38, §41, §47, §49 et §51) : LF7 et LF8. Une alerte Discord à la sortie
+# Loto Foot (phase 14, `edge lotofoot`, docs/sources.md §37, §38, §41, §47, §51 et §70) : LF7 et LF8. Une alerte Discord à la sortie
 # de chaque grille ; la séance se lance au guichet (bouton « Optimiser maintenant » de l'application, ou à la main).
-# Budget mensuel initial (tickets d'un euro, de 20 à 400), tant qu'aucun budget n'a été saisi dans l'application. Le seuil
-# τ en découle par l'abaque (§49) ; les grilles se partagent le budget du mois dans l'ordre de clôture (§51). Les gains des
+# Budget mensuel initial (tickets d'un euro, de 20 à 400), tant qu'aucun budget n'a été saisi dans l'application. Les grilles
+# se partagent le budget du mois dans l'ordre de clôture, au prix dynamique (§69, §70), 32 tickets au plus par grille. Les gains des
 # tickets du modèle déclarés joués s'ajoutent au budget du mois de leur grille (§67).
 lotofoot_monthly_budget = 60
-# Poids de la probabilité de gain dans la recherche des tickets (μ ; 10 retenu sur la frontière espérance/fréquence).
-lotofoot_frequency_weight = 10.0
 # Une grille qui ferme moins de 10 minutes après la séance est écartée (le temps de remplir et de valider au guichet).
 lotofoot_min_minutes_before_close = 10
 # Une cote Pinnacle de l'archive sert si elle a moins de 30 heures ; sinon la ligue est relevée de nouveau.

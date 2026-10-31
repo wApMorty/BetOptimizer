@@ -3,22 +3,23 @@
 //!
 //! Déroulé : grilles LF7 et LF8 qui ferment au moins `lotofoot_min_minutes_before_close` minutes après la séance ; pour
 //! chacune, la dernière répartition FDJ relevée, les mises estimées, les probabilités du marché (avec, au besoin, un
-//! relevé des compétitions manquantes, puis le repli OddsPapi pour les rencontres encore sans cote) ; puis les meilleurs tickets de chaque grille et leur répartition dans le budget
-//! du mois, grille par grille dans l'ordre de clôture, au-dessus du seuil τ que l'abaque tire du budget (§49, §51). Une
-//! grille incomplète est écartée avec la raison, jamais devinée ; une grille trop jeune est évaluée mais n'engage pas de
+//! relevé des compétitions manquantes, puis le repli OddsPapi pour les rencontres encore sans cote) ; puis, grille par grille
+//! dans l'ordre de clôture, les meilleurs tickets tant qu'ils franchissent le seuil du prix dynamique, lequel dépend du temps
+//! et du budget qui restent dans le mois (§69, §70). Une grille incomplète est écartée avec la raison, jamais devinée ; une grille trop jeune est évaluée mais n'engage pas de
 //! budget. Aucune donnée postérieure à la séance n'est lue (CLAUDE.md, invariant 1).
 
-use chrono::{DateTime, Datelike, Duration, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Duration, Months, NaiveDate, TimeZone, Utc};
 use chrono_tz::Europe::Paris;
 use rusqlite::Connection;
 use serde_json::json;
 
 use super::GridId;
-use super::abaque;
+use super::exact::ExactValues;
 use super::model::{FROZEN, GridModel, PESSIMISTIC_LOW_MULT, PESSIMISTIC_SHRINK, public_split};
 use super::odds::{self, LeagueSearch, MatchMarket, Source};
 use super::oddspapi::{self, Access};
 use super::optimize::{self, Candidate};
+use super::price::{self, PriceTable};
 use super::settle;
 use crate::config::Config;
 use crate::domain::Probs1x2;
@@ -28,8 +29,8 @@ use crate::ingest::snapshot::{Clock, Fetch};
 use crate::store::lotofoot::{self as store, GridRow, NewReco, NewSession, RecoRow};
 
 /// Version du modèle, enregistrée avec chaque recommandation. `lotofoot-2` : vivier de 64 candidats (§63) ; `lotofoot-3` :
-/// mises estimées par jour et pactole (§65).
-pub const MODEL_VERSION: &str = "lotofoot-3";
+/// mises estimées par jour et pactole (§65) ; `lotofoot-4` : valeur marginale exacte et prix dynamique (§70).
+pub const MODEL_VERSION: &str = "lotofoot-4";
 
 /// Âge maximal de la répartition utilisée : au-delà, le relevé horaire a manqué et la grille est écartée.
 pub const MAX_SPLIT_AGE_HOURS: i64 = 3;
@@ -84,16 +85,16 @@ pub struct SessionReport {
     pub leagues: LeagueSearch,
     /// Repli OddsPapi pour les rencontres encore sans cote.
     pub oddspapi: oddspapi::Search,
-    /// Tickets retenus, du meilleur au moins bon.
+    /// Tickets retenus, grille par grille dans l'ordre de clôture, du meilleur au moins bon dans chaque grille.
     pub chosen: Vec<Candidate>,
     /// Séance enregistrée (`None` à blanc).
     pub session_id: Option<i64>,
     /// Budget de chaque mois concerné par les grilles évaluées.
     pub months: Vec<MonthBudget>,
-    /// Budget mensuel de la séance (euros) et seuil τ qu'en tire l'abaque.
+    /// Budget mensuel de la séance (euros).
     pub monthly_budget: u32,
-    /// Seuil τ de la séance.
-    pub threshold: f64,
+    /// Seuil à l'entrée de chaque grille qui avait du budget, dans l'ordre de clôture.
+    pub thresholds: Vec<f64>,
 }
 
 /// Budget d'un mois calendaire (heure de Paris, selon la clôture des grilles), en tickets d'un euro.
@@ -138,6 +139,23 @@ pub fn month_of(at: DateTime<Utc>) -> NaiveDate {
         .expect("le premier jour d'un mois existe toujours")
 }
 
+/// Minuit à Paris, un jour donné. Le changement d'heure a lieu la nuit, mais jamais à minuit : cet instant existe une fois.
+fn paris_midnight(day: NaiveDate) -> DateTime<Utc> {
+    Paris
+        .with_ymd_and_hms(day.year(), day.month(), day.day(), 0, 0, 0)
+        .single()
+        .expect("minuit existe une seule fois à Paris")
+        .with_timezone(&Utc)
+}
+
+/// Part du mois calendaire (heure de Paris) qui reste après un instant, de 0 à 1.
+pub fn month_left(at: DateTime<Utc>) -> f64 {
+    let first = month_of(at);
+    let next = first + Months::new(1);
+    let (start, end) = (paris_midnight(first), paris_midnight(next));
+    (end - at).num_seconds() as f64 / (end - start).num_seconds() as f64
+}
+
 /// Budget mensuel en vigueur à `at` : la dernière saisie de l'application, sinon `lotofoot_monthly_budget`.
 pub fn monthly_budget(conn: &Connection, config: &Config, at: DateTime<Utc>) -> Result<u32> {
     Ok(store::budget_at(conn, at)?.unwrap_or(config.lotofoot_monthly_budget))
@@ -168,8 +186,8 @@ struct Ready {
 pub struct Request {
     /// Budget mensuel en euros (un ticket coûte 1 €).
     pub monthly_budget: u32,
-    /// Seuil τ : celui de l'abaque pour ce budget ([`Request::from_budget`]) ; les tests en fixent d'autres.
-    pub threshold: f64,
+    /// Seuil imposé à la place du prix dynamique : les tests seulement ([`Request::from_budget`] le laisse vide).
+    pub fixed_threshold: Option<f64>,
     /// Recalculer aussi les grilles déjà recommandées (bouton de l'application) : la nouvelle séance remplace alors leur
     /// recommandation, sauf pour une grille dont des tickets sont déjà déclarés joués. Le timer ne remplace jamais.
     pub replace: bool,
@@ -178,11 +196,12 @@ pub struct Request {
 }
 
 impl Request {
-    /// Demande au seuil de l'abaque pour ce budget mensuel ; refusée si le budget sort de l'abaque.
+    /// Demande au prix dynamique pour ce budget mensuel ; refusée si le budget sort des bornes.
     pub fn from_budget(monthly_budget: u32, replace: bool, dry_run: bool) -> Result<Request> {
+        price::check_budget(monthly_budget)?;
         Ok(Request {
             monthly_budget,
-            threshold: abaque::threshold(monthly_budget)?,
+            fixed_threshold: None,
             replace,
             dry_run,
         })
@@ -221,7 +240,7 @@ pub fn run(
         session_id: None,
         months: Vec::new(),
         monthly_budget: request.monthly_budget,
-        threshold: request.threshold,
+        thresholds: Vec::new(),
     };
 
     // 1. Grilles candidates, pas encore recommandées, avec répartition récente, noms connus et mises estimables.
@@ -435,29 +454,21 @@ pub fn run(
         });
     }
 
-    // 3. Tickets de chaque grille, puis seuil et budget sur l'ensemble de la séance.
-    let mut all: Vec<Candidate> = Vec::new();
+    // 3. Valeurs exactes de chaque grille dans le scénario défavorable, qui sert à choisir.
+    let mut values: Vec<ExactValues> = Vec::with_capacity(ready.len());
     for grid in &ready {
-        let key = grid.row.id;
-        let candidates =
-            optimize::candidates(key, &grid.model, &FROZEN, config.lotofoot_frequency_weight);
-        let best = candidates
-            .iter()
-            .map(|c| c.pessimistic.expected_return)
-            .fold(f64::MIN, f64::max);
+        let table = ExactValues::new(&grid.model.pessimistic(), &FROZEN.pessimistic());
         report.evaluated.push(Evaluated {
             grid: grid.row.id,
             closes_at: grid.row.closes_at,
             stakes: grid.stakes,
-            best_pessimistic: best,
+            best_pessimistic: table.best().map_or(0.0, |(_, value)| value),
             // `clone` : le bilan possède ses données, car il survit aux grilles préparées (`ready`).
             matches: grid.row.matches.clone(),
             // Même raison pour le modèle : le message de la séance s'en sert après la fin de `ready`.
             model: grid.model.clone(),
         });
-        if !grid.young {
-            all.extend(candidates);
-        }
+        values.push(table);
     }
     // Grilles recalculées qui avaient une recommandation : la séance la remplace, tickets retenus ou non (une grille trop
     // jeune garde la sienne : elle n'est pas en état d'être recalculée).
@@ -475,8 +486,29 @@ pub fn run(
         &ready,
         started,
     )?;
-    let ranked = optimize::select(all, request.threshold, optimize::MAX_TICKETS);
-    report.chosen = within_budget(ranked, &mut report.months, &ready);
+    // Ordre de clôture (`grids_closing_after` les donne ainsi) : la grille qui ferme la première choisit d'abord, avec le
+    // seuil que lui donnent le temps et le budget restants de son mois. Une grille trop jeune n'engage pas de budget.
+    let prices = PriceTable::frozen();
+    for (grid, table) in ready.iter().zip(&mut values) {
+        let month = month_of(grid.row.closes_at);
+        let budget = report.months.iter_mut().find(|m| m.month == month);
+        let Some(budget) = budget.filter(|_| !grid.young) else {
+            continue;
+        };
+        let steps = price::MONTH_STEPS * month_left(grid.row.closes_at);
+        let bar = |left: u32| {
+            request
+                .fixed_threshold
+                .unwrap_or_else(|| prices.threshold(steps, left))
+        };
+        if budget.left() > 0 {
+            report.thresholds.push(bar(budget.left()));
+        }
+        let key = grid.row.id;
+        let picked = optimize::pick(key, &grid.model, &FROZEN, table, budget.left(), &bar);
+        budget.chosen += picked.len() as u32;
+        report.chosen.extend(picked);
+    }
 
     // 4. Journal immuable : la séance, ses paramètres, et chaque ticket avec tout ce qui a servi à le choisir.
     // `[formule, numéro, année]` : `store::current_recos` lit cette forme.
@@ -492,11 +524,9 @@ pub fn run(
             .collect();
         let params = json!({
             "kappa": FROZEN.kappa, "beta": FROZEN.beta, "phi": FROZEN.phi,
-            "frequency_weight": config.lotofoot_frequency_weight, "threshold": request.threshold,
-            "monthly_budget": request.monthly_budget, "abaque": abaque::VERSION,
-            "pool_tickets": optimize::POOL_TICKETS, "max_tickets_per_grid": optimize::MAX_TICKETS,
-            "recycled_gains": recycled,
-            "allocation": "ordre de clôture", "min_grid_age_hours": MIN_GRID_AGE_HOURS,
+            "monthly_budget": request.monthly_budget, "prices": price::VERSION,
+            "max_tickets_per_grid": optimize::MAX_TICKETS, "recycled_gains": recycled,
+            "allocation": "ordre de clôture, prix dynamique", "min_grid_age_hours": MIN_GRID_AGE_HOURS,
             "budget_since": budget_since().to_rfc3339(), "replace": request.replace, "replaces": replaces,
             "pessimistic_shrink": PESSIMISTIC_SHRINK,
             "pessimistic_low_mult": PESSIMISTIC_LOW_MULT, "margin_method": config.margin_method.name(),
@@ -521,7 +551,7 @@ pub fn run(
             .iter()
             .map(|c| {
                 let grid = ready.iter().find(|g| g.row.id == c.grid);
-                grid.map(inputs_json).unwrap_or_default()
+                grid.map(|g| inputs_json(g, c)).unwrap_or_default()
             })
             .collect();
         let recos: Vec<NewReco<'_>> = report
@@ -593,42 +623,6 @@ fn month_budgets(
     Ok(months)
 }
 
-/// Tickets au-dessus du seuil, grille par grille dans l'ordre de clôture : chacun est pris tant que le mois de sa grille
-/// (clôture lue dans `ready`) a du budget ; `months` compte les tickets retenus.
-fn within_budget(
-    ranked: Vec<Candidate>,
-    months: &mut [MonthBudget],
-    ready: &[Ready],
-) -> Vec<Candidate> {
-    // Ordre de clôture (règle séquentielle de l'étude du §47) : la grille qui ferme la première prend d'abord ses tickets
-    // au-dessus du seuil ; le tri est stable, donc chaque grille garde l'ordre de ses tickets (espérance S3 décroissante).
-    let closes = |c: &Candidate| {
-        ready
-            .iter()
-            .find(|g| g.row.id == c.grid)
-            .map(|g| g.row.closes_at)
-    };
-    let mut ranked = ranked;
-    ranked.sort_by_key(|c| closes(c));
-    let mut chosen = Vec::new();
-    for candidate in ranked {
-        let Some(month) = ready
-            .iter()
-            .find(|g| g.row.id == candidate.grid)
-            .map(|g| month_of(g.row.closes_at))
-        else {
-            continue;
-        };
-        if let Some(budget) = months.iter_mut().find(|m| m.month == month)
-            && budget.left() > 0
-        {
-            budget.chosen += 1;
-            chosen.push(candidate);
-        }
-    }
-    chosen
-}
-
 /// Modèle d'une grille : marché, répartition normalisée, mises et masses (pactole compris).
 fn build_model(
     row: &GridRow,
@@ -643,8 +637,8 @@ fn build_model(
     GridModel::new(&p, &q, stakes, &masses)
 }
 
-/// Entrées du calcul d'un ticket, figées dans le journal.
-fn inputs_json(grid: &Ready) -> String {
+/// Entrées du calcul d'un ticket et de sa sélection, figées dans le journal.
+fn inputs_json(grid: &Ready, ticket: &Candidate) -> String {
     let p: Vec<[f64; 3]> = (0..grid.model.len())
         .filter_map(|i| grid.model.market(i))
         .collect();
@@ -672,6 +666,7 @@ fn inputs_json(grid: &Ready) -> String {
     json!({
         "p": p, "q": q, "stakes": grid.stakes, "jackpot": grid.row.jackpot.map(|j| j.get()),
         "odds_calls": calls, "oddspapi_quotes": quotes, "matches": grid.row.matches,
+        "marginal": ticket.marginal, "threshold": ticket.threshold, "budget_left": ticket.budget_left,
     })
     .to_string()
 }
@@ -696,7 +691,7 @@ mod tests {
     fn ask(monthly_budget: u32, threshold: f64, replace: bool, dry_run: bool) -> Request {
         Request {
             monthly_budget,
-            threshold,
+            fixed_threshold: Some(threshold),
             replace,
             dry_run,
         }
@@ -1200,6 +1195,54 @@ mod tests {
         let report = session_after_a_win(at("2026-10-24T12:00:00Z"));
         assert_eq!(report.months[0].recycled, 0);
         assert!(report.chosen.is_empty());
+    }
+
+    #[test]
+    fn the_month_left_follows_paris_time() {
+        approx::assert_abs_diff_eq!(month_left(at("2026-10-31T23:00:00Z")), 1.0);
+        // Une heure avant la fin de novembre : une heure sur 720. À minuit, l'instant est déjà en décembre.
+        approx::assert_abs_diff_eq!(month_left(at("2026-11-30T22:00:00Z")), 1.0 / 720.0);
+        approx::assert_abs_diff_eq!(month_left(at("2026-11-30T23:00:00Z")), 1.0);
+        // Le 16 novembre à minuit à Paris : la moitié d'un mois de trente jours.
+        approx::assert_abs_diff_eq!(month_left(at("2026-11-15T23:00:00Z")), 0.5);
+    }
+
+    /// Le vrai prix : sans seuil imposé, la séance s'arrête à son seuil et le journal note ce qui a décidé de chaque ticket.
+    #[test]
+    fn the_real_price_decides_and_each_ticket_journals_its_bar() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let mut aliases_text = String::new();
+        setup(&mut conn, &mut aliases_text);
+        let aliases = Aliases::parse(&aliases_text).unwrap();
+        let mut clock = || at("2026-10-24T10:00:00Z");
+        let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
+            panic!("aucun appel attendu : {path}")
+        };
+        let request = Request::from_budget(100, false, false).unwrap();
+        let report = run(
+            &mut conn,
+            &Config::default(),
+            &aliases,
+            &mut clock,
+            &mut fetch,
+            None,
+            request,
+        )
+        .unwrap();
+        // Clôture le 25 octobre : un cinquième du mois reste, 24 pas environ.
+        let bar = PriceTable::frozen().threshold(
+            price::MONTH_STEPS * month_left(at("2026-10-25T16:10:00Z")),
+            100,
+        );
+        assert_eq!(report.thresholds, vec![bar]);
+        assert!(!report.chosen.is_empty());
+        assert!(report.chosen.iter().all(|c| c.marginal >= c.threshold));
+        let recos = store::current_recos(&conn).unwrap();
+        let inputs: serde_json::Value = serde_json::from_str(&recos[0].inputs).unwrap();
+        assert_eq!(inputs["budget_left"], 100);
+        assert_eq!(inputs["threshold"].as_f64(), Some(bar));
+        assert!(inputs["marginal"].as_f64().unwrap() >= bar);
     }
 
     #[test]

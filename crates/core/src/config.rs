@@ -194,10 +194,9 @@ pub struct Config {
     /// (`edge bonus`). Défaut : 0,53, bas de la fourchette mesurée sur l'archive (`docs/bonus-bienvenue.md` §4).
     pub bonus_freebet_value: f64,
     /// Loto Foot : budget mensuel initial, en tickets d'un euro, tant qu'aucun budget n'a été saisi dans l'application
-    /// (§51). Le seuil τ en découle par l'abaque du §49 ; de 20 à 400 €. 60 € par défaut (≈ 16 € par semaine).
+    /// (§51). De 20 à 400 € ; le seuil des tickets dépend de ce qui en reste (prix dynamique, §70). 60 € par défaut
+    /// (≈ 16 € par semaine).
     pub lotofoot_monthly_budget: u32,
-    /// Loto Foot : poids μ de la probabilité de gain dans la recherche des tickets (10).
-    pub lotofoot_frequency_weight: f64,
     /// Loto Foot : minutes minimales entre la séance et la clôture d'une grille. 10 depuis le 2026-10-24 : la séance se
     /// lance au guichet, juste avant de valider (3 heures auparavant, pour la séance du samedi midi).
     pub lotofoot_min_minutes_before_close: u32,
@@ -333,7 +332,6 @@ impl Default for Config {
             site_url: None,
             bonus_freebet_value: crate::bonus::DEFAULT_FREEBET_VALUE,
             lotofoot_monthly_budget: 60,
-            lotofoot_frequency_weight: 10.0,
             lotofoot_min_minutes_before_close: 10,
             lotofoot_max_odds_age_hours: 30,
             lotofoot_session_credits: 8,
@@ -449,13 +447,8 @@ impl Config {
                 "min_stake doit être un montant positif ou nul".to_string(),
             ));
         }
-        crate::lotofoot::abaque::threshold(self.lotofoot_monthly_budget)
+        crate::lotofoot::price::check_budget(self.lotofoot_monthly_budget)
             .map_err(|e| Error::InvalidConfig(format!("lotofoot_monthly_budget : {e}")))?;
-        if !(self.lotofoot_frequency_weight.is_finite() && self.lotofoot_frequency_weight >= 0.0) {
-            return Err(Error::InvalidConfig(
-                "lotofoot_frequency_weight doit être positif ou nul".to_string(),
-            ));
-        }
         for outlet in &self.lotofoot_outlets {
             crate::lotofoot::outlets::Outlet::from_config(outlet)?;
         }
