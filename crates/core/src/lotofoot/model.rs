@@ -467,7 +467,7 @@ pub fn public_split(split: &[[u32; 3]]) -> Option<Vec<Probs1x2>> {
 
 /// Part espérée d'une masse partagée entre nous et `W ~ Poisson(μ)` concurrents : `E[1/(1 + W)] = (1 − e^{−μ}) / μ`.
 /// `exp_m1` calcule `e^x − 1` sans perte de précision quand `x` est proche de 0.
-fn expected_share(mu: f64) -> f64 {
+pub(crate) fn expected_share(mu: f64) -> f64 {
     if mu < 1e-9 { 1.0 } else { -(-mu).exp_m1() / mu }
 }
 
