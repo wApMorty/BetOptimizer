@@ -5,12 +5,18 @@
 //! Sports v6, art. 5.2.5 et 10.5 ; rencontre annulée : art. 10.6). Regrouper des tickets **déjà choisis** ne change donc
 //! ni la mise, ni l'espérance, ni le journal : on n'ajoute aucun ticket et on n'en retire aucun.
 
+use std::collections::HashSet;
 use std::fmt;
 
 use crate::domain::Outcome;
 
-use super::optimize::MAX_TICKETS;
 use super::{Game, GridId, Ticket, sign_char};
+
+/// Tickets au plus pour la couverture exacte, dont le coût double à chaque ticket ; au-delà, couverture gloutonne.
+const EXACT_COVER_TICKETS: usize = 16;
+
+/// Tickets au plus d'une grille regroupée : les masques de tickets tiennent dans un `u32`.
+const MAX_GROUPED_TICKETS: usize = u32::BITS as usize;
 
 /// Une grille à remplir : pour chaque rencontre, un, deux ou trois signes (simple, double, triple).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -165,13 +171,14 @@ pub fn allowed(game: Game, doubles: usize, triples: usize) -> bool {
         .is_some_and(|&most| doubles <= most)
 }
 
-/// Regroupe les tickets d'une grille en le moins possible de grilles, simples ou multiples, que le règlement accepte.
+/// Regroupe les tickets d'une grille en grilles simples ou multiples que le règlement accepte : le moins possible jusqu'à
+/// [`EXACT_COVER_TICKETS`] tickets, un regroupement glouton au-delà (6 grilles pour 16 tickets, 11 pour 32, `net_cap.py`).
 ///
 /// Chaque ticket se retrouve dans exactement une grille, et aucune grille ne contient de ticket absent de la liste :
 /// la mise et les gains sont ceux des tickets. Ordre du résultat : celui du premier ticket de chaque grille dans la
 /// liste (les meilleurs tickets d'abord). Même liste, même résultat.
 ///
-/// Repli sans regroupement (une grille par ticket) si la liste dépasse [`MAX_TICKETS`], contient deux fois le même
+/// Repli sans regroupement (une grille par ticket) si la liste dépasse [`MAX_GROUPED_TICKETS`], contient deux fois le même
 /// ticket ou des tickets de longueur différente de la formule : ces cas n'arrivent pas en séance.
 pub fn group(game: Game, tickets: &[Ticket]) -> Vec<Line> {
     let fallback = || tickets.iter().map(Line::single).collect();
@@ -179,12 +186,19 @@ pub fn group(game: Game, tickets: &[Ticket]) -> Vec<Line> {
         .iter()
         .enumerate()
         .all(|(i, t)| !tickets[..i].contains(t));
-    if tickets.len() > MAX_TICKETS || !distinct || tickets.iter().any(|t| t.len() != game.matches())
+    if tickets.len() > MAX_GROUPED_TICKETS
+        || !distinct
+        || tickets.iter().any(|t| t.len() != game.matches())
     {
         return fallback();
     }
     let candidates = candidates(game, tickets);
-    match exact_cover(tickets.len(), &candidates) {
+    let chosen = if tickets.len() <= EXACT_COVER_TICKETS {
+        exact_cover(tickets.len(), &candidates)
+    } else {
+        greedy_cover(tickets.len(), &candidates)
+    };
+    match chosen {
         Some(chosen) => chosen
             .into_iter()
             .map(|k| candidates[k].0.clone())
@@ -198,16 +212,18 @@ pub fn group(game: Game, tickets: &[Ticket]) -> Vec<Line> {
 /// à nombre de grilles égal, la couverture retenue est donc toujours la même.
 fn candidates(game: Game, tickets: &[Ticket]) -> Vec<(Line, u32)> {
     let mut lines: Vec<Line> = tickets.iter().map(Line::single).collect();
+    // `seen` sert à ne chercher une grille qu'une fois : `clone`, car `lines` et `seen` possèdent chacun leur exemplaire.
+    let mut seen: HashSet<Line> = lines.iter().cloned().collect();
     // Fermeture par réunion : on réunit toute paire réunissable jusqu'à ce qu'aucune grille nouvelle n'apparaisse.
     // Une réunion de deux grilles faites de tickets de la liste n'en contient que de la liste : aucun contrôle n'est
-    // nécessaire. Au plus 16 tickets, donc quelques centaines de grilles au pire.
+    // nécessaire.
     let mut start = 0;
     while start < lines.len() {
         let end = lines.len();
         for a in start..end {
             for b in 0..a {
                 if let Some(merged) = lines[a].merge(&lines[b])
-                    && !lines.contains(&merged)
+                    && seen.insert(merged.clone())
                 {
                     lines.push(merged);
                 }
@@ -273,6 +289,23 @@ fn exact_cover(count: usize, candidates: &[(Line, u32)]) -> Option<Vec<usize>> {
     }
     chosen.sort_by_key(|&k| candidates[k].1.trailing_zeros());
     Some(chosen)
+}
+
+/// Couverture exacte gloutonne des `count` tickets : la plus grande grille encore disjointe de ce qui est couvert, jusqu'au
+/// dernier ticket. Les grilles sont triées de la plus grande à la plus petite et chaque ticket seul en est une : elle finit
+/// toujours, sans garantir le minimum. Mêmes indices et même ordre que [`exact_cover`].
+fn greedy_cover(count: usize, candidates: &[(Line, u32)]) -> Option<Vec<usize>> {
+    let full = u32::MAX >> (u32::BITS as usize - count);
+    let mut covered = 0u32;
+    let mut chosen = Vec::new();
+    for (k, (_, mask)) in candidates.iter().enumerate() {
+        if mask & covered == 0 {
+            covered |= mask;
+            chosen.push(k);
+        }
+    }
+    chosen.sort_by_key(|&k| candidates[k].1.trailing_zeros());
+    (covered == full).then_some(chosen)
 }
 
 #[cfg(test)]
@@ -377,6 +410,40 @@ mod tests {
         assert_eq!(group(Game::Lf7, &list), lines);
     }
 
+    /// Un produit de 32 combinaisons (5 doubles), complet puis privé d'un ticket.
+    #[test]
+    fn beyond_sixteen_tickets_the_greedy_cover_groups_without_loss() {
+        let double = vec![Outcome::Home, Outcome::Draw];
+        let product = Line {
+            signs: vec![
+                double.clone(),
+                double.clone(),
+                double.clone(),
+                double.clone(),
+                double,
+                vec![Outcome::Away],
+                vec![Outcome::Away],
+                vec![Outcome::Away],
+            ],
+        };
+        let mut list = product.tickets();
+        assert_eq!(list.len(), 32);
+        let lines = group(Game::Lf8, &list);
+        assert_eq!(lines, vec![product.clone()]);
+        // 31 tickets : le produit n'est plus complet, tout reste couvert une fois, sans repli sur une grille par ticket.
+        list.pop();
+        let lines = group(Game::Lf8, &list);
+        let mut sorted = list.clone();
+        sorted.sort();
+        assert_eq!(expanded(&lines), sorted);
+        assert!(lines.len() < 10, "{} grilles : {lines:?}", lines.len());
+        assert!(
+            lines
+                .iter()
+                .all(|l| allowed(Game::Lf8, l.doubles(), l.triples()))
+        );
+    }
+
     #[test]
     fn session_lines_keep_each_grid_apart_and_point_to_the_session_ranks() {
         let a = tickets(&["1111111", "21N12222", "N111111", "21N12122"]);
@@ -403,5 +470,16 @@ mod tests {
         let wrong_length = tickets(&["11111111"]);
         assert_eq!(group(Game::Lf7, &wrong_length).len(), 1);
         assert!(group(Game::Lf8, &[]).is_empty());
+        let many: Vec<Ticket> = (0..33)
+            .map(|k| {
+                let signs = (0..7).scan(k, |rest, _| {
+                    let sign = Outcome::ALL[*rest % 3];
+                    *rest /= 3;
+                    Some(sign)
+                });
+                Ticket::new(signs.collect())
+            })
+            .collect();
+        assert_eq!(group(Game::Lf7, &many).len(), 33);
     }
 }
