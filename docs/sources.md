@@ -2937,3 +2937,76 @@ le gain en régularité disparaît (année en perte 34,6 → 36,4 %, mois avec u
 
 **Sous « public juste »**, le plafond change peu : −655 € par an à 16, −683 € à 32 sur l'entraînement. Aucun gain démontré (§37).
 **Aucune règle de production ne change ici.**
+
+## 69. Loto Foot : le choix des tickets posé en programme d'optimisation, +13 à +33 % d'espérance, aucun gain démontré (2026-10-31)
+
+**Demande de Paul** : aborder le problème comme un problème d'optimisation et fabriquer un modèle qui optimise le revenu net. Lecture
+retenue, non confirmée par lui : le choix des tickets du Loto Foot, objet des §63 à §68. Critère : revenu net espéré, gains moins mises.
+
+**Modèle** (`scripts/lotofoot/net_core.py`, `net_revenue.py`, protocole et amendement en tête ; contrôles `net_bound.py`, `net_real.py`,
+`net_ci.py` ; sorties `net_*` dans `~/.local/share/edge/etudes/data/lf/`). Le τ, le plafond et le vivier sont remplacés par un seul programme :
+`max Σ_g [V_g(x_g) − |x_g|]` sous `Σ_g |x_g| ≤ B`, `x_g` tickets de la grille g, V_g valeur exacte, partage entre nos tickets compris.
+- **Dans une grille** : `V` est concave en nombre de tickets au même rang (DR-sous-modulaire) ; glouton par valeur marginale sur tous les 3^n
+  tickets. **Borne linéaire** sur 24 grilles d'entraînement : écart moyen de 0,03 % à 16 tickets, 0,07 % à 64, maximum 0,18 %. La
+  sélection interne est donc résolue : il n'y reste rien à gagner.
+- **Entre les grilles** : sac à dos en ligne. τ est un prix dual statique ; le prix dynamique vient de la récurrence
+  `W_t(b) = (1 − π) W_{t−1}(b) + π · E_g max_{k ≤ b} [Ĉ_g(k) − k + W_{t−1}(b − k)]` (b euros restants, t pas restants du mois), résolue sur
+  l'entraînement. Un ticket est joué si sa valeur marginale couvre 1 € plus la valeur future de cet euro, qui dépend du budget et du temps
+  restants : la règle dépense mieux en fin de mois et s'adapte seule aux périodes de grilles riches (§68).
+- **Malédiction de l'optimiseur** (Smith & Winkler 2006) : ρ dans [0,70 ; 1] pour ramener la valeur annoncée à la valeur vraie ; ρ* = 1 partout,
+  sur des entrées bruitées : aucune correction utile.
+- **Copies** : le règlement v6 fixe 1 € par grille (art. 5.1.3) et partage un rang entre gagnants à parts égales (art. 10.1.5) ; il ne cite pas
+  le cas d'une même combinaison jouée deux fois. Admission au guichet **à vérifier**. Les mises de 2 ou 5 € évoquées au §37 n'y figurent pas.
+
+**Entrées bruitées** (critère) : log q + N(0 ; 0,06²), S × exp N(0 ; 0,25²). Dérive mesurée sur 8 grilles closes : σ de Δ log q de 0,03 à moins
+de 3 h de la clôture, 0,06 de 3 à 6 h, 0,09 de 6 à 12 h, plus de 0,5 au-delà de 12 h (grilles à peine ouvertes). 1 848 configurations ; réglages tirés de
+l'entraînement, test lu une fois après l'amendement figeant la règle principale.
+
+Revenu net S3 par an, test (τ de l'abaque, plafond 16 pour la production ; ρ = 1) :
+
+| Budget / mois | Production | Exact, dyn., sans plafond | Copies, dyn., sans plafond | Clairvoyant (borne) |
+|---|---|---|---|---|
+| 60 € | +627 € | +661 € | +680 € | +860 € |
+| 100 € | +970 € | +1 046 € | **+1 092 €** | +1 365 € |
+| 200 € | +1 571 € | +1 946 € | **+2 084 €** | +2 506 € |
+| 400 € | +2 247 € | +3 492 € | **+3 824 €** | +4 436 € |
+
+Gain de la règle principale figée sur la production, appariée, 500 tirages du lot de grilles : à 100 €, entraînement +214 € [+96 ; +329], test
++115 € [−9 ; +204] ; à 200 €, +503 € [+321 ; +713] et +503 € [+265 ; +681]. L'exact sans copie donne presque tout le gain, à 46 € près à
+100 €. Avec les valeurs à q et S parfaits, la même règle gagne environ 150 € de plus par an à 100 € (règle statique, entraînement) : la
+qualité des entrées vaut autant que toute l'allocation.
+
+Par an à 100 € par mois, test, S3, simulation avec concurrents en binomiale négative, 4 000 années (entraînement en annexe, `net_revenue_risk.txt`) :
+
+| Règle | Espérance | Écart type | Médiane | Année en perte | Grilles payées | Mises / mois | Tickets / grille | Public juste |
+|---|---|---|---|---|---|---|---|---|
+| Production, brut | +970 € | 3 463 € | −189 € | 55,5 % | 2,99 | 96 € | 10,8 | −581 € |
+| Exact dyn., brut | +1 046 € | 4 960 € | −296 € | 58,5 % | 2,38 | 93 € | 14,5 | −372 € |
+| Copies dyn., brut | +1 092 € | 5 601 € | −500 € | 63,8 % | 1,58 | 94 € | 17,2 | −479 € |
+| Production, recyclé | +1 067 € | 3 724 € | −208 € | 55,0 % | 3,28 | 106 € | 10,9 | −684 € |
+| **Exact dyn., recyclé** | **+1 332 €** | 5 741 € | −614 € | 62,0 % | 4,26 | 159 € | 22,3 | −1 056 € |
+| Copies dyn., recyclé | +1 363 € | 6 834 € | −875 € | 69,2 % | 2,28 | 148 € | 24,8 | −997 € |
+
+Entraînement, recyclé : production +1 154 €, exact dyn. +1 625 €, copies dyn. +1 639 €. L'exact recyclé fait +25 % au test et +41 % à
+l'entraînement, sans intervalle calculé, et ce choix vient après lecture du test, contrairement à la règle figée. La perte annuelle maximale reste de
+12 budgets. **L'espérance monte, la régularité baisse** : le modèle concentre le budget sur moins de grilles, ce qu'avait annoncé le §68.
+
+**Réalité.** Au signe près, le biais du public est établi : pour `log(p/q) ≥ 0,3`, fréquence 21,5 % contre 21,4 % au marché et 14,2 % au public
+sur 1 124 signes d'entraînement, 21,5 % ± 2,5 contre 21,2 et 14,2 sur 275 signes de test. Log loss du marché meilleure que celle du public sur les
+deux lots. Mélange p/q sur l'entraînement : α a posteriori 0,18 [0,01 ; 0,38] contre 0,10 en S3 ; à α = 0,18 tous les gains ci-dessus baissent de 20 %
+environ sans changer l'ordre. Au ticket, rien n'est démontré : τ = 1,7, production, entraînement 1,29 € par euro [0,02 ; 3,88], test 0 € pour 499 €,
+0 sans-faute et 0 rang à une erreur pour 0,11 et 1,8 attendus ; copies sans plafond, test 154 € pour 2 235 €, 0 sans-faute et 1 rang pour
+0,61 et 9,2 attendus. Sous S3, de tels résultats ne sont pas rares (P ≈ 0,2 à 0,3), mais ils ne confirment rien.
+
+**Lecture.** La sélection dans la grille est résolue, l'allocation entre grilles capte 80 % de la borne du clairvoyant à 100 €. Ce modèle multiplie
+une espérance non prouvée ; il n'en crée pas. Le gain restant est dans les entrées (q et S) et, sous le modèle, dans le budget : de 100 à 200 €,
+chaque euro ajouté rapporte 0,87 € d'espérance S3 au lieu de 0,54 €. Limites : espérances du modèle ; 90 grilles de test ; répartition de 2021-2025 ;
+dérive sur 8 grilles ; pas de réglage du seuil pour le recyclé ; le recyclé double presque les mises.
+
+**Coût de production** : valeur marginale dans `model.rs`, glouton dans `optimize.rs`, table du DP à la place de l'abaque, `session.rs`, et
+`bulletin::exact_cover` à réécrire au-delà de 16 tickets (§63). **Aucune règle de production ne change ici.**
+
+Sources : Clair & Letscher, *Operations Research* 2007, https://www.stat.berkeley.edu/~aldous/157/Papers/clair.pdf ; Haugh & Singal, *Management
+Science* 2021, https://papers.ssrn.com/abstract=3393127 ; Smith & Winkler, *Management Science* 2006,
+https://Www.Gwern.net/doc/statistics/decision/2006-smith.pdf ; Agrawal, Wang & Ye, *Operations Research* 2014 ; Lueker 1998, cité dans
+https://arxiv.org/pdf/1810.10661. Cités de mémoire, non relus : Talluri & van Ryzin 1998, Papastavrou, Rajagopalan & Kleywegt 1996, Soma & Yoshida 2018.
