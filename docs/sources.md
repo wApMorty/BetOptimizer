@@ -3010,3 +3010,28 @@ Sources : Clair & Letscher, *Operations Research* 2007, https://www.stat.berkele
 Science* 2021, https://papers.ssrn.com/abstract=3393127 ; Smith & Winkler, *Management Science* 2006,
 https://Www.Gwern.net/doc/statistics/decision/2006-smith.pdf ; Agrawal, Wang & Ye, *Operations Research* 2014 ; Lueker 1998, cité dans
 https://arxiv.org/pdf/1810.10661. Cités de mémoire, non relus : Talluri & van Ryzin 1998, Papastavrou, Rajagopalan & Kleywegt 1996, Soma & Yoshida 2018.
+
+## 70. Phase 20 — Règle exacte à prix dynamique et gains recyclés (2026-10-31)
+
+**Go de Paul du 2026-10-31** : table des prix tirée de l'entraînement seul ; entrée en vigueur dès la fin de la phase, après une séance à blanc.
+
+**Étape 0 : quel plafond par grille ?** (`scripts/lotofoot/net_cap.py`, protocole figé en tête, sorties `net_cap.txt` et `net_cap.log` ; étude
+descriptive, sans choix automatique.) À 100 € par mois, gains recyclés, test, S3, entrées bruitées, production à +1 067 € par an :
+
+| Plafond | Espérance / an | Gain sur la production (IC 95 %) | Année en perte | Mises / mois | Grilles payées / an | Grilles à remplir / mois | Public juste |
+|---|---|---|---|---|---|---|---|
+| Production (16, τ 1,7) | +1 067 € | — | 55,0 % | 106 € | 3,28 | 42,3 | −684 € |
+| 16 | +1 127 € | +67 € [+19 ; +124] | 54,9 % | 118 € | 4,43 | 47,7 | −649 € |
+| 24 | +1 202 € | non calculé | 56,0 % | 125 € | 4,27 | 48,2 | −707 € |
+| 32 | +1 250 € | +185 € [+60 ; +297] | 57,0 % | 131 € | 4,22 | 48,2 | −740 € |
+| 48 | +1 285 € | +220 € [+53 ; +351] | 58,2 % | 138 € | 4,13 | 48,5 | −811 € |
+| 64 | +1 307 € | non calculé | 59,3 % | 145 € | 4,14 | 48,6 | −904 € |
+| 96 | +1 334 € | +268 € [+49 ; +460] | 61,8 % | 155 € | 4,10 | 49,6 | −1 011 € |
+
+Entraînement, mêmes plafonds : +121, +285 (32), +354 (48), +466 € (96) sur la production. À 200 € par mois, test : +92, +439, +592, +729 €. À
+budget brut, 100 € : +49, +95, +89, +68 € au test, tous les intervalles contenant 0 ; le gain vient donc de l'accord entre prix dynamique et recyclage.
+Les intervalles ne couvrent que l'incertitude du lot de grilles, dans l'espérance du modèle ; aucun gain réel démontré (§69).
+
+**Lecture.** La charge au guichet ne dépend presque pas du plafond (47,7 à 49,6 grilles par mois) : plus de tickets par grille se regroupent en
+multiples sur moins de grilles. Chaque palier rapporte de moins en moins pour le risque ajouté : en passant de 16 à 32, +123 € d'espérance pour
+−91 € sous « public juste » ; de 32 à 48, +35 € pour −71 € ; de 48 à 96, +49 € pour −200 €. Ma recommandation, en attente de Paul : **32**.
