@@ -331,6 +331,9 @@
 # Ajoutés le 2026-10-31 pour le LF8 n°151 (noms bruts de The Odds API vus dans l'archive).
 "Fulham" = []
 "Málaga" = ["Malaga"]
+# Ajoutés le 2026-11-01 pour le LF8 n°152 (noms bruts de The Odds API vus dans l'archive ; Vitória SC est Guimarães).
+"Sassuolo" = []
+"Vitória SC" = ["Guimaraes"]
 
 # Noms d'ESPN (scores en direct des grilles Loto Foot, docs/sources.md §46) → noms de The Odds API. Section commune à
 # toutes les compétitions. Depuis le 2026-10-24 : toutes les équipes des sept ligues archivées (Big 5, Écosse, Ligue 2),
@@ -472,3 +475,6 @@
 "VfB Stuttgart" = []
 "Villarreal" = []
 "Werder Bremen" = []
+# Ajoutés le 2026-11-01 pour le LF8 n°152 (noms lus sur le scoreboard ESPN por.1).
+"Gil Vicente" = []
+"Vitória SC" = ["Vitória de Guimaraes"]
