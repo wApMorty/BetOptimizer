@@ -3053,3 +3053,51 @@ référence (test `tickets_match_the_study_search`). Regroupement : couverture e
 **Séance à blanc** du 2026-10-31 sur une copie de la base, recalcul compris : LF7 n°136, clôture le 1er novembre, budget de 100 € : seuil de 2,09 en début
 de mois, 14 tickets sur 8 grilles à remplir, 34 ms en tout ; meilleur ticket 2,755, identique à la séance n°24 du journal (16 tickets, τ 1,7, dont le dernier à
 2,01). Vérification figée du §38 inchangée : elle ignore toujours le partage entre nos tickets et mêle `lotofoot-3` et `lotofoot-4`, séparables par la version.
+
+## 71. Loto Foot : couvrir les tickets par des paris simples ou combinés ? Aucun gain assuré, couverture réaliste sans effet (2026-11-01)
+
+**Hypothèse de Paul** : des paris de couverture assureraient des gains et réduiraient la volatilité.
+
+**Étude** (`scripts/lotofoot/couverture.py`, protocole et amendement en tête, sorties `couverture_*` dans `~/.local/share/edge/etudes/data/lf/`). Un bookmaker ne
+permet pas de vendre un ticket : on ne peut qu'acheter les issues où il perd. Sur un nœud de l'arbre des coups d'envoi, `U(i)` valeur des tickets si l'issue `i`
+tombe, `a(i) = 1 / cote(i)`, `m = Σ a − 1` : miser `s(i) = a(i) · (H − U(i))⁺` égalise les issues sous `H`, et il reste `L = H − Σ s(i)`. Sur une rencontre,
+`L = Σ Q(i) U(i)` avec `Q(max) = a(max) − m` et `Q(i) = a(i)` ailleurs. `L` remonté à la racine est le **gain assuré**, au partage près, sans recours aux
+probabilités du marché. Grilles et tickets : suite exacte, τ = 1,9, plafond 32, 94 € de mises par mois, budget brut.
+
+**Mesures préalables.** Marge 1X2 sur 1 800 relevés de l'archive : Winamax 13,4 %, Betclic 11,3 %, PMU 11,4 %, Unibet 12,8 %, Pinnacle 4,4 %. Au meilleur prix de
+Winamax, Betclic et PMU, 9,5 % (surcharge de 14,1 % sous P = 0,2, 9,9 % de 0,2 à 0,4, 9,1 % de 0,4 à 0,6, 7,7 % au-delà). Calendrier des 409 grilles : **dans
+177, toutes les rencontres sont dans le même bloc de coups d'envoi** ; seules 81 finissent par une rencontre isolée. La couverture avant match se fait donc surtout
+par combinés, dont la marge se compose (1,095⁸ ≈ 2,1).
+
+Par an, test, S3, 100 € par mois (entraînement en annexe, `couverture_train.txt`). Le capital est le besoin de trésorerie du 99e centile sur l'année ; « sans blocs »
+traite les rencontres l'une après l'autre aux marges d'avant match, ce qui **borne par excès** le pari en direct, dont marge et liquidité ne sont pas mesurées :
+
+| Politique | Espérance | Coût | Écart type | Médiane | Année en perte | Mises de couv. | Paris | Capital |
+|---|---|---|---|---|---|---|---|---|
+| Aucune | +985 € | — | 3 553 € | −259 € | 58,4 % | — | — | — |
+| Simples avant match, variance minimale | −1 215 € | 2 200 € | 3 441 € | −2 149 € | 83,2 % | 25 163 € | 1 179 | 899 € |
+| Dernier bloc réel, écart ≥ 2 000 € | +910 € | 75 € | 3 500 € | −268 € | 58,6 % | 556 € | 10 | 6 507 € |
+| Complète, blocs réels | +856 € | 129 € | 3 480 € | −330 € | 61,0 % | 957 € | 18 | 7 490 € |
+| Dernière rencontre sans blocs, ≥ 2 000 € | +802 € | 182 € | 2 719 € | −82 € | 52,6 % | 2 087 € | 1 | 12 310 € |
+| Idem à moitié | +893 € | 91 € | 2 928 € | −81 € | 52,5 % | 1 043 € | 1 | 6 155 € |
+| Idem au quart | +939 € | 46 € | 3 200 € | −143 € | 54,2 % | 522 € | 1 | 3 077 € |
+| Complète sans blocs | −506 € | 1 490 € | 1 189 € | −330 € | 88,7 % | 17 063 € | 579 | 18 850 € |
+
+Le point à variance minimale avec combinés de 2 ou 3 sélections coûte 100 000 € par an et n'a aucun sens pratique : il ignore le coût par construction.
+Le simulé dépasse l'exact de 50 à 150 € par an pour toutes les lignes (binomiale négative, §68), le tableau donne l'exact.
+
+**Gain assuré.** Par euro de tickets valant 1,90 € en S3, la couverture complète assure 0,00 € aux horaires réels (0 grille sur 28 au test, 0 sur 105 à l'entraînement au-dessus de
+la mise) et 0,58 € sans blocs (0 sur 28 ; 5 sur 105 à l'entraînement). **Aucun gain n'est assuré** : la marge payée à chaque nœud dépasse l'avantage. À marge divisée par deux,
+variante théorique qu'aucun opérateur agréé ne propose, on assurerait 1,13 € sans blocs sur 75 % des grilles, et toujours 0,00 € aux horaires réels.
+
+**Réalité**, sans budget : entraînement 1 638 € de tickets, 1 023 € de gains, 3 grilles payées ; test 429 € de tickets, 0 € de gains. Trop peu d'événements pour conclure. Sur une grille LF8 à 3 tickets et 833 € de
+gain, la couverture complète aurait perdu 1 777 €, plus du double du gain : le gain réel dépend du nombre de gagnants, inconnu au moment de couvrir, et la surcouverture est un risque réel.
+Sous « public juste », la couverture ne sauve rien : année en perte de 90,9 à 88,4 % sur la dernière rencontre, pour 59 € de coût.
+
+**Lecture.** L'hypothèse est fausse pour les gains assurés. Elle est vraie, mais inaccessible, pour la volatilité : aux horaires réels, l'écart type baisse de 1,5 %. Le seul levier, la dernière rencontre, baisse
+l'écart type de 18 à 23 % pour 9 à 18 % d'espérance, sous une borne optimiste et avec 6 000 à 12 000 € de trésorerie mobilisable pour un budget de 100 € par mois. Elle joue environ une fois par an.
+**Exemple** : 10 000 € si le signe tombe (P = 0,40), 500 € sinon, espérance 4 300 €. Il faut miser environ 6 270 € sur les deux autres signes pour assurer 3 730 € (−13 %).
+Ce calcul reste utile à la main si une grille se retrouve vivante pour une grosse somme, avec une dernière rencontre isolée. **Aucune règle de production ne change ici.**
+
+Limites : gains du modèle ; marge mesurée sur les ligues de l'archive, les petites ligues du Loto Foot sont sans doute plus chères ; plafonds de mise des opérateurs inconnus ; 28 grilles jouées au test ; horaires de 2021-2025 ;
+grilles de championnat ; budget brut, sans recyclage. 18 politiques, deux passes (la première divergeait sur les combinés et tirait trop peu d'issues), aucune choisie.
