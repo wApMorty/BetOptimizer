@@ -345,8 +345,9 @@ pub fn run(
         canonical
             .iter()
             .map(|(h, a)| {
-                let found = odds::archived_market(
+                let found = odds::club_market(
                     conn,
+                    aliases,
                     (h, a),
                     from.max(started),
                     until,
@@ -390,7 +391,8 @@ pub fn run(
     );
     let missing = missing_of(conn)?;
     if !missing.is_empty() && !dry_run {
-        report.leagues = odds::refresh_leagues(conn, config, &missing, search_window, now, fetch)?;
+        report.leagues =
+            odds::refresh_leagues(conn, config, aliases, &missing, search_window, now, fetch)?;
     }
     let missing = missing_of(conn)?;
     if !missing.is_empty() && !dry_run {

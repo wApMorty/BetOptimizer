@@ -14,7 +14,7 @@ use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::espn::{self, EspnGame, Phase, parse_scoreboard};
-use super::odds::canonical_matches;
+use super::odds::{canonical_matches, name_pairs};
 use super::{GridId, Ticket};
 use crate::domain::Outcome;
 use crate::error::Result;
@@ -92,7 +92,7 @@ pub fn tracked(
         for (index, (home, away)) in teams.into_iter().enumerate() {
             let position = u32::try_from(index + 1).unwrap_or(u32::MAX);
             let event = match (calls.get(index), quotes.get(index)) {
-                (Some(Some(call)), _) => event(conn, *call, &home, &away)?,
+                (Some(Some(call)), _) => event(conn, aliases, *call, &home, &away)?,
                 (_, Some(Some(quote))) => oddspapi_store::lotofoot_quote_kickoff(conn, *quote)?
                     .map(
                         // Pas de clé The Odds API : le nom affiché dit d'où vient la rencontre, et `espn::league` n'y
@@ -131,22 +131,26 @@ fn id_list(inputs: Option<&serde_json::Value>, key: &str) -> Vec<Option<i64>> {
 /// Compétition et coup d'envoi d'un match vu par un appel `/odds` de l'archive.
 fn event(
     conn: &Connection,
+    aliases: &Aliases,
     api_call_id: i64,
     home: &str,
     away: &str,
 ) -> Result<Option<(String, DateTime<Utc>)>> {
-    let found: Option<(String, String)> = conn
-        .query_row(
-            "SELECT sport_key, commence_time FROM event_seen
-             WHERE api_call_id = ?1 AND home_team_raw = ?2 AND away_team_raw = ?3",
-            params![api_call_id, home, away],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()?;
-    match found {
-        Some((sport_key, kickoff)) => Ok(Some((sport_key, parse_timestamp(&kickoff)?))),
-        None => Ok(None),
+    // `home` et `away` sont canoniques ; l'archive garde le nom publié, qui peut en différer selon la compétition.
+    for (home_raw, away_raw) in name_pairs(aliases, home, away) {
+        let found: Option<(String, String)> = conn
+            .query_row(
+                "SELECT sport_key, commence_time FROM event_seen
+                 WHERE api_call_id = ?1 AND home_team_raw = ?2 AND away_team_raw = ?3",
+                params![api_call_id, home_raw, away_raw],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        if let Some((sport_key, kickoff)) = found {
+            return Ok(Some((sport_key, parse_timestamp(&kickoff)?)));
+        }
     }
+    Ok(None)
 }
 
 /// Bilan d'un relevé.

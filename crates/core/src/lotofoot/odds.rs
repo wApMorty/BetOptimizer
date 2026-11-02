@@ -2,6 +2,8 @@
 //!
 //! 1. Les noms de prono-match sont traduits en noms de The Odds API par la section `LOTOFOOT` de `config/aliases.toml` :
 //!    un nom inconnu bloque la grille (règle du projet : jamais d'appariement approximatif).
+//!    The Odds API nomme parfois un club autrement selon la compétition (`FC Porto` en championnat, `Porto` en Ligue des
+//!    champions) : ce second nom est une variante de la même section, et chaque comparaison ci-dessous l'accepte.
 //! 2. On cherche dans l'archive le dernier relevé Pinnacle du match, assez récent.
 //! 3. Pour les matchs absents, on trouve leur compétition avec `/events` (gratuit) parmi les compétitions actives, puis on
 //!    relève ces compétitions avec `/odds` (1 crédit chacune), sous la garde de budget et un plafond par séance.
@@ -57,6 +59,25 @@ pub fn canonical_matches(
     }
 }
 
+/// Toutes les paires de noms sous lesquelles The Odds API peut publier le match `home – away` (noms canoniques).
+///
+/// La durée de vie `'a` lie les noms rendus à `aliases`, où ils sont stockés : pas de copie, et ils survivent aux
+/// arguments `home` et `away`.
+pub(crate) fn name_pairs<'a>(
+    aliases: &'a Aliases,
+    home: &str,
+    away: &str,
+) -> Vec<(&'a str, &'a str)> {
+    let aways = aliases.names_of(ALIAS_SECTION, away);
+    let mut pairs = Vec::new();
+    for h in aliases.names_of(ALIAS_SECTION, home) {
+        for a in &aways {
+            pairs.push((h, *a));
+        }
+    }
+    pairs
+}
+
 /// Provenance d'une cote Pinnacle.
 ///
 /// `enum` à données : chaque variante porte ses propres champs (contrairement à une `enum` de C, qui n'est qu'un entier).
@@ -89,9 +110,28 @@ pub struct MatchMarket {
     pub source: Source,
 }
 
-/// Dernière cote Pinnacle 1X2 archivée du match `home – away` (noms de The Odds API) dont le coup d'envoi tombe dans
+/// [`archived_market`] pour un match désigné par ses noms canoniques : essaie chaque nom sous lequel The Odds API peut le
+/// publier. Un match donné n'existe que sous une seule paire de noms, le premier résultat est donc le bon.
+pub fn club_market(
+    conn: &Connection,
+    aliases: &Aliases,
+    teams: (&str, &str),
+    from: DateTime<Utc>,
+    until: DateTime<Utc>,
+    fresh_after: DateTime<Utc>,
+    method: MarginMethod,
+) -> Result<Option<MatchMarket>> {
+    for pair in name_pairs(aliases, teams.0, teams.1) {
+        if let Some(market) = archived_market(conn, pair, from, until, fresh_after, method)? {
+            return Ok(Some(market));
+        }
+    }
+    Ok(None)
+}
+
+/// Dernière cote Pinnacle 1X2 archivée du match `home – away` (noms exacts de The Odds API) dont le coup d'envoi tombe dans
 /// `[from ; until]` et relevée après `fresh_after`. `None` si l'archive n'en a pas.
-pub fn archived_market(
+fn archived_market(
     conn: &Connection,
     teams: (&str, &str),
     from: DateTime<Utc>,
@@ -160,11 +200,12 @@ pub struct LeagueSearch {
     pub spent: u32,
 }
 
-/// Cherche et relève les compétitions des matchs `wanted` (noms de The Odds API) dont le coup d'envoi tombe dans
+/// Cherche et relève les compétitions des matchs `wanted` (noms canoniques) dont le coup d'envoi tombe dans
 /// `[from ; until]`. `/sports` et `/events` sont gratuits ; chaque `/odds` coûte un crédit.
 pub fn refresh_leagues(
     conn: &mut Connection,
     config: &Config,
+    aliases: &Aliases,
     wanted: &[(String, String)],
     window: (DateTime<Utc>, DateTime<Utc>),
     now: Clock,
@@ -182,6 +223,7 @@ pub fn refresh_leagues(
             keys.push(key);
         }
     }
+    let is_club = |name: &str, club: &str| aliases.resolve(ALIAS_SECTION, name) == Some(club);
     let mut needed: Vec<String> = Vec::new();
     let mut found = vec![false; wanted.len()];
     for key in keys {
@@ -228,7 +270,7 @@ pub fn refresh_leagues(
                 continue;
             }
             for (i, (home, away)) in wanted.iter().enumerate() {
-                if !found[i] && event.home_team == *home && event.away_team == *away {
+                if !found[i] && is_club(&event.home_team, home) && is_club(&event.away_team, away) {
                     found[i] = true;
                     useful = true;
                 }
@@ -283,6 +325,8 @@ mod tests {
 "Lyon" = []
 "Pau FC" = ["Pau"]
 "Grenoble" = []
+"FC Porto" = ["Porto"]
+"Napoli" = []
 "#;
 
     fn at(s: &str) -> DateTime<Utc> {
@@ -322,6 +366,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().unwrap();
         migrate(&mut conn).unwrap();
         let config = Config::default();
+        let aliases = Aliases::parse(ALIASES).unwrap();
         let mut clock = || at("2026-10-24T10:00:00Z");
         let mut calls: Vec<String> = Vec::new();
         let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
@@ -345,8 +390,10 @@ mod tests {
         };
         let wanted = vec![("Pau FC".to_string(), "Grenoble".to_string())];
         let window = (at("2026-10-24T10:00:00Z"), at("2026-10-28T00:00:00Z"));
-        let search =
-            refresh_leagues(&mut conn, &config, &wanted, window, &mut clock, &mut fetch).unwrap();
+        let search = refresh_leagues(
+            &mut conn, &config, &aliases, &wanted, window, &mut clock, &mut fetch,
+        )
+        .unwrap();
         assert_eq!(search.fetched, vec!["soccer_france_ligue_two".to_string()]);
         assert_eq!(search.spent, 1);
         // Les compétitions actives sont parcourues dans l'ordre de `leagues` puis de `lotofoot_leagues` : la Premier League
@@ -392,6 +439,65 @@ mod tests {
         );
     }
 
+    /// `FC Porto` en championnat, `Porto` en Ligue des champions : le match est trouvé et sa cote lue sous le second nom,
+    /// alors que la grille passe par le nom canonique.
+    #[test]
+    fn a_club_named_differently_in_a_cup_is_found_and_priced() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let config = Config::default();
+        let aliases = Aliases::parse(ALIASES).unwrap();
+        let mut clock = || at("2026-11-03T10:00:00Z");
+        let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
+            let body = match path {
+                "/sports" => r#"[{"key":"soccer_uefa_champs_league","group":"Soccer","title":"UCL","description":"","active":true,"has_outrights":false}]"#.to_string(),
+                "/sports/soccer_uefa_champs_league/events" => r#"[{"id":"e1","sport_key":"soccer_uefa_champs_league",
+                    "commence_time":"2026-11-04T20:00:00Z","home_team":"Porto","away_team":"Napoli"}]"#.to_string(),
+                "/sports/soccer_uefa_champs_league/odds" => r#"[{"id":"e1","sport_key":"soccer_uefa_champs_league",
+                    "commence_time":"2026-11-04T20:00:00Z","home_team":"Porto","away_team":"Napoli",
+                    "bookmakers":[{"key":"pinnacle","markets":[{"key":"h2h","last_update":"2026-11-03T09:58:00Z",
+                    "outcomes":[{"name":"Porto","price":2.4},{"name":"Draw","price":3.3},{"name":"Napoli","price":3.0}]}]}]}]"#.to_string(),
+                _ => "[]".to_string(),
+            };
+            Ok(HttpResponse {
+                status: 200,
+                quota: quota(80),
+                body,
+            })
+        };
+        let wanted = vec![("FC Porto".to_string(), "Napoli".to_string())];
+        let window = (at("2026-11-03T10:00:00Z"), at("2026-11-06T00:00:00Z"));
+        let search = refresh_leagues(
+            &mut conn, &config, &aliases, &wanted, window, &mut clock, &mut fetch,
+        )
+        .unwrap();
+        assert_eq!(
+            search.fetched,
+            vec!["soccer_uefa_champs_league".to_string()]
+        );
+        let market = club_market(
+            &conn,
+            &aliases,
+            ("FC Porto", "Napoli"),
+            window.0,
+            window.1,
+            at("2026-11-03T00:00:00Z"),
+            MarginMethod::Power,
+        )
+        .unwrap();
+        assert!(market.is_some());
+    }
+
+    #[test]
+    fn name_pairs_cover_every_published_name() {
+        let aliases = Aliases::parse(ALIASES).unwrap();
+        assert_eq!(
+            name_pairs(&aliases, "FC Porto", "Napoli"),
+            [("FC Porto", "Napoli"), ("Porto", "Napoli")]
+        );
+        assert!(name_pairs(&aliases, "Inconnu FC", "Napoli").is_empty());
+    }
+
     #[test]
     fn the_session_cap_refuses_extra_leagues() {
         let mut conn = Connection::open_in_memory().unwrap();
@@ -400,6 +506,7 @@ mod tests {
             lotofoot_session_credits: 0,
             ..Config::default()
         };
+        let aliases = Aliases::parse(ALIASES).unwrap();
         let mut clock = || at("2026-10-24T10:00:00Z");
         let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
             let body = match path {
@@ -416,8 +523,10 @@ mod tests {
         };
         let wanted = vec![("Pau FC".to_string(), "Grenoble".to_string())];
         let window = (at("2026-10-24T10:00:00Z"), at("2026-10-28T00:00:00Z"));
-        let search =
-            refresh_leagues(&mut conn, &config, &wanted, window, &mut clock, &mut fetch).unwrap();
+        let search = refresh_leagues(
+            &mut conn, &config, &aliases, &wanted, window, &mut clock, &mut fetch,
+        )
+        .unwrap();
         assert!(search.fetched.is_empty());
         assert_eq!(search.spent, 0);
         assert_eq!(search.refused.len(), 1);

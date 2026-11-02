@@ -3101,3 +3101,13 @@ Ce calcul reste utile à la main si une grille se retrouve vivante pour une gros
 
 Limites : gains du modèle ; marge mesurée sur les ligues de l'archive, les petites ligues du Loto Foot sont sans doute plus chères ; plafonds de mise des opérateurs inconnus ; 28 grilles jouées au test ; horaires de 2021-2025 ;
 grilles de championnat ; budget brut, sans recyclage. 18 politiques, deux passes (la première divergeait sur les combinés et tirait trop peu d'issues), aucune choisie.
+
+## 72. The Odds API : un même club peut changer de nom selon la compétition (2026-11-02)
+
+`GET /v4/sports/{clé}/events` (gratuit), relevé le 2026-11-02 : `Porto` et `SC Braga` en Ligue des champions et en Ligue Conférence,
+contre `FC Porto` et `Braga` en Primeira Liga. Sur les 108 noms des trois coupes d'Europe de la semaine, ce sont les deux seuls écarts
+trouvés avec les noms de l'archive.
+
+Conséquence : la recherche des cotes du Loto Foot (`lotofoot/odds.rs`) et le suivi des scores (`lotofoot/scores.rs`) acceptent désormais
+toutes les variantes de la section `LOTOFOOT`, au lieu du seul nom canonique. Un nouveau cas se règle par une variante dans
+`config/aliases.toml`, sans changer le code. Jusque-là, ces matchs n'auraient pas été trouvés chez The Odds API et seraient passés par le repli OddsPapi.

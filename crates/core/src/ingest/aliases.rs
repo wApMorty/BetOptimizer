@@ -55,6 +55,21 @@ impl Aliases {
         // Le `?` fonctionne aussi sur les `Option` : il renvoie `None` si la ligue est inconnue.
         self.by_div.get(div)?.get(name).map(String::as_str)
     }
+
+    /// Tous les noms d'une équipe dans une ligue (nom canonique et variantes), triés ; vide si elle est inconnue.
+    pub fn names_of(&self, div: &str, canonical: &str) -> Vec<&str> {
+        let Some(names) = self.by_div.get(div) else {
+            return Vec::new();
+        };
+        let mut out: Vec<&str> = names
+            .iter()
+            .filter(|(_, team)| team.as_str() == canonical)
+            .map(|(name, _)| name.as_str())
+            .collect();
+        // Une `HashMap` n'a pas d'ordre stable : le tri garantit le même résultat d'une exécution à l'autre.
+        out.sort_unstable();
+        out
+    }
 }
 
 #[cfg(test)]
@@ -82,6 +97,17 @@ mod tests {
             Some("Manchester United")
         );
         assert_eq!(aliases.resolve("E0", "Burnley"), Some("Burnley"));
+    }
+
+    #[test]
+    fn names_of_lists_every_name_of_a_team_in_a_stable_order() {
+        let aliases = Aliases::parse(SMALL).unwrap();
+        assert_eq!(
+            aliases.names_of("E0", "Manchester United"),
+            ["Man United", "Man Utd", "Manchester United"]
+        );
+        assert!(aliases.names_of("E0", "Inconnu FC").is_empty());
+        assert!(aliases.names_of("Z9", "Burnley").is_empty());
     }
 
     #[test]
