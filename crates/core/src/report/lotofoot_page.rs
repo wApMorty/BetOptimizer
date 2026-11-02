@@ -9,9 +9,11 @@ use serde::Serialize;
 
 use crate::error::Result;
 use crate::format::{chance, decimal, kickoff_label, long_date, rough_euros};
+use crate::ingest::aliases::Aliases;
 use crate::lotofoot::alert::Listed;
 use crate::lotofoot::bulletin::{Line, session_lines};
 use crate::lotofoot::model::{FROZEN, GridModel, RankOdds};
+use crate::lotofoot::odds::ALIAS_SECTION;
 use crate::lotofoot::oddspapi;
 use crate::lotofoot::outlets::Outlet;
 use crate::lotofoot::price::{self, PriceTable};
@@ -256,6 +258,21 @@ pub struct LotofootPage {
     pub gain: String,
     /// Fréquence des tickets payés.
     pub frequency: String,
+}
+
+/// Retire de la dernière séance les noms déclarés depuis dans la table d'alias, et les grilles écartées pour cette raison
+/// si plus aucun nom ne manque. Le journal reste intact, mais une séance sans ticket n'y écrit rien : sans ce filtre, la page
+/// répéterait un problème déjà réglé tant qu'aucun nouveau ticket n'est recommandé.
+pub fn forget_declared_names(page: &mut LotofootPage, aliases: &Aliases) {
+    let prefix = format!("{ALIAS_SECTION}: ");
+    page.unknown_names.retain(|entry| {
+        let name = entry.strip_prefix(&prefix).unwrap_or(entry);
+        aliases.resolve(ALIAS_SECTION, name).is_none()
+    });
+    if page.unknown_names.is_empty() {
+        page.skipped
+            .retain(|reason| !reason.ends_with(session::UNKNOWN_NAMES_REASON));
+    }
 }
 
 /// Construit la page à partir du journal ; `monthly_budget` est le budget en vigueur ([`crate::lotofoot::session::monthly_budget`]).
@@ -1107,6 +1124,31 @@ mod tests {
         assert_eq!(margin(1.98, 1.8, 1.0), ("+10 %".to_string(), false));
         assert_eq!(margin(1.98, 1.8, 9.0), ("+10 %".to_string(), true));
         assert_eq!(margin(1.8, 1.8, 0.0), ("+0 %".to_string(), false));
+    }
+
+    #[test]
+    fn names_declared_since_the_last_session_are_no_longer_reported() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let aliases = Aliases::parse("[LOTOFOOT]\n\"LASK\" = [\"Lask Linz\"]\n").unwrap();
+        let mut page = page(&conn, Utc::now(), 60).unwrap();
+        page.unknown_names = vec!["LOTOFOOT: Lask Linz".into(), "LOTOFOOT: Inconnu FC".into()];
+        page.skipped = vec![
+            format!("LF7 n°137 : 2 {}", session::UNKNOWN_NAMES_REASON),
+            "LF8 n°152 : répartition FDJ pas encore publiée".into(),
+        ];
+        // Un nom manque encore : la grille écartée reste signalée.
+        forget_declared_names(&mut page, &aliases);
+        assert_eq!(page.unknown_names, ["LOTOFOOT: Inconnu FC"]);
+        assert_eq!(page.skipped.len(), 2);
+        // Plus aucun nom ne manque : seule l'autre raison reste.
+        page.unknown_names = vec!["LOTOFOOT: Lask Linz".into()];
+        forget_declared_names(&mut page, &aliases);
+        assert!(page.unknown_names.is_empty());
+        assert_eq!(
+            page.skipped,
+            ["LF8 n°152 : répartition FDJ pas encore publiée"]
+        );
     }
 
     #[test]

@@ -198,7 +198,8 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
     });
     let conn = store::open_read_only(&app.paths.db_file)?;
     let budget = session::monthly_budget(&conn, &app.config, now)?;
-    let lotofoot = lotofoot_page::page(&conn, now, budget)?;
+    let mut lotofoot = lotofoot_page::page(&conn, now, budget)?;
+    lotofoot_page::forget_declared_names(&mut lotofoot, &app.aliases);
     let play_bulletins = bulletins(&lotofoot.to_play, &follow);
     let live_bulletins = bulletins(&lotofoot.in_play, &follow);
     render(

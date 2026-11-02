@@ -35,6 +35,9 @@ pub const MODEL_VERSION: &str = "lotofoot-4";
 /// Âge maximal de la répartition utilisée : au-delà, le relevé horaire a manqué et la grille est écartée.
 pub const MAX_SPLIT_AGE_HOURS: i64 = 3;
 
+/// Fin de la raison d'écartement d'une grille aux noms inconnus (après leur nombre), reconnue par la page.
+pub const UNKNOWN_NAMES_REASON: &str = "nom(s) d'équipe inconnu(s)";
+
 /// Grilles passées dont on tire la médiane des mises.
 const STAKES_WINDOW: usize = 8;
 
@@ -306,10 +309,9 @@ pub fn run(
         let canonical = match odds::canonical_matches(aliases, &row.matches) {
             Ok(canonical) => canonical,
             Err(unknown) => {
-                report.skipped.push(skip(format!(
-                    "{} nom(s) d'équipe inconnu(s)",
-                    unknown.len()
-                )));
+                report
+                    .skipped
+                    .push(skip(format!("{} {UNKNOWN_NAMES_REASON}", unknown.len())));
                 report.unknown_names.extend(unknown);
                 continue;
             }
