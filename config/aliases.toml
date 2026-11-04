@@ -391,7 +391,7 @@
 "Estoril" = []
 "Falkirk F.C." = []
 "FC Midtjylland" = []
-"FC Nordsjaelland" = []
+"FC Nordsjaelland" = ["Nordsjaelland"]
 "FC Porto" = ["Porto"]
 "FC Schalke 04" = []
 "FSV Mainz 05" = []
@@ -448,10 +448,10 @@
 # Ajoutés d'avance le 2026-11-02 : clubs des coupes d'Europe (semaine du 3 novembre, `/events`). Graphie de prono-match
 # inconnue : rien n'est deviné, une variante différente bloquera la grille avec son nom. The Odds API écrit « Porto » et
 # « SC Braga » en coupe d'Europe, mais « FC Porto » et « Braga » en championnat : variantes de ces deux lignes ci-dessus.
-"AEK Athens" = []
+"AEK Athens" = ["AEK Athènes"]
 "AZ Alkmaar" = []
 "Anderlecht" = []
-"Club Brugge" = []
+"Club Brugge" = ["Club Bruges"]
 "Dinamo Zagreb" = []
 "FC Ararat-Armenia" = []
 "FC Iberia 1999" = []
@@ -487,9 +487,9 @@
 "Salzburg" = []
 "Shakhtar Donetsk" = []
 "Sint Truiden" = []
-"Slavia Praha" = []
+"Slavia Praha" = ["Slavia Prague"]
 "Torreense" = []
-"Union Saint-Gilloise" = []
+"Union Saint-Gilloise" = ["Saint-Gilloise"]
 "Universitatea Craiova" = []
 "Viking FK" = []
 "Viktoria Plzeň" = []
