@@ -359,7 +359,8 @@
 "Al-Khaleej" = []
 "Al-Shabab" = []
 "Al-Taawoun" = []
-"Alavés" = []
+# Variante FDJ sans accent, ajoutée le 2026-11-05 pour le LF8 n°154 (FC Séville – Alaves).
+"Alavés" = ["Alaves"]
 "Albacete" = []
 "Almería" = []
 "Alverca" = []
