@@ -1,6 +1,10 @@
 [Unit]
 Description=Relevé quotidien des cotes (edge)
 Documentation=file://%h/Documents/Workspace/BetOptimizer/docs/sources.md
+# Les recommandations partent dès la fin d'un relevé réussi (quelques secondes), et non à heure fixe :
+# le 2026-11-08, une cote Betclic relevée à 14 h avait disparu à la notification de 14 h 10.
+# Relevé en échec (même une seule ligue) : pas de recommandation, le journal dit pourquoi.
+OnSuccess=edge-recommend.service
 
 [Service]
 Type=oneshot

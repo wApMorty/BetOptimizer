@@ -5,7 +5,7 @@ Prérequis : lingering activé (`loginctl enable-linger $USER`) et binaire insta
 | Timer | Quand | Ce qu'il fait | Crédits |
 |---|---|---|---|
 | `edge-snapshot` | 14 h (Paris) | relevé des cotes de 6 ligues (`edge snapshot`) | 6 par jour |
-| `edge-recommend` | 14 h 10 | recommandations du jour et notification Discord (`edge recommend --notify`) | 0 |
+| `edge-recommend` | dès la fin du relevé de 14 h | recommandations du jour et notification Discord (`edge recommend --notify`) ; pas de timer, lancé par `edge-snapshot` s'il réussit (`OnSuccess=`) | 0 |
 | `edge-nba` | 22 h UTC | cotes de la NBA (vainqueur, handicaps, totaux) et, un jour sur deux, résultats (`edge nba snapshot`) | 3 par jour + 2 tous les deux jours |
 | `edge-closing` | toutes les 10 minutes | clôture de Pinnacle des matchs suivis qui commencent dans 30 minutes (`edge closing`) | 1 par match suivi, 0 sinon |
 | `edge-latency` | lundi 9 h | historique OddsPapi des matchs terminés et verdict du test de latence (`edge latency fetch`, `edge latency report`, sources §34) | 0 (6 requêtes OddsPapi sur 250 par mois) |
@@ -22,8 +22,12 @@ cargo install --path crates/cli --locked --root ~/.local
 mkdir -p ~/.config/systemd/user
 cp deploy/systemd/edge-*.service deploy/systemd/edge-*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now edge-snapshot.timer edge-recommend.timer edge-closing.timer edge-nba.timer edge-latency.timer \
+systemctl --user enable --now edge-snapshot.timer edge-closing.timer edge-nba.timer edge-latency.timer \
     edge-lotofoot-fetch.timer edge-loto.timer
+
+# Une seule fois, après le passage de edge-recommend en OnSuccess= (2026-11-08) : retirer l'ancien timer de 14 h 10
+systemctl --user disable --now edge-recommend.timer
+rm -f ~/.config/systemd/user/edge-recommend.timer
 ```
 
 ## Grand Loto et EuroMillions

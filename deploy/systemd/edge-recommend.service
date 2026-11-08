@@ -1,8 +1,7 @@
 [Unit]
 Description=Recommandations quotidiennes et notification Discord (edge)
 Documentation=file://%h/Documents/Workspace/BetOptimizer/docs/sources.md
-# Quand le relevé de 14 h et cette unité démarrent ensemble (réveil du portable), le relevé passe d'abord.
-After=edge-snapshot.service
+# Pas de timer : edge-snapshot.service lance cette unité à la fin d'un relevé réussi (OnSuccess=).
 
 [Service]
 Type=oneshot
