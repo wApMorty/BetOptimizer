@@ -3,6 +3,7 @@
 pub mod alerts;
 pub mod archive;
 pub mod backtests;
+pub mod backup;
 pub mod bonus;
 pub mod history;
 pub mod journal;
