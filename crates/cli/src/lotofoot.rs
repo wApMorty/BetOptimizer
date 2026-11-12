@@ -10,7 +10,7 @@ use edge_core::format::{chance, decimal, kickoff_label};
 use edge_core::ingest::aliases::Aliases;
 use edge_core::lotofoot::alert;
 use edge_core::lotofoot::bulletin;
-use edge_core::lotofoot::fetch::{self, FetchReport, PronoMatchClient};
+use edge_core::lotofoot::fetch::{self, FetchReport, PronoMatchClient, StaleGrid};
 use edge_core::lotofoot::live::{self, Notified};
 use edge_core::lotofoot::outlets::Outlet;
 use edge_core::lotofoot::played::{self, Declared, Manual};
@@ -22,6 +22,7 @@ use edge_core::notify::discord;
 use edge_core::paths::Paths;
 use edge_core::report::lotofoot_page;
 use edge_core::store;
+use edge_core::store::alerts::{self, AlertKind};
 
 /// `edge lotofoot fetch` : relève les pages du LF7, du LF8 et des résultats (sans crédit) ; `--notify` signale sur Discord
 /// chaque grille vue pour la première fois, avec son heure de clôture.
@@ -53,11 +54,47 @@ pub fn fetch(paths: &Paths, notify: bool) -> Result<()> {
                 listed.len()
             );
         }
+        alert_stale_source(paths, &conn, &report.stale, now)?;
     }
     if !report.failures.is_empty() {
         // Code de sortie non nul : systemd marque l'unité en échec ; le passage suivant relira les pages.
         bail!("{} page(s) non lue(s)", report.failures.len());
     }
+    Ok(())
+}
+
+/// Signale sur Discord les grilles closes que le site affiche encore « en cours », une seule fois par grille : le journal
+/// des alertes (`alert_log`) retient celles qui sont déjà parties. Une page périmée n'est pas un échec du relevé (elle a
+/// été lue) : le code de sortie reste nul, c'est cette alerte et la pastille de l'accueil qui préviennent.
+fn alert_stale_source(
+    paths: &Paths,
+    conn: &store::Connection,
+    stale: &[StaleGrid],
+    now: DateTime<Utc>,
+) -> Result<()> {
+    let mut fresh = Vec::new();
+    for shown in stale {
+        if alerts::due(conn, AlertKind::StaleSource, &shown.grid.code(), now, None)? {
+            // `*shown` : `StaleGrid` est `Copy`, on en garde une copie plutôt qu'un emprunt du bilan.
+            fresh.push(*shown);
+        }
+    }
+    if fresh.is_empty() {
+        return Ok(());
+    }
+    let config = Config::load(&paths.config_file)?;
+    let webhook = config.discord_webhook(std::env::var(WEBHOOK_ENV).ok().as_deref())?;
+    let text = lotofoot_page::stale_text(&fresh);
+    // Comme pour les nouvelles grilles : rien n'est noté si l'envoi échoue, l'alerte repartira au relevé suivant.
+    discord::send(&webhook, &text, &[], &mut discord::http_post)
+        .context("alerte Discord « source figée » non envoyée")?;
+    for shown in &fresh {
+        alerts::record(conn, AlertKind::StaleSource, &shown.grid.code(), &text, now)?;
+    }
+    println!(
+        "{} page(s) périmée(s) signalée(s) sur Discord.",
+        fresh.len()
+    );
     Ok(())
 }
 
@@ -72,9 +109,12 @@ fn run_fetch(conn: &mut store::Connection) -> Result<FetchReport> {
 }
 
 fn print_fetch(report: &FetchReport) {
-    if report.grids.is_empty() {
+    for shown in &report.stale {
+        println!("  SOURCE FIGÉE : {}", shown.reason());
+    }
+    if report.grids.is_empty() && report.stale.is_empty() {
         println!("Aucune grille LF7 ou LF8 lue sur prono-match (page modifiée ?).");
-    } else {
+    } else if !report.grids.is_empty() {
         println!("Grilles en cours : {}.", report.grids.join(" ; "));
     }
     println!(

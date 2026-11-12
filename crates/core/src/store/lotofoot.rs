@@ -70,6 +70,43 @@ pub fn fetch_time(conn: &Connection, fetch_id: i64) -> Result<DateTime<Utc>> {
     parse_timestamp(&text)
 }
 
+/// État du relevé d'une page : sa dernière lecture réussie, et l'erreur en cours s'il y en a une.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageHealth {
+    /// Dernière lecture sans erreur ; `None` si la page n'a jamais été lue correctement.
+    pub last_ok: Option<DateTime<Utc>>,
+    /// Erreur de la lecture la plus récente ; `None` si elle a réussi, ou si la page n'a jamais été relevée.
+    pub failing: Option<String>,
+}
+
+/// État du relevé de `page` (page injoignable, illisible ou périmée : `lotofoot_fetch.error`).
+pub fn page_health(conn: &Connection, page: Page) -> Result<PageHealth> {
+    let last_ok: Option<String> = conn.query_row(
+        "SELECT MAX(fetched_at) FROM lotofoot_fetch WHERE page = ?1 AND error IS NULL",
+        [page.code()],
+        |row| row.get(0),
+    )?;
+    // La lecture la plus récente, réussie ou non : `error` y est NULL si elle a réussi. Deux `Option` emboîtées, donc :
+    // celle d'`optional()` (aucune lecture du tout) et celle de la colonne (lecture réussie) ; `flatten` les réunit.
+    let failing: Option<String> = conn
+        .query_row(
+            "SELECT error FROM lotofoot_fetch WHERE page = ?1 ORDER BY id DESC LIMIT 1",
+            [page.code()],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(PageHealth {
+        last_ok: last_ok.map(|t| parse_timestamp(&t)).transpose()?,
+        failing,
+    })
+}
+
+/// Nombre de grilles connues (LF7 et LF8).
+pub fn count_grids(conn: &Connection) -> Result<i64> {
+    Ok(conn.query_row("SELECT COUNT(*) FROM lotofoot_grid", [], |row| row.get(0))?)
+}
+
 /// Ce qu'a écrit le relevé de la page d'une formule.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GridRecord {
@@ -1094,6 +1131,49 @@ mod tests {
 
     fn at(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    #[test]
+    fn the_health_of_a_page_is_its_last_good_read_and_its_current_error() {
+        let conn = db();
+        let lf8 = Page::Grid(Game::Lf8);
+
+        // Jamais relevée : ni lecture réussie, ni erreur en cours.
+        let never = page_health(&conn, lf8).unwrap();
+        assert_eq!((never.last_ok, never.failing), (None, None));
+
+        record_fetch(&conn, at("2026-11-05T12:07:00Z"), lf8, 200, None).unwrap();
+        record_fetch(
+            &conn,
+            at("2026-11-06T22:07:00Z"),
+            lf8,
+            200,
+            Some("page périmée"),
+        )
+        .unwrap();
+        // La page du LF7, elle, se lit bien : son état ne se mêle pas à celui du LF8.
+        record_fetch(
+            &conn,
+            at("2026-11-06T22:07:05Z"),
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+
+        let failing = page_health(&conn, lf8).unwrap();
+        assert_eq!(failing.last_ok, Some(at("2026-11-05T12:07:00Z")));
+        assert_eq!(failing.failing.as_deref(), Some("page périmée"));
+        assert_eq!(
+            page_health(&conn, Page::Grid(Game::Lf7)).unwrap().failing,
+            None
+        );
+
+        // Le site revient : la dernière lecture réussit, l'erreur disparaît.
+        record_fetch(&conn, at("2026-11-13T09:07:00Z"), lf8, 200, None).unwrap();
+        let back = page_health(&conn, lf8).unwrap();
+        assert_eq!(back.last_ok, Some(at("2026-11-13T09:07:00Z")));
+        assert_eq!(back.failing, None);
     }
 
     fn page(number: u32, split: Option<Vec<[u32; 3]>>) -> GridPage {

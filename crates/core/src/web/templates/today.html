@@ -36,7 +36,7 @@
   {% endfor %}
 </div>
 
-<h2>Ça tourne ?<small>dernier relevé réussi de chaque sport</small></h2>
+<h2>Ça tourne ?<small>dernier relevé réussi de chaque source</small></h2>
 <div class="chips">
 {% for f in feeds %}<span class="chip {{ f.tone }}{% if f.tone == "t-pos" %} live{% endif %}">{{ f.label }} · {{ f.age }}</span>{% endfor %}
 </div>

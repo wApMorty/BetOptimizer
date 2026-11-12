@@ -23,7 +23,7 @@ use crate::lotofoot::live::{self, Live, Notified};
 use crate::lotofoot::price;
 use crate::lotofoot::scores::{self, MatchNow, Standing};
 use crate::lotofoot::session::{self, Request};
-use crate::lotofoot::{Ticket, sign_char};
+use crate::lotofoot::{Game, Ticket, sign_char};
 use crate::report::lotofoot_page::{
     self, GridTotal, Group, LineView, LotofootPage, RankView, TicketView,
 };
@@ -144,6 +144,26 @@ struct Page {
     auto_refresh: bool,
     /// Ce qui empêche de suivre certaines rencontres (noms inconnus, ESPN injoignable).
     live_issues: Vec<String>,
+    /// Pages de prono-match dont le dernier relevé est en erreur (injoignable, illisible, périmée) : tant que cela dure,
+    /// la formule n'a ni grille nouvelle ni répartition à jour.
+    source_issues: Vec<String>,
+}
+
+/// Une ligne par formule dont le relevé est en défaut : la raison, et la date du dernier relevé à jour.
+fn source_issues(conn: &store::Connection) -> Result<Vec<String>> {
+    let mut issues = Vec::new();
+    for game in Game::ALL {
+        let health = lotofoot_store::page_health(conn, lotofoot_store::Page::Grid(game))?;
+        if let Some(reason) = health.failing {
+            let since = health
+                .last_ok
+                .map_or("jamais".to_string(), crate::format::kickoff_label);
+            issues.push(format!(
+                "{game} : {reason} (dernier relevé à jour : {since})"
+            ));
+        }
+    }
+    Ok(issues)
 }
 
 /// Suivi en direct : état des rencontres de chaque grille de la semaine, et ce qu'il faut signaler.
@@ -214,6 +234,7 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
             budget_max: price::MAX_BUDGET,
             auto_refresh: follow.watching > 0,
             live_issues: follow.issues,
+            source_issues: source_issues(&conn)?,
         },
     )
 }
@@ -465,7 +486,44 @@ fn detail(ticket: &TicketView, matches: &[MatchNow]) -> Detail {
 
 #[cfg(test)]
 mod tests {
+    use crate::lotofoot::Game;
+    use crate::store::lotofoot::{Page, record_fetch};
     use crate::web::testing::{empty, sample};
+
+    #[test]
+    fn a_stale_source_is_said_at_the_top_of_the_page_and_on_the_home_page() {
+        let site = sample();
+        assert!(!site.html("/lotofoot").contains("Source en défaut"));
+        assert!(
+            site.html("/").contains("chip t-pos live\">Loto Foot"),
+            "{}",
+            site.html("/")
+        );
+
+        // Le relevé suivant trouve la page du LF8 figée sur une grille close.
+        let conn = crate::store::open(&site.app.paths.db_file).unwrap();
+        record_fetch(
+            &conn,
+            site.now,
+            Page::Grid(Game::Lf8),
+            200,
+            Some("page périmée : LF8 n°154 encore affichée comme grille en cours, close depuis ven. 06/11 19:55"),
+        )
+        .unwrap();
+
+        let page = site.html("/lotofoot");
+        assert!(
+            page.contains("<b>Source en défaut.</b> LF8 : page périmée : LF8 n°154"),
+            "{page}"
+        );
+        assert!(page.contains("(dernier relevé à jour : jamais)"), "{page}");
+        // L'accueil passe la pastille au rouge, alors que la page du LF7 vient d'être lue.
+        assert!(
+            site.html("/").contains("chip t-neg\">Loto Foot"),
+            "{}",
+            site.html("/")
+        );
+    }
 
     #[test]
     fn the_session_is_shown_as_a_bulletin_with_one_column_per_grid_to_fill() {

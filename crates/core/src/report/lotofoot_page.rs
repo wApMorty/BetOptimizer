@@ -12,6 +12,7 @@ use crate::format::{chance, decimal, kickoff_label, long_date, rough_euros};
 use crate::ingest::aliases::Aliases;
 use crate::lotofoot::alert::Listed;
 use crate::lotofoot::bulletin::{Line, session_lines};
+use crate::lotofoot::fetch::StaleGrid;
 use crate::lotofoot::model::{FROZEN, GridModel, RankOdds};
 use crate::lotofoot::odds::ALIAS_SECTION;
 use crate::lotofoot::oddspapi;
@@ -785,6 +786,24 @@ pub fn listing_text(
     text
 }
 
+/// Alerte « source figée » : le site affiche encore comme grille en cours une grille close depuis des heures
+/// (`lotofoot::fetch::StaleGrid`, `docs/sources.md` §73). Envoyée une fois par grille.
+pub fn stale_text(stale: &[StaleGrid]) -> String {
+    let mut text = String::from("**edge · Loto Foot** — ⚠ source figée\n");
+    for shown in stale {
+        text.push_str(&format!(
+            "prono-match affiche encore **{}** comme grille en cours, alors qu'elle est close depuis **{}**.\n",
+            shown.grid,
+            kickoff_label(shown.closes_at)
+        ));
+    }
+    text.push_str(
+        "Tant que cela dure : ni grille nouvelle, ni répartition à jour, ni résultat pour cette formule. \
+         Ne lance pas de séance dessus ; la pastille « Loto Foot » de l'accueil repassera au vert au retour du site.",
+    );
+    text
+}
+
 /// Pour chaque point de vente, le dernier moment pour valider une grille qui ferme à `closes_at` :
 /// « Le Longchamp **dim. 25/10 13:00** ; Relay, gare de Rennes jusqu'à la clôture ».
 fn last_chances(outlets: &[Outlet], closes_at: DateTime<Utc>, now: DateTime<Utc>) -> String {
@@ -954,6 +973,24 @@ mod tests {
     use super::*;
     use crate::lotofoot::{Game, grid_of_2026};
     use crate::store::migrate::migrate;
+
+    #[test]
+    fn the_stale_source_alert_names_the_grid_and_when_it_closed() {
+        let closes_at = "2026-11-06T18:55:00Z".parse().unwrap();
+        let stale = [StaleGrid {
+            grid: GridId::closing(Game::Lf8, 154, closes_at),
+            closes_at,
+        }];
+
+        let text = stale_text(&stale);
+
+        assert!(text.starts_with("**edge · Loto Foot** — ⚠ source figée"));
+        assert!(
+            text.contains("**LF8 n°154** comme grille en cours, alors qu'elle est close depuis **ven. 06/11 19:55**"),
+            "{text}"
+        );
+        assert!(text.contains("Ne lance pas de séance"));
+    }
 
     #[test]
     fn the_oddspapi_fallback_is_summed_up_only_when_it_ran() {

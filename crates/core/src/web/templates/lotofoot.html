@@ -35,6 +35,8 @@
 {% endmacro %}
 <div class="head"><h1>Loto Foot</h1><div class="sub">LF7 et LF8, validés au point de vente : tickets à 1 € (regroupés sans perte en grilles multiples), joués si leur valeur marginale dans le scénario défavorable atteint le seuil du prix dynamique, qui dépend du temps et du budget restants dans le mois (<code>docs/sources.md</code> §69 et §70). Aucun pari n'est placé par le programme.</div></div>
 
+{% for i in source_issues %}<div class="notice t-neg"><b>Source en défaut.</b> {{ i }}. Tant que le site n'est pas revenu, cette formule n'a ni grille nouvelle ni répartition à jour : ne lance pas de séance dessus.</div>{% endfor %}
+
 <div class="card"><span class="chip {% if verdict_class == "bad" %}t-neg{% elif verdict_class %}t-warn{% else %}t-pos{% endif %}">Verdict</span> {{ verdict }}</div>
 
 <div class="tiles">

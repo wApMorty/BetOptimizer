@@ -1,17 +1,24 @@
 //! Relevé horaire des pages de prono-match.fr (`edge lotofoot fetch`) : grilles LF7 et LF8 en cours, répartition FDJ,
 //! rapports des dernières grilles et résultats officiels. Trois pages par passage, une toutes les 5 secondes.
 //!
+//! **Page périmée** (`docs/sources.md` §73) : une page qui affiche encore comme « grille en cours » une grille close
+//! depuis plus de [`STALE_AFTER_HOURS`] heures n'est plus à jour. Du 5 au 12 novembre 2026, le site est resté figé sur le
+//! LF8 n°154 et le relevé a enregistré la même page toutes les heures, sans rien signaler. Une telle lecture est
+//! désormais journalisée avec une erreur, remontée dans [`FetchReport::stale`], et sa répartition n'est pas archivée.
+//!
 //! L'appel réseau, l'horloge et les pauses sont reçus en paramètres : en production le vrai client, `Utc::now` et
 //! `thread::sleep`, dans les tests des pages synthétiques. Une page illisible n'arrête pas le passage : la lecture est
 //! journalisée avec son erreur, et les autres pages sont relevées.
 
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 
-use super::Game;
-use super::pronomatch::{self, BASE_URL, RESULTS_PATH, grid_path};
+use super::pronomatch::{self, BASE_URL, OpenGrid, RESULTS_PATH, grid_path};
+use super::{Game, GridId};
 use crate::error::{Error, Result};
+use crate::format::kickoff_label;
 use crate::ingest::client::HttpResponse;
 use crate::ingest::oddspapi::fetch::Pause;
 use crate::ingest::snapshot::{Clock, Fetch};
@@ -19,6 +26,41 @@ use crate::store::lotofoot::{self as store, Page};
 
 /// Délai entre deux pages : le site n'est pas une API, on le ménage.
 pub const PAGE_COOLDOWN: Duration = Duration::from_secs(5);
+
+/// Heures après la clôture au-delà desquelles une grille encore affichée « en cours » signale une page périmée.
+/// Sur les quatorze grilles relevées avant la panne, le site avait changé de grille dès le relevé suivant la clôture
+/// (moins d'une heure) : trois heures laissent de la marge sans retarder l'alerte.
+pub const STALE_AFTER_HOURS: i64 = 3;
+
+/// Une grille close que le site affiche encore comme grille en cours.
+///
+/// `Copy` : deux petites valeurs, que l'on passe sans se soucier de qui les possède.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StaleGrid {
+    /// La grille.
+    pub grid: GridId,
+    /// Sa fin de validation, en UTC.
+    pub closes_at: DateTime<Utc>,
+}
+
+impl StaleGrid {
+    /// Raison écrite au journal des lectures (`lotofoot_fetch.error`) et montrée dans l'application.
+    pub fn reason(&self) -> String {
+        format!(
+            "page périmée : {} encore affichée comme grille en cours, close depuis {}",
+            self.grid,
+            kickoff_label(self.closes_at)
+        )
+    }
+}
+
+/// La grille affichée est-elle close depuis assez longtemps, à `at`, pour que la page soit dite périmée ?
+fn stale_grid(game: Game, shown: &OpenGrid, at: DateTime<Utc>) -> Option<StaleGrid> {
+    (at - shown.closes_at >= chrono::Duration::hours(STALE_AFTER_HOURS)).then(|| StaleGrid {
+        grid: GridId::closing(game, shown.number, shown.closes_at),
+        closes_at: shown.closes_at,
+    })
+}
 
 /// Client HTTP bloquant du site (aucune clé).
 pub struct PronoMatchClient {
@@ -77,6 +119,8 @@ pub struct FetchReport {
     pub new_results: usize,
     /// Pages non lues, avec la raison.
     pub failures: Vec<String>,
+    /// Pages lues mais périmées : la grille qu'elles affichent « en cours » est close depuis longtemps.
+    pub stale: Vec<StaleGrid>,
     /// Lues mais à signaler : composition d'une grille changée, résultats refusés (`docs/sources.md` §52).
     pub warnings: Vec<String>,
 }
@@ -115,9 +159,24 @@ pub fn run(conn: &mut Connection, now: Clock, fetch: Fetch, pause: Pause) -> Res
                     &error.to_string(),
                     &mut report,
                 )?,
-                Ok(page) => {
-                    let fetch_id = store::record_fetch(conn, at, Page::Grid(game), 200, None)?;
+                Ok(mut page) => {
+                    // Une grille « en cours » dont la clôture est passée : le site n'a pas encore changé de grille, ou
+                    // il est figé. `take_if` la retire de `page` et nous la remet : ni sa composition ni sa répartition
+                    // (qui n'est plus une observation d'avant clôture) ne sont écrites ; les rapports passés le sont.
+                    let closed = page.open.take_if(|grid| grid.closes_at <= at);
+                    let stale = closed.as_ref().and_then(|grid| stale_grid(game, grid, at));
+                    let reason = stale.map(|s| s.reason());
+                    let fetch_id =
+                        store::record_fetch(conn, at, Page::Grid(game), 200, reason.as_deref())?;
                     let record = store::record_grid_page(conn, fetch_id, game, &page)?;
+                    match (stale, closed) {
+                        (Some(stale), _) => report.stale.push(stale),
+                        (None, Some(grid)) => report.grids.push(format!(
+                            "{game} n°{} (close, grille suivante pas encore affichée)",
+                            grid.number
+                        )),
+                        (None, None) => {}
+                    }
                     report.splits += record.splits;
                     if record.undated > 0 {
                         report.warnings.push(format!(
@@ -187,7 +246,7 @@ pub fn run(conn: &mut Connection, now: Clock, fetch: Fetch, pause: Pause) -> Res
 /// Journalise une page non lue et l'ajoute au bilan.
 fn failed(
     conn: &Connection,
-    at: chrono::DateTime<chrono::Utc>,
+    at: DateTime<Utc>,
     page: Page,
     status: u16,
     reason: &str,
@@ -259,6 +318,94 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM lotofoot_fetch", [], |r| r.get(0))
             .unwrap();
         assert_eq!(logged, 3);
+    }
+
+    /// Un passage à `at` où la page du LF8 montre la grille n°`number` (clôture le 24 octobre à 14 h 55 UTC).
+    fn pass_at(conn: &mut Connection, at: &str, number: u32) -> FetchReport {
+        let at: DateTime<Utc> = at.parse().unwrap();
+        let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
+            Ok(HttpResponse {
+                status: 200,
+                quota: Default::default(),
+                body: if path == "loto-foot-8/" {
+                    page(8, number)
+                } else {
+                    "<html></html>".to_string()
+                },
+            })
+        };
+        run(conn, &mut || at, &mut fetch, &mut |_| {}).unwrap()
+    }
+
+    fn count(conn: &Connection, sql: &str) -> i64 {
+        conn.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn a_page_still_showing_a_grid_closed_for_hours_is_stale_and_its_split_is_not_archived() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        // Avant la clôture : relevé normal, huit répartitions écrites.
+        let before = pass_at(&mut conn, "2026-10-24T10:00:00Z", 147);
+        assert_eq!((before.splits, before.stale.len()), (8, 0));
+
+        // Quatre heures après la clôture, la même page : elle est périmée.
+        let after = pass_at(&mut conn, "2026-10-24T19:00:00Z", 147);
+
+        assert_eq!(after.stale.len(), 1);
+        assert_eq!(after.stale[0].grid.code(), "lf8-2026-147");
+        assert_eq!(after.splits, 0);
+        assert!(after.grids.is_empty() && after.failures.is_empty());
+        // La répartition d'après clôture n'est pas archivée.
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM lotofoot_split"), 8);
+        let error: String = conn
+            .query_row(
+                "SELECT error FROM lotofoot_fetch WHERE page = 'lf8' ORDER BY id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            error,
+            "page périmée : LF8 n°147 encore affichée comme grille en cours, close depuis sam. 24/10 16:55"
+        );
+
+        // Sur une base neuve, une page périmée livre quand même les rapports des grilles passées (deux rangs du n°146),
+        // mais pas la grille close qu'elle affiche à tort.
+        let mut fresh = Connection::open_in_memory().unwrap();
+        migrate(&mut fresh).unwrap();
+        assert_eq!(
+            pass_at(&mut fresh, "2026-10-24T19:00:00Z", 147).stale.len(),
+            1
+        );
+        assert_eq!(count(&fresh, "SELECT COUNT(*) FROM lotofoot_rank"), 2);
+        assert_eq!(count(&fresh, "SELECT COUNT(*) FROM lotofoot_grid"), 0);
+    }
+
+    #[test]
+    fn a_grid_closed_for_less_than_three_hours_is_not_yet_a_stale_page() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+
+        // Une heure après la clôture : le site n'a pas encore changé de grille, ce n'est pas une panne.
+        let report = pass_at(&mut conn, "2026-10-24T16:00:00Z", 147);
+
+        assert!(report.stale.is_empty());
+        assert_eq!(
+            report.grids,
+            ["LF8 n°147 (close, grille suivante pas encore affichée)"]
+        );
+        assert_eq!(report.splits, 0);
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM lotofoot_fetch WHERE error IS NOT NULL"
+            ),
+            0
+        );
+        // Trois heures pile : périmée.
+        let limit = pass_at(&mut conn, "2026-10-24T17:55:00Z", 147);
+        assert_eq!(limit.stale.len(), 1);
     }
 
     #[test]
