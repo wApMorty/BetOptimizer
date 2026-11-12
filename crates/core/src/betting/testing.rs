@@ -24,9 +24,12 @@ pub(crate) fn at(text: &str) -> DateTime<Utc> {
     text.parse().unwrap()
 }
 
-/// Un match à Falkirk le 24 octobre, avec les 1X2 `(bookmaker, domicile, nul, extérieur)`.
+/// Coup d'envoi du match par défaut : 47 h après [`NOW`], donc dans l'horizon de 72 h de `live::scan`.
+pub(crate) const KICKOFF: &str = "2026-10-20T14:00:00Z";
+
+/// Un match à Falkirk le 20 octobre ([`KICKOFF`]), avec les 1X2 `(bookmaker, domicile, nul, extérieur)`.
 pub(crate) fn event(books: &[(&str, f64, f64, f64)]) -> Event {
-    event_named("match-1", "2026-10-24T14:00:00Z", books)
+    event_named("match-1", KICKOFF, books)
 }
 
 /// Comme [`event`], avec un identifiant et un coup d'envoi choisis.

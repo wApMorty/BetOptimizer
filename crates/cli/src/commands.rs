@@ -550,7 +550,7 @@ pub fn value(paths: &Paths, options: &ValueOptions) -> Result<()> {
         staking.min_stake,
     )?;
 
-    if scan.events == 0 {
+    if scan.events == 0 && scan.too_far == 0 {
         println!(
             "Aucun match à venir dans un relevé de moins de {} h : lance `edge snapshot`.",
             live::MAX_SNAPSHOT_AGE_HOURS
@@ -558,9 +558,18 @@ pub fn value(paths: &Paths, options: &ValueOptions) -> Result<()> {
         return Ok(());
     }
     println!(
-        "{} match(s) à venir ; {} sans cotes complètes de Pinnacle (ignorés) ; {} prix aberrant(s) écarté(s).",
-        scan.events, scan.without_reference, scan.implausible_quotes
+        "{}",
+        scan_summary(
+            scan.events,
+            scan.too_far,
+            scan.without_reference,
+            scan.wide_reference,
+            scan.implausible_quotes
+        )
     );
+    if scan.events == 0 {
+        return Ok(());
+    }
     println!(
         "Seuil d'avantage {} % · Kelly ×{} · bankroll {} €",
         format::decimal(options.min_edge_pct, 1),
@@ -1279,13 +1288,20 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
         kelly_fraction: staking.kelly_fraction,
         min_stake: staking.min_stake,
         bankroll: staking.bankroll,
-        code_version: env!("CARGO_PKG_VERSION").to_string(),
+        // Version du programme et version de la règle : `0.1.0+pvp-2` (invariant 9, voir `recommend::RULE_VERSION`).
+        code_version: recommend::code_version(env!("CARGO_PKG_VERSION")),
     };
     let report = recommend::run(&mut conn, &settings, now)?;
 
     println!(
-        "{} match(s) à venir ; {} sans cotes complètes de Pinnacle (ignorés) ; {} prix aberrant(s) écarté(s).",
-        report.events, report.without_reference, report.implausible_quotes
+        "{}",
+        scan_summary(
+            report.events,
+            report.too_far,
+            report.without_reference,
+            report.wide_reference,
+            report.implausible_quotes
+        )
     );
     println!(
         "{} recommandation(s) nouvelle(s), {} ligne(s) de journal fantôme, {} déjà connue(s).",
@@ -1361,7 +1377,9 @@ pub fn recommend(paths: &Paths, notify: bool) -> Result<()> {
     let text = notify::message::daily(&notify::message::Daily {
         now,
         events: report.events,
+        too_far: report.too_far,
         without_reference: report.without_reference,
+        wide_reference: report.wide_reference,
         min_edge: recommend::RECOMMEND_MIN_EDGE,
         kelly_fraction: staking.kelly_fraction,
         bankroll: staking.bankroll.get(),
@@ -1674,6 +1692,22 @@ pub(crate) fn api_key_from(config: &Config) -> Result<edge_core::config::ApiKey>
     let from_env = std::env::var(API_KEY_ENV).ok();
     // `as_deref` : de `Option<String>` à `Option<&str>`, sans copier ni consommer la valeur.
     Ok(config.api_key(from_env.as_deref())?)
+}
+
+/// Une ligne qui dit ce que le scan a regardé et ce qu'il a laissé de côté (`edge value`, `edge recommend`).
+fn scan_summary(
+    events: usize,
+    too_far: usize,
+    without_reference: usize,
+    wide_reference: usize,
+    implausible_quotes: usize,
+) -> String {
+    format!(
+        "{events} match(s) examiné(s) ; {too_far} à plus de {} h (non examinés) ; {without_reference} sans cotes \
+         complètes de Pinnacle et {wide_reference} à marge de Pinnacle trop grande (ignorés) ; {implausible_quotes} prix \
+         aberrant(s) écarté(s).",
+        live::MAX_HORIZON_HOURS
+    )
 }
 
 /// Ouvre la base et la met à jour : un relevé planifié ne doit pas échouer sur un schéma en retard.

@@ -24,6 +24,21 @@ use crate::store::journal::{
 /// Nom de la règle inscrit dans le journal.
 pub const RULE: &str = "price_vs_pinnacle";
 
+/// Version de la règle, journalisée avec chaque recommandation dans `code_version` (invariant 9 de CLAUDE.md : la
+/// version qui a produit une ligne doit se relire dans la ligne). Le nom [`RULE`] ne change pas : il sert de clé d'unicité,
+/// et un match déjà recommandé sous une version ne doit pas l'être une seconde fois sous la suivante.
+///
+/// - `pvp-1` (implicite : lignes dont `code_version` vaut `0.1.0`, jusqu'au 2026-11-11) : aucun horizon, référence admise
+///   jusqu'à une surronde de 1,30 ; seuil de 3 % puis de 1 % à partir du 2026-10-20.
+/// - `pvp-2` (2026-11-12, `docs/sources.md` §73) : horizon de 72 h et surronde de Pinnacle de 1,06 au plus
+///   ([`live::MAX_HORIZON_HOURS`], [`live::SHARP_IMPLIED_SUM_MAX`]), pour les deux paliers.
+pub const RULE_VERSION: &str = "pvp-2";
+
+/// Ce qui s'écrit dans `code_version` : la version du programme, puis celle de la règle (`0.1.0+pvp-2`).
+pub fn code_version(package_version: &str) -> String {
+    format!("{package_version}+{RULE_VERSION}")
+}
+
 /// Avantage minimal d'une recommandation notifiée : 1 %. Choix de Paul du 2026-10-20, **exploratoire** : le test historique
 /// ne départage aucun seuil (`docs/sources.md` §27). 1 % est le maximum local de la croissance attendue de Bet365 en
 /// demi-Kelly sur l'entraînement et la validation, et environ deux fois l'imprécision due au retrait de marge (0,5 point).
@@ -53,10 +68,14 @@ pub struct Settings {
 /// Bilan d'une exécution.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Report {
-    /// Matchs à venir dans un relevé assez récent.
+    /// Matchs examinés : à venir, dans un relevé assez récent, à 72 h au plus du coup d'envoi.
     pub events: usize,
+    /// Matchs laissés de côté parce qu'ils commencent dans plus de 72 h ([`live::MAX_HORIZON_HOURS`]).
+    pub too_far: usize,
     /// Matchs ignorés faute d'un 1X2 complet et plausible de Pinnacle.
     pub without_reference: usize,
+    /// Matchs ignorés parce que la marge de Pinnacle dépasse [`live::SHARP_IMPLIED_SUM_MAX`].
+    pub wide_reference: usize,
     /// Prix aberrants écartés.
     pub implausible_quotes: usize,
     /// Lignes écrites pendant cette exécution (les deux paliers).
@@ -183,7 +202,9 @@ pub fn run(conn: &mut Connection, settings: &Settings, now: DateTime<Utc>) -> Re
 
     Ok(Report {
         events: scan.events,
+        too_far: scan.too_far,
         without_reference: scan.without_reference,
+        wide_reference: scan.wide_reference,
         implausible_quotes: scan.implausible_quotes,
         created,
         already_known,
@@ -223,12 +244,12 @@ mod tests {
             &[
                 event_named(
                     "big",
-                    "2026-10-24T14:00:00Z",
+                    "2026-10-20T14:00:00Z",
                     &[PINNACLE, ("betclic_fr", 2.3, 3.2, 3.4)],
                 ),
                 event_named(
                     "small",
-                    "2026-10-25T14:00:00Z",
+                    "2026-10-21T14:00:00Z",
                     &[PINNACLE, ("pmu_fr", 2.08, 3.5, 3.8)],
                 ),
             ],
@@ -306,8 +327,8 @@ mod tests {
             &mut conn,
             "2026-10-18T14:00:00Z",
             &[
-                event_named("a", "2026-10-24T14:00:00Z", &books),
-                event_named("b", "2026-10-24T16:00:00Z", &books),
+                event_named("a", "2026-10-20T14:00:00Z", &books),
+                event_named("b", "2026-10-20T16:00:00Z", &books),
             ],
         );
 
@@ -353,12 +374,12 @@ mod tests {
             &[
                 event_named(
                     "down",
-                    "2026-10-24T14:00:00Z",
+                    "2026-10-20T14:00:00Z",
                     &[PINNACLE, ("betclic_fr", 1.95, 3.5, 3.9)],
                 ),
                 event_named(
                     "up",
-                    "2026-10-25T14:00:00Z",
+                    "2026-10-21T14:00:00Z",
                     &[PINNACLE, ("pmu_fr", 2.08, 3.5, 3.8)],
                 ),
             ],
@@ -382,6 +403,43 @@ mod tests {
         // Le journal, lui, n'a retenu que l'avantage positif.
         assert_eq!(report.created.len(), 1);
         assert_eq!(report.created[0].record.event_id, "up");
+    }
+
+    #[test]
+    fn a_match_more_than_72_hours_away_enters_neither_tier_of_the_journal() {
+        let mut conn = database();
+        // Deux matchs lointains : +11,9 % chez Betclic (il serait recommandé) et +1,2 % chez PMU (il irait au fantôme).
+        store(
+            &mut conn,
+            "2026-10-18T14:00:00Z",
+            &[
+                event_named(
+                    "far-big",
+                    "2026-11-06T14:00:00Z",
+                    &[PINNACLE, ("betclic_fr", 2.3, 3.2, 3.4)],
+                ),
+                event_named(
+                    "far-small",
+                    "2026-11-07T14:00:00Z",
+                    &[PINNACLE, ("pmu_fr", 2.08, 3.5, 3.8)],
+                ),
+            ],
+        );
+
+        let report = run(&mut conn, &settings(), at(NOW)).unwrap();
+
+        assert_eq!((report.events, report.too_far), (0, 2));
+        assert!(report.created.is_empty());
+        assert!(
+            report.priced.is_empty(),
+            "un match non examiné n'est pas montré"
+        );
+        assert!(journal::recommendations(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_rule_version_is_written_next_to_the_program_version() {
+        assert_eq!(code_version("0.1.0"), "0.1.0+pvp-2");
     }
 
     #[test]

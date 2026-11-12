@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use super::{Feed, feeds, live};
 use crate::betting::clv;
+use crate::betting::live::MAX_HORIZON_HOURS;
 use crate::betting::recommend::RECOMMEND_MIN_EDGE;
 use crate::error::Result;
 use crate::format;
@@ -69,6 +70,8 @@ struct TodayPage {
     best: Option<Best>,
     any: bool,
     threshold: String,
+    /// Horizon maximal d'un match examiné, en heures.
+    horizon_hours: i64,
     bankroll: Tile,
     spark: Option<String>,
     clv: Tile,
@@ -90,8 +93,13 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
         n => format!("{n} opportunités"),
     };
     let date = format::long_date(now);
-    let subtitle = if prices.events == 0 {
+    let subtitle = if prices.events == 0 && prices.too_far == 0 {
         format!("{date} · aucun relevé récent : le prochain arrive à 14 h")
+    } else if prices.events == 0 {
+        format!(
+            "{date} · aucun match dans les {MAX_HORIZON_HOURS} h ({} plus lointains, non examinés)",
+            prices.too_far
+        )
     } else if prices.notified.is_empty() {
         format!(
             "{date} · {} matchs examinés, aucun prix n'atteint le seuil (c'est le cas la plupart des jours)",
@@ -184,6 +192,7 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
             any: best.is_some(),
             best,
             threshold: format::decimal(RECOMMEND_MIN_EDGE * 100.0, 0),
+            horizon_hours: MAX_HORIZON_HOURS,
             bankroll,
             spark,
             clv,

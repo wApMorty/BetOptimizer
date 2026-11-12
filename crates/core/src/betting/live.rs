@@ -4,6 +4,11 @@
 //! Pinnacle débarrassée de sa marge **au même relevé** ; chaque autre bookmaker est comparé à elle. Au plus une
 //! sélection par match (règle du projet) : l'issue et le bookmaker de plus forte espérance, si elle atteint le seuil.
 //!
+//! Deux gardes sur la référence, ajoutées après l'audit du 2026-11-12 (`docs/sources.md` §73) : un match n'est examiné
+//! qu'à [`MAX_HORIZON_HOURS`] heures au plus de son coup d'envoi, et la référence est écartée quand sa propre marge
+//! dépasse [`SHARP_IMPLIED_SUM_MAX`]. Plus loin du match, Pinnacle prend plus de marge, bouge rarement puis saute : son
+//! prix n'y tient plus lieu de probabilité vraie.
+//!
 //! Ce n'est pas un modèle : la valeur vient d'un prix en retard sur le marché le plus précis, pas d'une prévision.
 //! Aucun seuil n'est validé pour les opérateurs français (voir `edge backtest report`) : les résultats sont donc
 //! informatifs, et c'est à l'appelant de le dire.
@@ -27,6 +32,21 @@ pub const SHARP_BOOKMAKER: &str = "pinnacle";
 /// Âge maximal (en heures) du relevé d'un match. Au-delà, le prix n'est plus celui du marché : le match est ignoré.
 /// Le timer prend un relevé par jour ; 30 h tolère un retard sans laisser passer un relevé manqué.
 pub const MAX_SNAPSHOT_AGE_HOURS: i64 = 30;
+
+/// Horizon maximal (en heures) d'un match examiné. Au-delà, le match est compté ([`Scan::too_far`]) mais ni comparé ni
+/// recommandé, quel que soit le palier du journal.
+///
+/// Mesure sur l'archive (2 850 relevés de Pinnacle, `docs/sources.md` §73) : surronde médiane de 1,030 à moins de 24 h,
+/// 1,035 de 1 à 3 jours, 1,051 de 7 à 14 jours ; au-delà de 7 jours le prix ne bouge pas un jour sur deux, puis saute
+/// (99e centile de la variation quotidienne : 5,9 points de probabilité). Les deux seules recommandations pariées avant
+/// cette garde avaient 15 et 19 jours d'avance ; leur avantage annoncé s'est retourné en quelques jours.
+pub const MAX_HORIZON_HOURS: i64 = 72;
+
+/// Somme maximale des probabilités implicites de la **référence**. Plus stricte que [`IMPLIED_SUM_RANGE`], qui vaut pour
+/// un opérateur : à moins de trois jours, 98 % des relevés de Pinnacle sont sous 1,06 (§73). Au-dessus, la marge à retirer
+/// est trop grande pour que la probabilité obtenue serve de référence (le relevé du 2026-11-10 de Deportivo – Barcelone,
+/// à 1,085, annonçait +4,2 % sur un prix qui valait −17 à −26 % le lendemain).
+pub const SHARP_IMPLIED_SUM_MAX: f64 = 1.06;
 
 /// Condition SQL qui ne garde que le football : le 1X2 suppose un nul, que le tennis n'a pas. Les tournois de tennis sont
 /// archivés (pour juger plus tard un avantage), mais ni lus ni recommandés ici. `\_` : le tiret bas, joker de `LIKE`, est littéral.
@@ -66,10 +86,16 @@ pub struct Opportunity {
 /// Résultat d'une lecture de l'archive.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scan {
-    /// Matchs à venir présents dans un relevé assez récent.
+    /// Matchs examinés : à venir, dans un relevé assez récent, à [`MAX_HORIZON_HOURS`] heures au plus du coup d'envoi.
     pub events: usize,
+    /// Matchs d'un relevé récent laissés de côté parce qu'ils commencent dans plus de [`MAX_HORIZON_HOURS`] heures. Ils
+    /// ne comptent pas dans `events` : `events + too_far` nul veut dire que le relevé lui-même manque.
+    pub too_far: usize,
     /// Matchs ignorés faute d'un 1X2 complet et plausible de Pinnacle dans le relevé.
     pub without_reference: usize,
+    /// Matchs ignorés parce que la marge de Pinnacle dépasse [`SHARP_IMPLIED_SUM_MAX`] : la référence existe, elle n'est
+    /// pas assez précise.
+    pub wide_reference: usize,
     /// Prix ignorés parce que la somme des probabilités implicites est hors de `[1,00 ; 1,30]`.
     pub implausible_quotes: usize,
     /// Un pari au plus par match, du plus proche coup d'envoi au plus lointain.
@@ -177,8 +203,12 @@ pub(crate) fn latest_quotes(conn: &Connection, now: DateTime<Utc>) -> Result<Vec
 /// Lit les derniers relevés et cherche les prix qui dépassent la cote juste de Pinnacle d'au moins `min_edge`.
 ///
 /// Un match n'est lu que dans son relevé le plus récent, et seulement si ce relevé a moins de
-/// [`MAX_SNAPSHOT_AGE_HOURS`] heures et si le coup d'envoi est dans le futur. Les bookmakers de `excluded`
-/// (`excluded_bookmakers` de la configuration) ne sont jamais retenus : leurs prix restent dans l'archive, c'est tout.
+/// [`MAX_SNAPSHOT_AGE_HOURS`] heures et si le coup d'envoi est dans le futur, à [`MAX_HORIZON_HOURS`] heures au plus.
+/// Les bookmakers de `excluded` (`excluded_bookmakers` de la configuration) ne sont jamais retenus : leurs prix restent
+/// dans l'archive, c'est tout.
+///
+/// L'horizon est appliqué ici et non dans [`latest_quotes`] : les bonus de bienvenue lisent les mêmes relevés pour
+/// choisir un match à couvrir, et un match lointain leur convient.
 pub fn scan(
     conn: &Connection,
     method: MarginMethod,
@@ -188,18 +218,33 @@ pub fn scan(
 ) -> Result<Scan> {
     let mut scan = Scan {
         events: 0,
+        too_far: 0,
         without_reference: 0,
+        wide_reference: 0,
         implausible_quotes: 0,
         opportunities: Vec::new(),
     };
+    let horizon = now + Duration::hours(MAX_HORIZON_HOURS);
     for event in latest_quotes(conn, now)? {
+        if event.kickoff > horizon {
+            scan.too_far += 1;
+            continue;
+        }
         scan.events += 1;
         let reference = event
             .books
             .get(SHARP_BOOKMAKER)
             .and_then(BookQuotes::complete)
             .filter(plausible);
-        let Some(fair) = reference.and_then(|odds| remove_margin(&odds, method)) else {
+        let Some(reference) = reference else {
+            scan.without_reference += 1;
+            continue;
+        };
+        if reference.implied_sum() > SHARP_IMPLIED_SUM_MAX {
+            scan.wide_reference += 1;
+            continue;
+        }
+        let Some(fair) = remove_margin(&reference, method) else {
             scan.without_reference += 1;
             continue;
         };
@@ -273,14 +318,79 @@ pub(crate) fn plausible(odds: &Odds1x2) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::betting::testing::{NOW, PINNACLE, at, database, event, store};
+    use crate::betting::testing::{
+        KICKOFF, NOW, PINNACLE, at, database, event, event_named, store,
+    };
+
+    #[test]
+    fn a_match_beyond_the_horizon_is_counted_but_never_examined() {
+        let mut conn = database();
+        let books = [PINNACLE, ("betclic_fr", 2.3, 3.2, 3.4)];
+        // « Maintenant » : le 18 à 15 h. 72 h plus tard, pile : le 21 à 15 h (examiné) ; une heure de plus : trop loin.
+        store(
+            &mut conn,
+            "2026-10-18T14:00:00Z",
+            &[
+                event_named("at-the-limit", "2026-10-21T15:00:00Z", &books),
+                event_named("too-far", "2026-10-21T16:00:00Z", &books),
+                event_named("weeks-away", "2026-11-06T14:00:00Z", &books),
+            ],
+        );
+
+        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, &[], at(NOW)).unwrap();
+
+        assert_eq!(scan.events, 1);
+        assert_eq!(scan.too_far, 2);
+        assert_eq!(scan.opportunities.len(), 1);
+        assert_eq!(scan.opportunities[0].event_id, "at-the-limit");
+    }
+
+    #[test]
+    fn a_reference_with_too_much_margin_is_set_aside_and_counted() {
+        let mut conn = database();
+        // Pinnacle à 1,90 / 3,40 / 4,00 : somme 0,526 + 0,294 + 0,250 = 1,070, au-dessus de 1,06. À 1,95 / 3,50 / 4,00 :
+        // 0,513 + 0,286 + 0,250 = 1,049, gardée. Le prix de Betclic dépasse la cote juste dans les deux cas.
+        store(
+            &mut conn,
+            "2026-10-18T14:00:00Z",
+            &[
+                event_named(
+                    "wide",
+                    KICKOFF,
+                    &[
+                        ("pinnacle", 1.90, 3.40, 4.00),
+                        ("betclic_fr", 2.3, 3.2, 3.4),
+                    ],
+                ),
+                event_named(
+                    "tight",
+                    KICKOFF,
+                    &[
+                        ("pinnacle", 1.95, 3.50, 4.00),
+                        ("betclic_fr", 2.3, 3.2, 3.4),
+                    ],
+                ),
+            ],
+        );
+
+        let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, &[], at(NOW)).unwrap();
+
+        assert_eq!(scan.events, 2);
+        assert_eq!(scan.wide_reference, 1);
+        assert_eq!(
+            scan.without_reference, 0,
+            "une référence trop large n'est pas une référence absente"
+        );
+        assert_eq!(scan.opportunities.len(), 1);
+        assert_eq!(scan.opportunities[0].event_id, "tight");
+    }
 
     #[test]
     fn tennis_events_in_the_archive_are_neither_read_nor_counted_as_football_without_reference() {
         let mut conn = database();
-        let mut tennis = crate::betting::testing::event_named(
+        let mut tennis = event_named(
             "tennis-1",
-            "2026-10-24T14:00:00Z",
+            KICKOFF,
             &[PINNACLE, ("winamax_fr", 2.3, 3.2, 3.4)],
         );
         tennis.sport_key = "tennis_wta_ningbo_open".into();
@@ -289,6 +399,7 @@ mod tests {
         let scan = scan(&conn, MarginMethod::Multiplicative, 0.0, &[], at(NOW)).unwrap();
 
         assert_eq!(scan.events, 0);
+        assert_eq!(scan.too_far, 0);
         assert_eq!(scan.without_reference, 0);
         assert!(scan.opportunities.is_empty());
     }
@@ -415,12 +526,16 @@ mod tests {
         let stale = scan(&conn, MarginMethod::Multiplicative, 0.0, &[], at(NOW)).unwrap();
         assert_eq!(stale.events, 0);
 
-        // Relevé récent, mais on se place après le coup d'envoi.
+        // Relevé récent (13 h) d'un match de 14 h, mais on se place à 14 h 30 : après le coup d'envoi.
         let mut conn = database();
         store(
             &mut conn,
             "2026-10-24T13:00:00Z",
-            &[event(&[PINNACLE, ("betclic_fr", 2.3, 3.2, 3.4)])],
+            &[event_named(
+                "match-1",
+                "2026-10-24T14:00:00Z",
+                &[PINNACLE, ("betclic_fr", 2.3, 3.2, 3.4)],
+            )],
         );
         let started = scan(
             &conn,

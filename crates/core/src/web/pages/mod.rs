@@ -28,8 +28,10 @@ use crate::store::{archive, history, nba, tennis};
 
 /// Les prix du dernier relevé, partagés en notifiés (avantage ≥ seuil, avec mise suggérée) et en dessous.
 pub struct Live {
-    /// Matchs à venir dans un relevé assez récent.
+    /// Matchs examinés : à venir, dans un relevé assez récent, à 72 h au plus du coup d'envoi.
     pub events: usize,
+    /// Matchs du relevé laissés de côté parce qu'ils commencent dans plus de 72 h.
+    pub too_far: usize,
     /// Prix qui atteignent le seuil de notification.
     pub notified: Vec<Opportunity>,
     /// Prix d'avantage positif sous le seuil (journal fantôme), sans mise.
@@ -61,6 +63,7 @@ pub fn live(
     live::size_stakes(&mut notified, available, config.kelly_fraction, min_stake)?;
     Ok(Live {
         events: scan.events,
+        too_far: scan.too_far,
         notified,
         below,
     })

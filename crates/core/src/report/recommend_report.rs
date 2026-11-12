@@ -7,7 +7,7 @@ use chrono_tz::Europe::Paris;
 use serde::Serialize;
 
 use crate::betting::kelly::{kelly_fraction as kelly_fraction_of, to_units};
-use crate::betting::live::Opportunity;
+use crate::betting::live::{MAX_HORIZON_HOURS, Opportunity};
 use crate::betting::recommend::Report;
 use crate::format::{decimal, kickoff_label, outcome_label, signed, units};
 use crate::ingest::football_data::LEAGUES;
@@ -74,10 +74,16 @@ pub struct RecommendReport {
     pub rows: Vec<Row>,
     /// Lignes ajoutées au journal fantôme pendant cette exécution.
     pub shadow_count: usize,
-    /// Matchs à venir examinés.
+    /// Matchs à venir examinés (à 72 h au plus du coup d'envoi).
     pub events: usize,
+    /// Matchs du relevé laissés de côté parce qu'ils commencent dans plus de `horizon_hours` heures.
+    pub too_far: usize,
+    /// Horizon maximal d'un match examiné, en heures.
+    pub horizon_hours: i64,
     /// Matchs sans référence Pinnacle exploitable.
     pub without_reference: usize,
+    /// Matchs dont la référence Pinnacle a trop de marge pour servir.
+    pub wide_reference: usize,
     /// Seuil d'avantage, en pourcentage.
     pub min_edge: String,
     /// Fraction de Kelly.
@@ -167,7 +173,10 @@ pub fn build(
         rows: report.recommended().map(row).collect(),
         shadow_count: report.shadow().count(),
         events: report.events,
+        too_far: report.too_far,
+        horizon_hours: MAX_HORIZON_HOURS,
         without_reference: report.without_reference,
+        wide_reference: report.wide_reference,
         min_edge: decimal(min_edge * 100.0, 1),
         kelly_fraction: decimal(kelly_fraction, 2),
         bankroll: decimal(bankroll, 0),
@@ -176,7 +185,10 @@ pub fn build(
             .iter()
             .map(|o| price_row(o, min_edge, kelly_fraction))
             .collect(),
-        reference_missing: report.events == 0 || report.without_reference * 2 >= report.events,
+        // Aucun match examiné n'est une panne seulement si le relevé est vide : un jour où tous les matchs sont à plus
+        // de 72 h (trêve internationale) n'en est pas une.
+        reference_missing: (report.events == 0 && report.too_far == 0)
+            || (report.events > 0 && report.without_reference * 2 >= report.events),
         already_known: report.already_known,
         nav: false,
     }
@@ -235,7 +247,10 @@ mod tests {
             rows: Vec::new(),
             shadow_count: 2,
             events: 60,
+            too_far: 43,
+            horizon_hours: MAX_HORIZON_HOURS,
             without_reference: 10,
+            wide_reference: 1,
             min_edge: "3,0".into(),
             kelly_fraction: "1,00".into(),
             bankroll: "1000".into(),
@@ -249,6 +264,8 @@ mod tests {
 
         assert!(html.contains("Aucune nouvelle recommandation"));
         assert!(html.contains("2 ligne(s) ajoutée(s) au journal fantôme"));
+        assert!(html.contains("43 à plus de 72 h, non examiné(s)"));
+        assert!(html.contains("1 écarté(s) parce que la marge de Pinnacle"));
         assert!(
             !html.contains("Tous les matchs examinés"),
             "pas de tableau sans prix"

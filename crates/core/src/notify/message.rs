@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 
 use crate::betting::kelly::{kelly_fraction, to_units};
-use crate::betting::live::Opportunity;
+use crate::betting::live::{MAX_HORIZON_HOURS, Opportunity};
 use crate::format::{decimal, kickoff_label, long_date, outcome_label, signed, units};
 use crate::store::journal::StoredRecommendation;
 
@@ -20,10 +20,14 @@ pub const CLOSEST_PRICES: usize = 5;
 pub struct Daily<'a> {
     /// Instant de l'exécution.
     pub now: DateTime<Utc>,
-    /// Matchs à venir dans un relevé récent.
+    /// Matchs examinés : à venir, dans un relevé récent, à 72 h au plus du coup d'envoi.
     pub events: usize,
+    /// Matchs d'un relevé récent laissés de côté parce qu'ils commencent dans plus de 72 h.
+    pub too_far: usize,
     /// Matchs sans 1X2 complet de Pinnacle.
     pub without_reference: usize,
+    /// Matchs dont la référence Pinnacle a trop de marge pour servir.
+    pub wide_reference: usize,
     /// Avantage minimal d'une recommandation.
     pub min_edge: f64,
     /// Fraction de Kelly choisie (1 = Kelly complet).
@@ -44,13 +48,37 @@ pub struct Daily<'a> {
 /// Il dit d'abord si l'exécution a eu de quoi travailler (Pinnacle présent ?), puis les recommandations s'il y en a, puis les
 /// prix les plus proches de la valeur, **donnés pour information** : un avantage négatif veut dire que le prix est moins bon que le marché.
 pub fn daily(daily: &Daily) -> String {
-    let compared = daily.events.saturating_sub(daily.without_reference);
+    let compared = daily
+        .events
+        .saturating_sub(daily.without_reference + daily.wide_reference);
     let mut head = format!(
         "**edge** · bilan du {} · {compared} match(s) comparé(s) à Pinnacle",
         long_date(daily.now)
     );
-    if daily.events == 0 {
+    // Ce qui a été laissé de côté se dit en une ligne, sans alarme : c'est la règle, pas une panne.
+    let mut aside = Vec::new();
+    if daily.too_far > 0 {
+        aside.push(format!(
+            "{} à plus de {MAX_HORIZON_HOURS} h, non examiné(s)",
+            daily.too_far
+        ));
+    }
+    if daily.wide_reference > 0 {
+        aside.push(format!(
+            "{} écarté(s), marge de Pinnacle trop grande",
+            daily.wide_reference
+        ));
+    }
+    if !aside.is_empty() {
+        head.push_str(&format!("\n{}", aside.join(" · ")));
+    }
+    if daily.events == 0 && daily.too_far == 0 {
         head.push_str("\n⚠ Aucun match à venir dans un relevé de moins de 30 h : le relevé de 14 h a-t-il tourné ?");
+    } else if daily.events == 0 {
+        // Trêve internationale, intersaison : le relevé a tourné, aucun match n'est assez proche.
+        head.push_str(&format!(
+            "\nAucun match dans les {MAX_HORIZON_HOURS} h : rien à comparer aujourd'hui."
+        ));
     } else if daily.without_reference * 2 >= daily.events {
         head.push_str(&format!(
             "\n⚠ Pinnacle manque sur {} match(s) sur {} : relevé inutilisable (panne de l'API ?), ces matchs n'ont pas été évalués.",
@@ -272,7 +300,9 @@ mod tests {
         Daily {
             now: NOW.parse().unwrap(),
             events,
+            too_far: 0,
             without_reference,
+            wide_reference: 0,
             min_edge: 0.03,
             kelly_fraction: 1.0,
             bankroll: 1000.0,
@@ -332,6 +362,34 @@ mod tests {
         let text = daily(&day(&[], &[], 0, 0));
 
         assert!(text.contains("le relevé de 14 h a-t-il tourné ?"), "{text}");
+    }
+
+    #[test]
+    fn a_day_with_only_distant_matches_is_not_mistaken_for_a_missing_snapshot() {
+        // Trêve internationale : le relevé a tourné, 54 matchs y figurent, tous à plus de 72 h.
+        let mut quiet = day(&[], &[], 0, 0);
+        quiet.too_far = 54;
+
+        let text = daily(&quiet);
+
+        assert!(text.contains("54 à plus de 72 h, non examiné(s)"), "{text}");
+        assert!(text.contains("Aucun match dans les 72 h"), "{text}");
+        assert!(!text.contains('⚠'), "{text}");
+    }
+
+    #[test]
+    fn matches_set_aside_are_named_and_leave_the_compared_count() {
+        let mut some = day(&[], &[], 40, 1);
+        some.too_far = 60;
+        some.wide_reference = 2;
+
+        let text = daily(&some);
+
+        assert!(text.contains("37 match(s) comparé(s) à Pinnacle"), "{text}");
+        assert!(text.contains(
+            "60 à plus de 72 h, non examiné(s) · 2 écarté(s), marge de Pinnacle trop grande"
+        ));
+        assert!(!text.contains('⚠'), "{text}");
     }
 
     #[test]

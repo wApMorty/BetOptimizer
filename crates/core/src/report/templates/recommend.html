@@ -2,7 +2,7 @@
 {% block title %}Recommandations du {{ generated_at }}{% endblock %}
 {% block content %}
 <h1>Recommandations</h1>
-<p class="meta">{{ generated_at }} (heure de Paris) · {{ events }} match(s) examiné(s) · seuil d'avantage {{ min_edge }} % · Kelly ×{{ kelly_fraction }} · bankroll {{ bankroll }} € · 1 u = 1 % de la bankroll</p>
+<p class="meta">{{ generated_at }} (heure de Paris) · {{ events }} match(s) examiné(s){% if too_far %} · {{ too_far }} à plus de {{ horizon_hours }} h, non examiné(s){% endif %} · seuil d'avantage {{ min_edge }} % · Kelly ×{{ kelly_fraction }} · bankroll {{ bankroll }} € · 1 u = 1 % de la bankroll</p>
 
 {% if reference_missing %}<div class="bad"><strong>Pinnacle manque sur {{ without_reference }} match(s) sur {{ events }}.</strong> Le relevé est inutilisable pour ces matchs (panne de l'API ?) : rien n'a pu être évalué.</div>{% endif %}
 <div class="warn"><strong>Expérimental.</strong> La probabilité est celle de Pinnacle sans marge, pas celle d'un modèle. Aucune règle n'est validée hors échantillon (voir <code>edge backtest report</code>). Vérifie la cote sur le site de l'opérateur : en dessous de la cote minimale, ne parie pas.</div>
@@ -43,5 +43,5 @@
 {% endif %}
 
 {% if already_known %}<p class="meta">{{ already_known }} candidat(s) déjà inscrit(s) au journal par une exécution précédente : non répété(s) ici{% if nav %}, voir <a href="/opportunites">Opportunités</a>{% endif %}.</p>{% endif %}
-<p class="meta">{{ shadow_count }} ligne(s) ajoutée(s) au journal fantôme (avantage positif sous le seuil, aucune mise) ; {{ without_reference }} match(s) sans cotes complètes de Pinnacle, ignorés.</p>
+<p class="meta">{{ shadow_count }} ligne(s) ajoutée(s) au journal fantôme (avantage positif sous le seuil, aucune mise) ; {{ without_reference }} match(s) sans cotes complètes de Pinnacle, ignorés{% if wide_reference %} ; {{ wide_reference }} écarté(s) parce que la marge de Pinnacle y est trop grande pour servir de référence{% endif %}.</p>
 {% endblock %}
