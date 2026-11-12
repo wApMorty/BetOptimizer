@@ -40,6 +40,7 @@ use edge_core::report::render::{
 };
 use edge_core::report::tennis_report;
 use edge_core::report::thresholds_report;
+use edge_core::store::alerts::{self, AlertKind};
 use edge_core::store::archive::last_known_usage;
 use edge_core::store::journal::{self, Settlement, SettlementSource};
 use edge_core::store::nba as nba_store;
@@ -1265,6 +1266,42 @@ pub fn notify_test(paths: &Paths) -> Result<()> {
         &mut discord::http_post,
     )?;
     println!("Message de test envoyé sur Discord.");
+    Ok(())
+}
+
+/// `edge notify-failure <unité>` : alerte Discord quand une unité systemd d'edge échoue. Lancée par systemd
+/// (`OnFailure=edge-notify-failure@%n.service`), jamais par un timer.
+///
+/// Le journal des alertes évite de répéter le message à chaque passage d'un timer en panne. Mais une alerte de panne ne
+/// doit pas dépendre de ce qui est peut-être en panne : si la base ne s'ouvre pas, l'alerte part quand même, sans mémoire.
+pub fn notify_failure(paths: &Paths, unit: &str) -> Result<()> {
+    if !notify::message::is_edge_unit(unit) {
+        bail!("« {unit} » n'est pas une unité d'edge (attendu : edge-<nom>.service)");
+    }
+    let now = Utc::now();
+    let every = chrono::Duration::hours(notify::message::UNIT_ALERT_EVERY_HOURS);
+    // `ok()` : une base inaccessible devient `None`, et l'on continue sans elle.
+    let conn = open_database(paths).ok();
+    // Deux conditions enchaînées par `&&` dans un même `if let` (édition 2024) : la base est ouverte, ET l'alerte n'est pas
+    // encore due. Sans base, on ne peut pas le savoir : on envoie.
+    if let Some(conn) = &conn
+        && !alerts::due(conn, AlertKind::UnitFailed, unit, now, Some(every))?
+    {
+        println!(
+            "Alerte déjà envoyée pour {unit} il y a moins de {} h : rien n'est renvoyé.",
+            notify::message::UNIT_ALERT_EVERY_HOURS
+        );
+        return Ok(());
+    }
+    let config = Config::load(&paths.config_file)?;
+    let webhook = config.discord_webhook(std::env::var(WEBHOOK_ENV).ok().as_deref())?;
+    let text = notify::message::unit_failure(unit, now);
+    discord::send(&webhook, &text, &[], &mut discord::http_post)
+        .context("alerte de panne non envoyée")?;
+    if let Some(conn) = &conn {
+        alerts::record(conn, AlertKind::UnitFailed, unit, &text, now)?;
+    }
+    println!("Échec de {unit} signalé sur Discord.");
     Ok(())
 }
 

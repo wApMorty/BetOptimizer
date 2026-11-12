@@ -560,3 +560,40 @@ fn nba_tune_is_refused_before_the_validation_window_ends_and_report_needs_result
     assert!(!report.status.success());
     assert!(text(&report.stderr).contains("edge nba snapshot"));
 }
+
+#[test]
+fn notify_failure_refuses_a_name_that_is_not_an_edge_unit() {
+    let home = tempfile::tempdir().unwrap();
+
+    let output = run_edge(home.path(), &["notify-failure", "sshd.service"], None);
+
+    assert!(!output.status.success());
+    assert!(text(&output.stderr).contains("n'est pas une unité d'edge"));
+    // Refusé avant tout : ni base créée, ni message tenté.
+    assert!(!home.path().join("edge.db").exists());
+}
+
+#[test]
+fn notify_failure_without_a_webhook_fails_clearly_and_records_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    assert!(run_edge(home.path(), &["init"], None).status.success());
+
+    let output = run_edge(
+        home.path(),
+        &["notify-failure", "edge-snapshot.service"],
+        None,
+    );
+
+    assert!(!output.status.success());
+    assert!(
+        text(&output.stderr).contains("webhook"),
+        "{}",
+        text(&output.stderr)
+    );
+    // Rien n'est inscrit au journal des alertes tant que rien n'est parti : la prochaine panne retentera l'envoi.
+    let conn = edge_core::store::open(&home.path().join("edge.db")).unwrap();
+    let sent: i64 = conn
+        .query_row("SELECT COUNT(*) FROM alert_log", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(sent, 0);
+}

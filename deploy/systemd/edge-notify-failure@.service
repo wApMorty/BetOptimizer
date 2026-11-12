@@ -1,0 +1,14 @@
+[Unit]
+Description=Alerte Discord : une unité d'edge a échoué (%i)
+Documentation=file://%h/Documents/Workspace/BetOptimizer/deploy/systemd/README.md
+# Unité modèle : les autres services l'appellent par `OnFailure=edge-notify-failure@%%n.service`. `%%n` y vaut leur nom
+# complet (edge-snapshot.service), qui devient ici l'instance `%%i`. Pas de OnFailure= sur celle-ci : une alerte qui
+# échoue ne doit pas s'appeler elle-même.
+
+[Service]
+Type=oneshot
+# La panne vient souvent du réseau : attendre Discord au plus cinq minutes avant d'envoyer.
+ExecStartPre=/usr/bin/sh -c 'for i in $(seq 1 30); do getent hosts discord.com >/dev/null && exit 0; sleep 10; done; exit 1'
+# Au plus une alerte par unité toutes les six heures (journal `alert_log`). Le webhook est lu dans ~/.config/edge/edge.toml.
+ExecStart=%h/.local/bin/edge notify-failure %i
+TimeoutStartSec=360

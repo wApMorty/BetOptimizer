@@ -5,6 +5,8 @@ Documentation=file://%h/Documents/Workspace/BetOptimizer/docs/sources.md
 # le 2026-11-08, une cote Betclic relevée à 14 h avait disparu à la notification de 14 h 10.
 # Relevé en échec (même une seule ligue) : pas de recommandation, le journal dit pourquoi.
 OnSuccess=edge-recommend.service
+# Un échec est signalé sur Discord, au plus une fois toutes les six heures (edge-notify-failure@.service).
+OnFailure=edge-notify-failure@%n.service
 
 [Service]
 Type=oneshot

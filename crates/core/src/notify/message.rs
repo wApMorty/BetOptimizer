@@ -16,6 +16,33 @@ const RESERVED: usize = 100;
 /// Nombre de prix « les plus proches de la valeur » montrés dans le message.
 pub const CLOSEST_PRICES: usize = 5;
 
+/// Heures entre deux alertes de panne d'une même unité systemd : le relevé de clôture passe toutes les dix minutes, une
+/// panne de réseau d'une soirée ne doit pas envoyer cinquante messages.
+pub const UNIT_ALERT_EVERY_HOURS: i64 = 6;
+
+/// Le nom est-il celui d'une unité d'edge (`edge-snapshot.service`) ? Il vient de systemd, mais la commande peut aussi
+/// être lancée à la main : on n'écrit dans un message et dans le journal qu'un nom de cette forme, en minuscules,
+/// chiffres et tirets.
+pub fn is_edge_unit(name: &str) -> bool {
+    name.strip_prefix("edge-")
+        .and_then(|rest| rest.strip_suffix(".service"))
+        .is_some_and(|stem| {
+            !stem.is_empty()
+                && stem
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        })
+}
+
+/// Alerte de panne : l'unité, l'heure (de Paris), et la commande qui montre pourquoi.
+pub fn unit_failure(unit: &str, now: DateTime<Utc>) -> String {
+    format!(
+        "**edge** · ⚠ `{unit}` a échoué ({}).\nPour voir pourquoi : `journalctl --user -u {unit} -n 50`\n\
+         Pas d'autre alerte pour cette unité avant {UNIT_ALERT_EVERY_HOURS} h.",
+        kickoff_label(now)
+    )
+}
+
 /// Ce que le message du jour sait dire d'une exécution de `edge recommend`.
 pub struct Daily<'a> {
     /// Instant de l'exécution.
@@ -355,6 +382,36 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("0 match(s) comparé(s)"));
+    }
+
+    #[test]
+    fn a_unit_failure_names_the_unit_the_time_and_the_command_to_read() {
+        let text = unit_failure("edge-snapshot.service", NOW.parse().unwrap());
+
+        assert!(
+            text.contains("⚠ `edge-snapshot.service` a échoué (lun. 19/10 "),
+            "{text}"
+        );
+        assert!(text.contains("`journalctl --user -u edge-snapshot.service -n 50`"));
+        assert!(text.contains("avant 6 h"));
+    }
+
+    #[test]
+    fn only_names_shaped_like_an_edge_unit_are_accepted() {
+        assert!(is_edge_unit("edge-snapshot.service"));
+        assert!(is_edge_unit("edge-lotofoot-fetch.service"));
+        for name in [
+            "",
+            "edge-.service",
+            "edge-snapshot.timer",
+            "sshd.service",
+            "edge-Snapshot.service",
+            "edge-a b.service",
+            "edge-x`.service",
+            "edge-x\n.service",
+        ] {
+            assert!(!is_edge_unit(name), "{name:?}");
+        }
     }
 
     #[test]

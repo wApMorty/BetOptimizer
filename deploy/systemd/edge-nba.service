@@ -1,6 +1,8 @@
 [Unit]
 Description=Cotes et résultats de la NBA (edge)
 Documentation=file://%h/Documents/Workspace/BetOptimizer/docs/sources.md
+# Un échec est signalé sur Discord, au plus une fois toutes les six heures (edge-notify-failure@.service).
+OnFailure=edge-notify-failure@%n.service
 
 [Service]
 Type=oneshot

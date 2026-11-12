@@ -2,6 +2,8 @@
 Description=Recommandations quotidiennes et notification Discord (edge)
 Documentation=file://%h/Documents/Workspace/BetOptimizer/docs/sources.md
 # Pas de timer : edge-snapshot.service lance cette unité à la fin d'un relevé réussi (OnSuccess=).
+# Un échec est signalé sur Discord, au plus une fois toutes les six heures (edge-notify-failure@.service).
+OnFailure=edge-notify-failure@%n.service
 
 [Service]
 Type=oneshot

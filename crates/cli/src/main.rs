@@ -65,6 +65,13 @@ enum Command {
     },
     /// Envoie un message de test sur Discord (avec une image d'exemple) pour vérifier le webhook.
     NotifyTest,
+    /// Signale sur Discord l'échec d'une unité systemd d'edge (lancée par `OnFailure=`, au plus une alerte par unité
+    /// toutes les six heures).
+    NotifyFailure {
+        /// Nom complet de l'unité en échec, par exemple `edge-snapshot.service`.
+        #[arg(value_name = "UNITÉ")]
+        unit: String,
+    },
     /// Écrit les recommandations du dernier relevé dans le journal immuable, archive le rapport du jour pour le site
     /// (et notifie sur Discord avec --notify).
     Recommend {
@@ -522,6 +529,7 @@ fn main() -> Result<()> {
         Command::Clv => commands::clv_report(&paths),
         Command::Closing { dry_run } => commands::closing(&paths, dry_run),
         Command::NotifyTest => commands::notify_test(&paths),
+        Command::NotifyFailure { unit } => commands::notify_failure(&paths, &unit),
         Command::Recommend { notify } => commands::recommend(&paths, notify),
         Command::Serve => commands::serve(&paths),
         Command::Backtest { command } => match command {
