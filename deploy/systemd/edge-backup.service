@@ -1,0 +1,13 @@
+[Unit]
+Description=Sauvegarde quotidienne de la base d'edge (copie datée et vérifiée, rotation)
+Documentation=file://%h/Documents/Workspace/BetOptimizer/deploy/systemd/README.md
+# Un échec est signalé sur Discord, au plus une fois toutes les six heures (edge-notify-failure@.service) : c'est ce qui
+# te prévient quand le dossier de sauvegarde n'est pas monté.
+OnFailure=edge-notify-failure@%n.service
+
+[Service]
+Type=oneshot
+# Dossier : `backup_dir` dans ~/.config/edge/edge.toml. Il n'est jamais créé : s'il manque, la commande échoue.
+# Lecture seule sur la base ; aucun réseau, aucun crédit.
+ExecStart=%h/.local/bin/edge backup
+TimeoutStartSec=600

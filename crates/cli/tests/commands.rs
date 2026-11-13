@@ -597,3 +597,48 @@ fn notify_failure_without_a_webhook_fails_clearly_and_records_nothing() {
         .unwrap();
     assert_eq!(sent, 0);
 }
+
+#[test]
+fn backup_without_a_folder_says_how_to_give_one() {
+    let home = tempfile::tempdir().unwrap();
+    assert!(run_edge(home.path(), &["init"], None).status.success());
+
+    let output = run_edge(home.path(), &["backup"], None);
+
+    assert!(!output.status.success());
+    let stderr = text(&output.stderr);
+    assert!(
+        stderr.contains("backup_dir") && stderr.contains("--to"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn backup_writes_a_checked_copy_and_refuses_a_missing_folder() {
+    let home = tempfile::tempdir().unwrap();
+    assert!(run_edge(home.path(), &["init"], None).status.success());
+    let target = tempfile::tempdir().unwrap();
+    let folder = target.path().to_str().unwrap();
+
+    let output = run_edge(home.path(), &["backup", "--to", folder], None);
+
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert!(text(&output.stdout).contains("Sauvegarde écrite et vérifiée"));
+    let copies: Vec<_> = std::fs::read_dir(target.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(copies.len(), 1);
+    assert!(copies[0].starts_with("edge-") && copies[0].ends_with("Z.db"));
+
+    // Un dossier absent (disque non monté) : échec clair, et le dossier n'est pas créé.
+    let missing = target.path().join("non-monte");
+    let refused = run_edge(
+        home.path(),
+        &["backup", "--to", missing.to_str().unwrap()],
+        None,
+    );
+    assert!(!refused.status.success());
+    assert!(text(&refused.stderr).contains("dossier de sauvegarde absent"));
+    assert!(!missing.exists());
+}

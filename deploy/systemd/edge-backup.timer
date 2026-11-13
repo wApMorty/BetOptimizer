@@ -1,0 +1,11 @@
+[Unit]
+Description=Sauvegarde de la base d'edge chaque jour à 14h30, heure de Paris
+
+[Timer]
+# Après le relevé de 14 h et les recommandations : la copie du jour contient les cotes du jour.
+OnCalendar=*-*-* 14:30:00 Europe/Paris
+# Si le portable était éteint ou en veille à 14h30, la sauvegarde part dès qu'il se réveille.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

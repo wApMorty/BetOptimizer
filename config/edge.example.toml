@@ -84,6 +84,14 @@ serve_bind = "127.0.0.1:8737"
 # Adresse du site vue depuis un autre appareil, rappelée dans le message Discord (qui ne joint alors plus le rapport).
 # site_url = "http://portable.local:8737/"
 
+# Sauvegarde de la base (`edge backup`, timer edge-backup, docs/sources.md §73) : une copie datée et vérifiée par passage.
+# L'archive des cotes ne se reconstitue pas : ce dossier doit être sur un autre support que le portable (disque externe,
+# dossier synchronisé). Chemin absolu ; edge ne le crée jamais (s'il manque, le support n'est pas monté et la commande
+# échoue au lieu d'écrire sur le disque interne). Sans cette ligne, `edge backup` exige l'option --to.
+# backup_dir = "/chemin/absolu/vers/sauvegardes-edge"
+# Nombre de copies gardées ; les plus anciennes sont supprimées après chaque copie réussie.
+backup_keep = 7
+
 # Bonus de bienvenue (`edge bonus`, docs/bonus-bienvenue.md) : valeur supposée d'un euro de freebet converti par couverture.
 # Elle sert au calcul d'un premier pari remboursé en freebet, dont le gain n'est garanti que si le freebet reçu est ensuite
 # converti à cette valeur au moins. 0,53 : bas de la fourchette mesurée sur l'archive (0,53 à 0,56, meilleur match du jour).

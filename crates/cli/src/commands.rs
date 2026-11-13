@@ -1,6 +1,7 @@
 //! Les sous-commandes de `edge`. Chacune lit la configuration, appelle `edge-core` et affiche le résultat.
 
 use std::io::IsTerminal;
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
@@ -1266,6 +1267,44 @@ pub fn notify_test(paths: &Paths) -> Result<()> {
         &mut discord::http_post,
     )?;
     println!("Message de test envoyé sur Discord.");
+    Ok(())
+}
+
+/// `edge backup` : copie datée et vérifiée de la base dans `backup_dir` (ou `--to`), puis rotation.
+///
+/// La base n'est ouverte qu'en lecture seule, et pas migrée : la commande sauvegarde ce qui existe, tel quel.
+pub fn backup(paths: &Paths, to: Option<&Path>) -> Result<()> {
+    let config = Config::load(&paths.config_file)?;
+    // `--to` l'emporte ; sinon le dossier de la configuration. `as_deref` : d'un `Option<PathBuf>` on emprunte un
+    // `Option<&Path>`, sans copier le chemin.
+    let Some(dir) = to.or(config.backup_dir.as_deref()) else {
+        bail!(
+            "aucun dossier de sauvegarde : ajoute backup_dir dans {} ou passe --to <dossier>",
+            paths.config_file.display()
+        );
+    };
+    if !paths.db_file.exists() {
+        bail!(
+            "base absente : {} (lance d'abord `edge init`)",
+            paths.db_file.display()
+        );
+    }
+    eprintln!(
+        "Sauvegarde de {} vers {} …",
+        paths.db_file.display(),
+        dir.display()
+    );
+    let keep = usize::try_from(config.backup_keep).context("backup_keep trop grand")?;
+    let done = store::backup::run(&paths.db_file, dir, keep, Utc::now())?;
+    println!(
+        "Sauvegarde écrite et vérifiée : {} ({} Mo).",
+        done.path.display(),
+        format::decimal(done.bytes as f64 / 1_048_576.0, 1)
+    );
+    for name in &done.removed {
+        println!("  ancienne copie supprimée : {name}");
+    }
+    println!("{} copie(s) gardée(s) dans {}.", done.kept, dir.display());
     Ok(())
 }
 

@@ -8,7 +8,7 @@ use std::fmt;
 use std::fs;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -190,6 +190,12 @@ pub struct Config {
     /// Adresse du site telle qu'un autre appareil la tape (`http://portable.local:8737/`) : rappelée dans le message
     /// Discord, qui ne joint alors plus le rapport HTML. Absente : le rapport reste joint.
     pub site_url: Option<String>,
+    /// Dossier des sauvegardes de la base (`edge backup`), en chemin absolu. Absent par défaut : la commande demande alors
+    /// `--to`. À placer sur un autre support que le portable (disque externe, dossier synchronisé) ; edge ne le crée
+    /// jamais, pour ne pas écrire sur le disque interne quand le support n'est pas monté.
+    pub backup_dir: Option<PathBuf>,
+    /// Nombre de sauvegardes gardées dans `backup_dir` ; les plus anciennes sont supprimées après chaque copie réussie.
+    pub backup_keep: u32,
     /// Valeur supposée d'un euro de freebet converti par couverture, pour le calcul d'un premier pari remboursé en freebet
     /// (`edge bonus`). Défaut : 0,53, bas de la fourchette mesurée sur l'archive (`docs/bonus-bienvenue.md` §4).
     pub bonus_freebet_value: f64,
@@ -330,6 +336,8 @@ impl Default for Config {
             serve_bind: SocketAddr::from(([127, 0, 0, 1], 8737)),
             serve_token: None,
             site_url: None,
+            backup_dir: None,
+            backup_keep: 7,
             bonus_freebet_value: crate::bonus::DEFAULT_FREEBET_VALUE,
             lotofoot_monthly_budget: 60,
             lotofoot_min_minutes_before_close: 10,
@@ -471,6 +479,20 @@ impl Config {
                     "{field} : « {bad} » n'est pas un identifiant valide (minuscules, chiffres et _ uniquement)"
                 )));
             }
+        }
+        if self.backup_keep == 0 {
+            return Err(Error::InvalidConfig(
+                "backup_keep doit valoir au moins 1".to_string(),
+            ));
+        }
+        // Un chemin relatif dépendrait du dossier d'où la commande est lancée (celui de systemd n'est pas le tien).
+        if let Some(dir) = &self.backup_dir
+            && !dir.is_absolute()
+        {
+            return Err(Error::InvalidConfig(format!(
+                "backup_dir : « {} » doit être un chemin absolu",
+                dir.display()
+            )));
         }
         if let Some(url) = &self.site_url
             && !is_site_url(url)
@@ -882,6 +904,27 @@ mod tests {
         );
         let bad = Config::parse("site_url = \"portable.local:8737\"").unwrap();
         assert!(bad.validate().unwrap_err().to_string().contains("site_url"));
+
+        // Sauvegarde : aucun dossier par défaut, sept copies gardées ; chemin absolu et au moins une copie exigés.
+        assert_eq!((config.backup_dir.as_ref(), config.backup_keep), (None, 7));
+        let set = Config::parse("backup_dir = \"/mnt/externe/edge\"\nbackup_keep = 3").unwrap();
+        assert!(set.validate().is_ok());
+        assert_eq!(set.backup_dir, Some(PathBuf::from("/mnt/externe/edge")));
+        let relative = Config::parse("backup_dir = \"sauvegardes\"").unwrap();
+        assert!(
+            relative
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("chemin absolu")
+        );
+        let none = Config::parse("backup_keep = 0").unwrap();
+        assert!(
+            none.validate()
+                .unwrap_err()
+                .to_string()
+                .contains("backup_keep")
+        );
     }
 
     #[test]

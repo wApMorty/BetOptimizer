@@ -82,6 +82,13 @@ enum Command {
     },
     /// Publie le site de rapports (rapport du jour, rapports précédents, opportunités, paper trading), en lecture seule.
     Serve,
+    /// Sauvegarde la base : une copie datée et vérifiée dans `backup_dir`, les plus anciennes supprimées au-delà de
+    /// `backup_keep`. Le dossier doit exister (il n'est jamais créé).
+    Backup {
+        /// Dossier de destination, à la place de `backup_dir` de la configuration.
+        #[arg(long, value_name = "DOSSIER")]
+        to: Option<std::path::PathBuf>,
+    },
     /// NBA : archive des cotes et des résultats.
     Nba {
         #[command(subcommand)]
@@ -532,6 +539,7 @@ fn main() -> Result<()> {
         Command::NotifyFailure { unit } => commands::notify_failure(&paths, &unit),
         Command::Recommend { notify } => commands::recommend(&paths, notify),
         Command::Serve => commands::serve(&paths),
+        Command::Backup { to } => commands::backup(&paths, to.as_deref()),
         Command::Backtest { command } => match command {
             BacktestCommand::Tune => commands::backtest_tune(&paths),
             BacktestCommand::Run => commands::backtest_run(&paths),
