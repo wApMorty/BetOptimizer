@@ -10,9 +10,14 @@ Prérequis : lingering activé (`loginctl enable-linger $USER`) et binaire insta
 | `edge-closing` | toutes les 10 minutes | clôture de Pinnacle des matchs suivis qui commencent dans 30 minutes (`edge closing`) | 1 par match suivi, 0 sinon |
 | `edge-latency` | lundi 9 h | historique OddsPapi des matchs terminés et verdict du test de latence (`edge latency fetch`, `edge latency report`, sources §34) | 0 (6 requêtes OddsPapi sur 250 par mois) |
 | `edge-lotofoot-fetch` | toutes les heures (minute 7) | grilles LF7 et LF8, répartition FDJ, résultats et rapports sur prono-match ; alerte Discord à la sortie de chaque grille, avec son heure de clôture (`edge lotofoot fetch --notify`, sources §38 et §47) | 0 |
+| `edge-backup` | 14 h 30 (Paris) | copie datée et vérifiée de la base dans `backup_dir`, rotation sur `backup_keep` copies (`edge backup`, sources §73) | 0 |
 | `edge-loto` | 22 h 30 (Paris) | historique FDJ, alerte EuroMillions au plafond, séance du Grand Loto dû dans les 3 jours (`edge loto fetch --notify`, `edge loto recommend --notify`, sources §44) | 0 |
 
 Service permanent (pas un timer) : `edge-serve`, l'application Web (voir plus bas). Aucun crédit.
+
+Unité modèle (ni timer ni service permanent) : `edge-notify-failure@.service`. Les sept services à exécution unique et
+`edge-backup` l'appellent par `OnFailure=` quand ils échouent ; elle envoie une alerte Discord (`edge notify-failure <unité>`),
+au plus une par unité toutes les six heures. Il n'y a rien à activer : il suffit que le fichier soit copié.
 
 ```sh
 # Installer ou mettre à jour le binaire
@@ -25,10 +30,41 @@ systemctl --user daemon-reload
 systemctl --user enable --now edge-snapshot.timer edge-closing.timer edge-nba.timer edge-latency.timer \
     edge-lotofoot-fetch.timer edge-loto.timer
 
+# Sauvegarde : seulement une fois `backup_dir` renseigné dans ~/.config/edge/edge.toml (voir « Sauvegarde » plus bas)
+systemctl --user enable --now edge-backup.timer
+
 # Une seule fois, après le passage de edge-recommend en OnSuccess= (2026-11-08) : retirer l'ancien timer de 14 h 10
 systemctl --user disable --now edge-recommend.timer
 rm -f ~/.config/systemd/user/edge-recommend.timer
 ```
+
+## Alertes de panne
+
+Depuis la phase 21, un service qui échoue se signale sur Discord au lieu de ne se voir que dans `journalctl`. Le message nomme l'unité,
+l'heure et la commande à lancer pour lire la cause. Une même unité n'alerte qu'une fois toutes les six heures (table `alert_log`) : le
+relevé de clôture passe toutes les dix minutes, une soirée sans réseau ne doit pas envoyer cinquante messages. Si la base elle-même ne
+s'ouvre pas, l'alerte part quand même, sans mémoire.
+
+```sh
+edge notify-failure edge-snapshot.service            # essai à la main : un vrai message part (puis plus rien pendant six heures)
+systemctl --user status 'edge-notify-failure@*'      # les alertes envoyées ou tentées
+```
+
+Le relevé du Loto Foot a en plus sa propre alerte, « source figée » : prono-match affiche encore comme grille en cours une grille close
+depuis trois heures. Elle part une fois par grille ; la pastille « Loto Foot » de l'accueil et le bandeau de `/lotofoot` restent rouges
+tant que la page n'est pas revenue (sources §73).
+
+## Sauvegarde
+
+`edge backup` copie la base (`VACUUM INTO`, instantané cohérent même si un timer écrit), vérifie la copie, puis ne garde que les
+`backup_keep` plus récentes (7 par défaut). Les copies s'appellent `edge-AAAA-MM-JJ-HHMMSSZ.db`, en permissions 0600.
+
+- `backup_dir` (edge.toml, chemin absolu) doit pointer **hors du disque du portable** : disque externe ou dossier synchronisé. edge
+  n'envoie rien nulle part lui-même.
+- Le dossier n'est jamais créé. S'il manque (disque non branché), la commande échoue et l'alerte de panne te le dit : mieux qu'une
+  « sauvegarde » écrite sans bruit sur le disque interne.
+- `edge backup --to /un/dossier` : une copie ponctuelle ailleurs, par exemple avant une manipulation.
+- Restaurer : arrêter les timers et `edge-serve`, copier la sauvegarde à la place de `~/.local/share/edge/edge.db`, relancer.
 
 ## Grand Loto et EuroMillions
 

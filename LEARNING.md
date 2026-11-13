@@ -26,3 +26,4 @@ trois questions pour vérifier la compréhension, trois fichiers à relire en pr
 | 18 | Suivi en direct des grilles Loto Foot (scores ESPN à l'affichage, code couleur des tickets, alias `[ESPN]`) | [docs/learning/phase-18.md](docs/learning/phase-18.md) |
 | 19 | Repli OddsPapi des séances Loto Foot (cote Pinnacle absente de The Odds API, migration 21, provenance au journal) | [docs/learning/phase-19.md](docs/learning/phase-19.md) |
 | 20 | Règle Loto Foot à prix dynamique (valeur marginale exacte, 32 tickets par grille, table gelée à la place de l'abaque, regroupement au-delà de 16 tickets) | [docs/learning/phase-20.md](docs/learning/phase-20.md) |
+| 21 | Correctifs de l'audit du 2026-11-12 (horizon de 72 h, source figée, alertes de panne, `edge backup`) | [docs/learning/phase-21.md](docs/learning/phase-21.md) |

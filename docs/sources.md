@@ -3111,3 +3111,76 @@ trouvés avec les noms de l'archive.
 Conséquence : la recherche des cotes du Loto Foot (`lotofoot/odds.rs`) et le suivi des scores (`lotofoot/scores.rs`) acceptent désormais
 toutes les variantes de la section `LOTOFOOT`, au lieu du seul nom canonique. Un nouveau cas se règle par une variante dans
 `config/aliases.toml`, sans changer le code. Jusque-là, ces matchs n'auraient pas été trouvés chez The Odds API et seraient passés par le repli OddsPapi.
+
+## 73. Phase 21 — Correctifs de l'audit : horizon des recommandations, source figée, alertes de panne, sauvegarde (2026-11-12)
+
+Audit complet du 2026-11-12 : `docs/audit-2026-11-12.md`. Cette section consigne les mesures qui fondent les correctifs de la
+première semaine, les vérifications faites à la source et les choix de Paul. Mesures en lecture seule sur la base de production.
+
+**Référence Pinnacle selon l'horizon** (2 850 relevés 1X2 de football de l'archive, du 2026-10-18 au 2026-11-11, méthode `power`) :
+
+| Horizon | Relevés | Surronde médiane | 90e centile | Part au-dessus de 1,06 | Variation quotidienne médiane de la probabilité | 90e centile | 99e centile |
+|---|---|---|---|---|---|---|---|
+| moins de 1 h | 65 | 1,030 | 1,040 | 0 % | | | |
+| 1 à 24 h | 265 | 1,032 | 1,040 | 0 % | | | |
+| 1 à 3 jours | 594 | 1,035 | 1,053 | 2 % | 0,94 point | 3,56 | 6,37 |
+| 3 à 7 jours | 719 | 1,037 | 1,055 | 2 % | 0,39 point | 2,00 | 4,66 |
+| 7 à 14 jours | 903 | 1,051 | 1,057 | 3 % | 0,00 point | 1,37 | 3,61 |
+| plus de 14 jours | 304 | 1,050 | 1,056 | 3 % | 0,00 point | 1,97 | 5,87 |
+
+Variation : plus grand écart de probabilité sans marge, sur les trois issues, entre deux relevés d'un même match séparés de 12 à 36 h
+(1 970 paires). Au-delà de sept jours la marge est supérieure de 60 % et le prix ne bouge pas un jour sur deux, puis saute : c'est un
+marché à faibles limites, pas une probabilité de référence.
+
+**Les treize lignes du journal** (du 2026-10-19 au 2026-11-10) : horizons de 0,0 à 19,1 jours, trois au-delà de 10 jours. Sur les onze
+matchs passés, tous avec une clôture à moins de 30 minutes : avantage annoncé moyen +0,81 %, CLV moyen −0,83 % (non concluant à cet
+effectif). Les quatre recommandations misées totalisent 26,10 € pour 0,55 € d'espérance annoncée. Les deux seuls paris réels suivant
+une recommandation ont été pris à 15 et 19 jours du match :
+- n° 13, Deportivo – Barcelone, nul à 4,70 chez Unibet, +4,2 % annoncés le 2026-11-10. Nul chez Pinnacle : 6,36 le 9, **3,87 le 10**
+  (surronde 1,085 ; Deportivo de 7,61 à 10,39 alors que Unibet et Winamax le baissaient), 5,21 le 11. Au relevé du 11 : −17 %
+  (multiplicative) à −26 % (`power`). Winamax affichait 4,60 le 10 : l'écart venait de la référence, pas d'Unibet.
+- n° 9, Lens – Toulouse, domicile à 1,79 chez PMU, +1,0 % annoncé le 2026-11-06. Pinnacle de 1,72 à 1,86 en trois jours ; −7,6 %.
+
+**Âge des cotes archivées** : sur 42 702 lignes de football (six bookmakers), aucune n'a plus de dix minutes au moment du relevé
+(`quote_updated_at` contre `called_at`). Pas de prix périmé dans l'archive ; non vérifié : que cet horodatage soit celui du bookmaker
+et non celui du rafraîchissement de l'API.
+
+**Règle `pvp-2`** (`betting/live.rs`, `betting/recommend.rs`) : un match n'est examiné qu'à 72 h au plus du coup d'envoi, pour les deux
+paliers du journal ; une référence dont la surronde dépasse 1,06 est écartée. Ce sont des gardes sur la qualité de la référence, lues
+sur la description ci-dessus : **une seule configuration regardée (72 h, 1,06), aucun réglage sur un résultat de pari**. Rien n'établit
+qu'un avantage existe en deçà de 72 h ; le journal continue de le mesurer. La version s'écrit dans `code_version` (`0.1.0+pvp-2`) ;
+les lignes antérieures (`0.1.0`) sont la version `pvp-1`, seuil de 3 % puis de 1 % à partir du 2026-10-20. Le nom de la règle ne
+change pas : il reste la clé d'unicité, un match déjà recommandé ne l'est pas une seconde fois.
+
+**prono-match.fr figé.** Lu le 2026-11-12 à 01 h 28 UTC : les pages `loto-foot-7/`, `loto-foot-8/` et `resultats-loto-foot/` portent
+« Mis à jour le 5 novembre 2026 » et affichent encore le LF8 n°154 (clos le 2026-11-06 à 18 h 55 UTC) et le LF7 n°139 (clos le
+2026-11-08). Statut HTTP 200. Le relevé horaire avait écrit 114 répartitions du n°154 après sa clôture au 2026-11-12 à 08 h UTC, toutes copies de la même page ; les
+résultats des n°154, 155 et 139 manquent. Sur les quatorze grilles précédentes, aucune répartition n'avait été relevée après la
+clôture : le site changeait de grille dans l'heure.
+- Règle retenue (`lotofoot/fetch.rs`) : une grille affichée « en cours » alors qu'elle est close n'est plus écrite, ni sa répartition ;
+  close depuis 3 h ou plus, la page est dite périmée, la lecture est journalisée avec cette erreur (`lotofoot_fetch.error`), et une alerte
+  Discord part une fois par grille.
+- **Pour l'étude de dérive** : exclure les lignes de `lotofoot_split` dont le relevé est postérieur à la clôture (`fetched_at > closes_at`) ;
+  elles restent en base, le journal est immuable.
+- Non vérifié : la cause de la panne et la date de retour du site. Les deux autres sources connues (points de vente FDJ, Pronosoft)
+  sont exclues par la règle du projet sur les opérateurs : sans prono-match, le Loto Foot est à l'arrêt.
+
+**systemd** (`man systemd.unit`, systemd 262 du poste) : `OnFailure=` « units that are activated when this unit enters the "failed" state »
+(depuis la version 201) ; spécificateurs `%n` (nom complet de l'unité) et `%i` (nom d'instance). `OnFailure=edge-notify-failure@%n.service`
+donne à l'unité modèle l'instance `edge-snapshot.service`. `systemd-analyze --user verify` sur les unités modifiées : aucun avertissement.
+Non essayé : un échec réel suivi d'un message réel (l'installation est à faire par Paul).
+
+**`VACUUM INTO`** (essai réel, SQLite 3.54.0 du poste, puis tests du projet avec la version embarquée par `rusqlite`) : sur une base en
+WAL dont une transaction d'écriture est ouverte et non validée, la copie réussit sans attendre et ne contient que les lignes validées ;
+`user_version`, déclencheurs et contrôle d'intégrité conservés ; la commande fonctionne depuis une connexion en lecture seule ; elle refuse
+une cible existante non vide (« output file already exists ») et accepte une cible vide, ce qui permet de la créer en 0600 d'abord. La
+copie sort en mode journal `delete`, sans effet pour une sauvegarde.
+
+**Choix de Paul du 2026-11-12** : (1) les notifications restent, avec la règle restreinte, plutôt qu'un journal fantôme intégral ;
+(2) horizon de 72 h pour les deux paliers ; (3) `edge backup` écrit dans un dossier configurable, **dossier non encore choisi** ;
+(4) les cinq commits locaux antérieurs sont poussés. Valeurs que j'ai fixées sans qu'elles lui soient posées une à une, à revoir s'il le
+souhaite : trois heures avant de dire une page périmée, six heures entre deux alertes de panne d'une même unité, sept sauvegardes gardées,
+sauvegarde à 14 h 30.
+
+**Reste à faire, hors code** : règle d'arrêt du Loto Foot (budget annuel, perte cumulée, date de revue) ; statut retirable du bonus PMU ;
+`backup_dir` et installation des unités ; permissions 0600 sur la base et ses copies existantes (les nouvelles sauvegardes le sont).
