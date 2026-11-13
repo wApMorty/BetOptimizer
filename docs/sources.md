@@ -3177,10 +3177,18 @@ une cible existante non vide (« output file already exists ») et accepte une c
 copie sort en mode journal `delete`, sans effet pour une sauvegarde.
 
 **Choix de Paul du 2026-11-12** : (1) les notifications restent, avec la règle restreinte, plutôt qu'un journal fantôme intégral ;
-(2) horizon de 72 h pour les deux paliers ; (3) `edge backup` écrit dans un dossier configurable, **dossier non encore choisi** ;
+(2) horizon de 72 h pour les deux paliers ; (3) `edge backup` écrit dans un dossier configurable (choisi le 2026-11-13, voir plus bas) ;
 (4) les cinq commits locaux antérieurs sont poussés. Valeurs que j'ai fixées sans qu'elles lui soient posées une à une, à revoir s'il le
 souhaite : trois heures avant de dire une page périmée, six heures entre deux alertes de panne d'une même unité, sept sauvegardes gardées,
 sauvegarde à 14 h 30.
 
+**Dossier de sauvegarde (2026-11-13).** Paul m'a laissé le choix (« crée un dossier quelque part »). Constat sur le poste : aucun disque
+externe monté ; second disque NVMe de 27 Go sous BitLocker, verrouillé ; `~/MEGA` présent mais aucun client MEGA installé ni lancé
+(dernière modification en juillet) ; ni rclone, ni restic, ni Syncthing. Retenu faute de mieux : `~/Sauvegardes/edge`, **sur le disque
+du portable**. La copie protège d'une base corrompue, d'une migration ratée ou d'une suppression par erreur ; elle ne protège **pas**
+d'une panne du disque ni d'un vol. Première copie le 2026-11-13 à 09 h 35 UTC par `edge-backup.service` : 120,9 Mo en deux secondes,
+schéma 23, intégrité vérifiée, 50 750 cotes comme en production. Le constat E2 de l'audit reste donc ouvert à moitié : `backup_dir` est à
+déplacer vers un autre support dès qu'il y en a un.
+
 **Reste à faire, hors code** : règle d'arrêt du Loto Foot (budget annuel, perte cumulée, date de revue) ; statut retirable du bonus PMU ;
-`backup_dir` et installation des unités ; permissions 0600 sur la base et ses copies existantes (les nouvelles sauvegardes le sont).
+`backup_dir` vers un support hors du portable ; permissions 0600 sur la base et ses copies existantes (les nouvelles sauvegardes le sont).
