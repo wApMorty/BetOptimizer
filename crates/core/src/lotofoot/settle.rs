@@ -5,15 +5,19 @@
 //!   les gagnants publiés, soit `gain unitaire × W / (W + 1)` ; s'il n'y a aucun gagnant publié, la masse entière,
 //!   estimée à partir des mises estimées le jour de la séance et du pactole.
 //!
+//! Une rencontre annulée est bonne pour tous les signes (règlement Loto Sports v6, art. 10.6 ; `docs/sources.md` §74) : un
+//! ticket qui s'y trompait n'a pas d'erreur de ce chef, et les rangs gardent leurs libellés (« N bons », « N − 1 bons »).
+//!
 //! Rien n'est stocké : le règlement se recalcule à la demande, à partir du journal immuable.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::Connection;
 
+use super::grid_page::MatchResult;
 use super::model::GridModel;
 use super::session::{budget_since, month_of};
 use super::{Game, Ticket};
-use crate::domain::{Euros, Outcome};
+use crate::domain::Euros;
 use crate::error::Result;
 use crate::store::lotofoot::{self as store, PublishedRank, RecoRow};
 
@@ -38,7 +42,7 @@ fn rank_of(game: Game, good: usize) -> Option<u32> {
 pub fn played(
     game: Game,
     ticket: &Ticket,
-    results: &[Outcome],
+    results: &[MatchResult],
     ranks: &[PublishedRank],
 ) -> Option<Settled> {
     let good = ticket.good(results);
@@ -58,7 +62,7 @@ pub fn played(
 pub fn paper(
     game: Game,
     ticket: &Ticket,
-    results: &[Outcome],
+    results: &[MatchResult],
     ranks: &[PublishedRank],
     stakes_estimate: f64,
     jackpot: Option<Euros>,
@@ -213,11 +217,13 @@ pub fn recycled_gains(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::Outcome;
     use crate::lotofoot::grid_of_2026;
-    use crate::lotofoot::grid_page::{GridPage, OpenGrid};
+    use crate::lotofoot::grid_page::{GridPage, GridResult, OpenGrid, RankLine};
     use crate::lotofoot::played::{declare, declare_manual};
     use crate::store::lotofoot::{
-        NewReco, NewSession, Page, Source, record_fetch, record_grid_page, record_session,
+        NewReco, NewSession, Page, Source, record_fetch, record_grid_page, record_results,
+        record_session,
     };
     use crate::store::migrate::migrate;
 
@@ -413,14 +419,15 @@ mod tests {
         ]
     }
 
-    const RESULTS: [Outcome; 7] = [
-        Outcome::Home,
-        Outcome::Draw,
-        Outcome::Away,
-        Outcome::Home,
-        Outcome::Home,
-        Outcome::Away,
-        Outcome::Draw,
+    /// Signes sortis « 1N21 12N ».
+    const RESULTS: [MatchResult; 7] = [
+        MatchResult::Sign(Outcome::Home),
+        MatchResult::Sign(Outcome::Draw),
+        MatchResult::Sign(Outcome::Away),
+        MatchResult::Sign(Outcome::Home),
+        MatchResult::Sign(Outcome::Home),
+        MatchResult::Sign(Outcome::Away),
+        MatchResult::Sign(Outcome::Draw),
     ];
 
     #[test]
@@ -478,6 +485,108 @@ mod tests {
 
     fn ranks_without_winner() -> Vec<PublishedRank> {
         ranks(0, None, 2393, Some(39.8))
+    }
+
+    /// Les résultats de `RESULTS`, la cinquième rencontre annulée.
+    fn results_with_a_canceled_match() -> Vec<MatchResult> {
+        let mut results = RESULTS.to_vec();
+        results[4] = MatchResult::Canceled;
+        results
+    }
+
+    /// Une rencontre annulée est bonne pour tous les signes (art. 10.6) : un ticket qui s'y trompait gagne un rang, et les
+    /// rangs gardent leurs libellés « 7 bons » et « 6 bons ».
+    #[test]
+    fn a_canceled_match_moves_a_ticket_up_a_rank() {
+        let ranks = ranks(135, Some(578.0), 2393, Some(39.8));
+        // « 1N2122N » : juste partout sauf à la rencontre 5 (2 coché, 1 sorti).
+        let wrong_on_five = Ticket::parse("1N2122N").unwrap();
+        let played_as_is = played(Game::Lf7, &wrong_on_five, &RESULTS, &ranks).unwrap();
+        assert_eq!((played_as_is.good, played_as_is.rank), (6, Some(2)));
+
+        let with_canceled = results_with_a_canceled_match();
+        let settled = played(Game::Lf7, &wrong_on_five, &with_canceled, &ranks).unwrap();
+        assert_eq!(
+            settled,
+            Settled {
+                good: 7,
+                rank: Some(1),
+                gain: 578.0
+            }
+        );
+        // Une erreur ailleurs coûte toujours un rang : 6 bons, deuxième rang.
+        let also_wrong_on_one = Ticket::parse("2N2122N").unwrap();
+        let settled = played(Game::Lf7, &also_wrong_on_one, &with_canceled, &ranks).unwrap();
+        assert_eq!(
+            (settled.good, settled.rank, settled.gain),
+            (6, Some(2), 39.8)
+        );
+        // Le ticket « papier » suit la même règle : la masse du rang 1 se partage avec ses 135 gagnants.
+        let paper = paper(
+            Game::Lf7,
+            &wrong_on_five,
+            &with_canceled,
+            &ranks,
+            200_000.0,
+            None,
+        )
+        .unwrap();
+        assert_eq!((paper.good, paper.rank), (7, Some(1)));
+        assert!((paper.gain - 578.0 * 135.0 / 136.0).abs() < 1e-9);
+    }
+
+    /// LF7 n°133 réglé de bout en bout : résultats écrits par `record_results` avec une rencontre annulée, ticket déclaré
+    /// joué, règlement du bilan. Les résultats de `journal` sont « 1N21N21 » ; la rencontre 1 est ici annulée, et le
+    /// second ticket recommandé, « 2N21N21 », qui s'y trompait, atteint le sans-faute.
+    #[test]
+    fn a_played_ticket_is_settled_on_a_grid_with_a_canceled_match() {
+        let mut conn = journal(at(SESSION));
+        let f = record_fetch(&conn, at(PUBLISHED), Source::Fdj, Page::Results, 200, None).unwrap();
+        let mut matches: Vec<(String, String, MatchResult)> = "1N21N21"
+            .chars()
+            .enumerate()
+            .map(|(i, c)| {
+                let sign = Ticket::parse(&c.to_string()).unwrap().signs()[0];
+                (
+                    format!("H{}", i + 1),
+                    format!("A{}", i + 1),
+                    MatchResult::Sign(sign),
+                )
+            })
+            .collect();
+        matches[0].2 = MatchResult::Canceled;
+        let rank = |winners, gain| RankLine {
+            good: None,
+            winners,
+            unit_gain: Euros::new(gain),
+        };
+        let result = GridResult {
+            game: Some(Game::Lf7),
+            number: 133,
+            date: NaiveDate::from_ymd_opt(2026, 10, 25),
+            closes_at: None,
+            matches,
+            ranks: vec![rank(210, 476.0), rank(3601, 29.7)],
+        };
+        let record = record_results(&mut conn, f, &[result]).unwrap();
+        assert_eq!((record.new, record.refused.len()), (1, 0), "{record:?}");
+        let id = second_ticket(&conn);
+        declare(&conn, &[id], at(PLAYED), euros(1.0)).unwrap();
+
+        let (model, off) = played_ledgers(&conn).unwrap();
+
+        assert_eq!((model.tickets, model.settled, model.paid), (1, 1, 1));
+        assert_eq!(model.returned, 476.0, "rang 1 au lieu du rang 2 (29,70 €)");
+        assert_eq!((off.tickets, off.settled), (0, 0));
+        // Le suivi du modèle règle ses deux tickets au sans-faute, chacun avec sa part de la masse.
+        let followed = recommended(&conn).unwrap();
+        assert_eq!(
+            (followed.tickets, followed.settled, followed.paid),
+            (2, 2, 2)
+        );
+        assert!((followed.returned - 2.0 * 476.0 * 210.0 / 211.0).abs() < 1e-9);
+        // Les gains du ticket joué sont recyclés dans le budget du mois comme ceux de tout ticket réglé.
+        assert_eq!(recycled(&conn, LATER), 476);
     }
 
     #[test]

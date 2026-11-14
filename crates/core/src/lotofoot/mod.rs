@@ -32,6 +32,7 @@ use std::fmt;
 use chrono::{DateTime, Datelike, Utc};
 use chrono_tz::Europe::Paris;
 
+use self::grid_page::MatchResult;
 use crate::domain::Outcome;
 
 /// Formule de jeu suivie. Seuls le LF7 et le LF8 sont joués (choix de Paul du 2026-10-22 : le LF12 et le LF15 tiennent
@@ -194,9 +195,23 @@ impl Ticket {
         self.0.is_empty()
     }
 
-    /// Nombre de bons pronostics contre les résultats donnés (dans l'ordre de la grille).
-    pub fn good(&self, results: &[Outcome]) -> usize {
-        self.0.iter().zip(results).filter(|(a, b)| a == b).count()
+    /// Nombre de bons pronostics contre les résultats officiels (dans l'ordre de la grille). Une rencontre annulée est
+    /// bonne pour tous les signes (règlement Loto Sports v6, art. 10.6 ; `docs/sources.md` §39 et §74) : un ticket de 7
+    /// signes, dont l'une des rencontres est annulée et six sont justes ailleurs, compte 7 bons.
+    pub fn good(&self, results: &[MatchResult]) -> usize {
+        // `iter()` et `zip` prêtent chaque élément (`&Outcome`, `&MatchResult`) ; `filter` prête à son tour la paire à la
+        // fermeture, d'où le double déréférencement `**pick`. `Outcome` et `MatchResult` sont `Copy` : les lire par valeur
+        // ne déplace rien hors du ticket ni des résultats.
+        self.0
+            .iter()
+            .zip(results)
+            .filter(|(pick, result)| result.is_good_for(**pick))
+            .count()
+    }
+
+    /// Comme [`Ticket::good`], pour des signes tous connus : issues simulées, où aucune rencontre n'est annulée.
+    pub fn good_signs(&self, signs: &[Outcome]) -> usize {
+        self.0.iter().zip(signs).filter(|(a, b)| a == b).count()
     }
 }
 
@@ -233,8 +248,70 @@ mod tests {
     #[test]
     fn good_counts_matching_signs() {
         let ticket = Ticket::parse("1N2").unwrap();
-        let results = [Outcome::Home, Outcome::Away, Outcome::Away];
+        let results = [
+            MatchResult::Sign(Outcome::Home),
+            MatchResult::Sign(Outcome::Away),
+            MatchResult::Sign(Outcome::Away),
+        ];
         assert_eq!(ticket.good(&results), 2);
+        assert_eq!(
+            ticket.good_signs(&[Outcome::Home, Outcome::Away, Outcome::Away]),
+            2
+        );
+    }
+
+    /// Une rencontre annulée est bonne pour tous les signes (art. 10.6) : 6 bons ailleurs et une annulée font 7 bons.
+    #[test]
+    fn a_canceled_match_is_good_for_every_sign() {
+        let ticket = Ticket::parse("1N21N21").unwrap();
+        let mut results: Vec<MatchResult> = [
+            Outcome::Home,
+            Outcome::Draw,
+            Outcome::Away,
+            Outcome::Home,
+            Outcome::Draw,
+            Outcome::Away,
+            Outcome::Home,
+        ]
+        .into_iter()
+        .map(MatchResult::Sign)
+        .collect();
+        assert_eq!(ticket.good(&results), 7);
+        // Le ticket se trompe à la rencontre 5 ; tant qu'elle est jouée il n'a que 6 bons.
+        results[4] = MatchResult::Sign(Outcome::Away);
+        assert_eq!(ticket.good(&results), 6);
+        // Elle est annulée : le ticket n'a plus d'erreur, et c'est le cas quel que soit le signe coché pour elle.
+        results[4] = MatchResult::Canceled;
+        assert_eq!(ticket.good(&results), 7);
+        let other = Ticket::parse("1N21121").unwrap();
+        assert_eq!(other.good(&results), 7);
+        // Une autre erreur compte toujours : annulée ou pas, la rencontre 1 reste fausse pour un ticket qui coche 2.
+        let wrong = Ticket::parse("2N21N21").unwrap();
+        assert_eq!(wrong.good(&results), 6);
+    }
+
+    #[test]
+    fn a_canceled_match_has_a_code_and_no_sign() {
+        assert_eq!(MatchResult::Canceled.code(), "C");
+        assert_eq!(MatchResult::from_code("C"), Some(MatchResult::Canceled));
+        assert_eq!(
+            MatchResult::from_code("D"),
+            Some(MatchResult::Sign(Outcome::Draw))
+        );
+        assert_eq!(MatchResult::from_code("X"), None);
+        assert_eq!(MatchResult::Canceled.sign(), None);
+        let signs = [
+            MatchResult::Sign(Outcome::Home),
+            MatchResult::Sign(Outcome::Away),
+        ];
+        assert_eq!(
+            grid_page::signs_of(&signs),
+            Some(vec![Outcome::Home, Outcome::Away])
+        );
+        assert_eq!(
+            grid_page::signs_of(&[signs[0], MatchResult::Canceled]),
+            None
+        );
     }
 
     #[test]

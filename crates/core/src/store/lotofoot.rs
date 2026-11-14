@@ -13,7 +13,7 @@ use chrono_tz::Europe::Paris;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::journal::parse_timestamp;
-use crate::domain::{Euros, Outcome};
+use crate::domain::Euros;
 use crate::error::{Error, Result};
 use crate::lotofoot::grid_page::{GridPage, GridResult, MatchResult, OpenGrid, RankLine};
 use crate::lotofoot::{Game, GridId, PAYOUT_RATE, Ticket};
@@ -348,18 +348,6 @@ pub struct ResultsRecord {
     pub refused: Vec<String>,
 }
 
-/// Les signes d'une grille, dans l'ordre ; `None` si une rencontre est annulée (la table n'accepte que H, D et A).
-fn signs_of(result: &GridResult) -> Option<Vec<Outcome>> {
-    result
-        .matches
-        .iter()
-        .map(|(_, _, shown)| match shown {
-            MatchResult::Sign(outcome) => Some(*outcome),
-            MatchResult::Canceled => None,
-        })
-        .collect()
-}
-
 /// Enregistre les résultats et rapports des grilles LF7 et LF8 de la page des résultats.
 ///
 /// L'année de la grille vient de la date affichée, égale au jour de clôture ; sans date, la grille n'est pas écrite. Pour
@@ -368,8 +356,8 @@ fn signs_of(result: &GridResult) -> Option<Vec<Outcome>> {
 /// tickets portent sur des rencontres qui ne sont plus celles de la grille, ils se règlent à la main.
 ///
 /// Toute grille non écrite est signalée dans [`ResultsRecord::refused`] : seules les formules non suivies sont ignorées
-/// sans bruit. Une rencontre annulée (`docs/sources.md` §74) est refusée tant que la colonne `outcome` n'a pas de valeur
-/// pour elle.
+/// sans bruit. Une rencontre annulée (`docs/sources.md` §74) s'écrit `C` dans la colonne `outcome` (migration 24) : la
+/// grille n'est pas refusée pour autant, son règlement la compte bonne pour tous les signes ([`MatchResult::is_good_for`]).
 pub fn record_results(
     conn: &mut Connection,
     fetch_id: i64,
@@ -400,12 +388,6 @@ pub fn record_results(
             year: date.year(),
             number: result.number,
         };
-        let Some(signs) = signs_of(result) else {
-            record.refused.push(format!(
-                "{id} : rencontre annulée, que l'archive ne sait pas encore écrire (H, D ou A seulement), résultats non écrits"
-            ));
-            continue;
-        };
         let current = matches(&tx, id)?;
         let shown: Vec<(String, String)> = result
             .matches
@@ -425,11 +407,11 @@ pub fn record_results(
             continue;
         }
         let mut written = 0;
-        for (i, outcome) in signs.iter().enumerate() {
+        for (i, (_, _, shown)) in result.matches.iter().enumerate() {
             written += tx.execute(
                 "INSERT OR IGNORE INTO lotofoot_result (game, year, number, position, outcome, fetch_id)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![id.game.code(), id.year, id.number, int(i + 1), outcome.code(), fetch_id],
+                params![id.game.code(), id.year, id.number, int(i + 1), shown.code(), fetch_id],
             )?;
         }
         record.new += usize::from(written > 0);
@@ -786,8 +768,9 @@ pub fn stakes_estimate(conn: &Connection, grid: &GridRow, window: usize) -> Resu
     Ok(Euros::new(median(recent) / share))
 }
 
-/// Signes sortis d'une grille, si les résultats de toutes ses rencontres sont connus.
-pub fn results(conn: &Connection, id: GridId) -> Result<Option<Vec<Outcome>>> {
+/// Résultats d'une grille, dans l'ordre des rencontres, si ceux de toutes ses rencontres sont connus. Une rencontre annulée
+/// y figure comme telle ([`MatchResult::Canceled`]), et non comme un signe : le règlement la compte bonne pour tous.
+pub fn results(conn: &Connection, id: GridId) -> Result<Option<Vec<MatchResult>>> {
     let mut stmt = conn.prepare(
         "SELECT outcome FROM lotofoot_result WHERE game = ?1 AND year = ?2 AND number = ?3 ORDER BY position",
     )?;
@@ -799,7 +782,8 @@ pub fn results(conn: &Connection, id: GridId) -> Result<Option<Vec<Outcome>>> {
     if codes.len() != id.game.matches() {
         return Ok(None);
     }
-    Ok(codes.iter().map(|c| Outcome::from_code(c)).collect())
+    // `collect` vers `Option<Vec<_>>` : un code inconnu en base rend `None` pour toute la grille, comme un résultat manquant.
+    Ok(codes.iter().map(|c| MatchResult::from_code(c)).collect())
 }
 
 /// `true` si un résultat ou un rapport de la grille a été relevé après `at` : une séance de cet instant ne peut pas le
@@ -1210,6 +1194,7 @@ pub fn settled_grids(conn: &Connection) -> Result<Vec<GridId>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::Outcome;
     use crate::lotofoot::grid_of_2026;
     use crate::lotofoot::grid_page::{OpenGrid, PastRanks, RankLine};
     use crate::store::migrate::migrate;
@@ -2303,7 +2288,7 @@ mod tests {
         assert_eq!(record_results(&mut conn, f, &[lf7]).unwrap().new, 0);
         assert_eq!(
             results(&conn, grid_of_2026(Game::Lf7, 132)).unwrap(),
-            Some(vec![Outcome::Draw; 7])
+            Some(vec![MatchResult::Sign(Outcome::Draw); 7])
         );
         let ranks = ranks(&conn, grid_of_2026(Game::Lf7, 132)).unwrap();
         assert_eq!(ranks[1].winners, 2393);
@@ -2313,21 +2298,9 @@ mod tests {
         );
     }
 
-    /// Une grille que l'archive ne sait pas écrire est refusée avec un message, jamais sautée en silence : rencontre
-    /// annulée (pas de valeur H, D ou A pour elle) ou nombre de rencontres différent de la formule.
-    #[test]
-    fn a_grid_that_cannot_be_written_is_refused_with_a_message() {
-        let mut conn = db();
-        let f = record_fetch(
-            &conn,
-            at("2026-11-14T22:00:00Z"),
-            Source::PronoMatch,
-            Page::Results,
-            200,
-            None,
-        )
-        .unwrap();
-        let mut canceled = results_of(&[
+    /// Sept rencontres pour un LF7, la cinquième annulée, tirées de [`results_of`].
+    fn lf7_with_a_canceled_match(number: u32) -> GridResult {
+        let mut result = results_of(&[
             ("a", "b"),
             ("c", "d"),
             ("e", "f"),
@@ -2336,27 +2309,72 @@ mod tests {
             ("k", "l"),
             ("m", "n"),
         ]);
-        canceled.matches[4].2 = MatchResult::Canceled;
-        let mut short = canceled.clone();
-        short.number = 134;
-        short.matches.truncate(6);
-        short.matches[4].2 = MatchResult::Sign(Outcome::Draw);
+        result.number = number;
+        result.matches[4].2 = MatchResult::Canceled;
+        result
+    }
 
-        let record = record_results(&mut conn, f, &[canceled, short]).unwrap();
+    /// LF7 n°140 de la FDJ (`docs/sources.md` §74) : la rencontre 5 est annulée. La grille s'écrit, la rencontre annulée
+    /// vaut `C`, et `results` la relit comme telle, avec les signes des autres rencontres.
+    #[test]
+    fn a_canceled_match_is_written_and_read_back() {
+        let mut conn = db();
+        let f = record_fetch(
+            &conn,
+            at("2026-11-14T22:00:00Z"),
+            Source::Fdj,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
+        let result = lf7_with_a_canceled_match(133);
+
+        // `from_ref` fait d'une référence un tableau d'un élément, sans cloner `result`, que le test relit ensuite.
+        let record = record_results(&mut conn, f, std::slice::from_ref(&result)).unwrap();
+
+        assert_eq!((record.new, record.refused.len()), (1, 0), "{record:?}");
+        let id = grid_of_2026(Game::Lf7, 133);
+        let mut expected = vec![MatchResult::Sign(Outcome::Home); 7];
+        expected[4] = MatchResult::Canceled;
+        assert_eq!(results(&conn, id).unwrap(), Some(expected));
+        let code: String = conn
+            .query_row(
+                "SELECT outcome FROM lotofoot_result WHERE game = 'lf7' AND number = 133 AND position = 5",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(code, "C");
+        assert_eq!(settled_grids(&conn).unwrap(), vec![id]);
+        assert_eq!(ranks(&conn, id).unwrap().len(), 2);
+        // Un second relevé identique n'écrit rien : la première observation fait foi.
+        let again = record_results(&mut conn, f, &[result]).unwrap();
+        assert_eq!(again.new, 0);
+    }
+
+    /// Une grille que l'archive ne sait pas écrire est refusée avec un message, jamais sautée en silence : ici un nombre
+    /// de rencontres différent de la formule, un LF7 à 6 rencontres.
+    #[test]
+    fn a_result_with_the_wrong_number_of_matches_is_refused_with_a_message() {
+        let mut conn = db();
+        let f = record_fetch(
+            &conn,
+            at("2026-11-14T22:00:00Z"),
+            Source::Fdj,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
+        let mut short = lf7_with_a_canceled_match(134);
+        short.matches.truncate(6);
+
+        let record = record_results(&mut conn, f, &[short]).unwrap();
 
         assert_eq!(record.new, 0);
-        assert_eq!(record.refused.len(), 2);
-        assert!(
-            record.refused[0].contains("LF7 n°133"),
-            "{:?}",
-            record.refused
-        );
-        assert!(
-            record.refused[0].contains("annulée"),
-            "{:?}",
-            record.refused
-        );
-        assert!(record.refused[1].contains("6 rencontres lues au lieu de 7"));
+        assert_eq!(record.refused.len(), 1);
+        assert!(record.refused[0].contains("6 rencontres lues au lieu de 7"));
         assert!(settled_grids(&conn).unwrap().is_empty());
     }
 

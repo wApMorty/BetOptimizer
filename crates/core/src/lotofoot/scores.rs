@@ -14,6 +14,7 @@ use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::espn::{self, EspnGame, Phase, parse_scoreboard};
+use super::grid_page::MatchResult;
 use super::odds::{canonical_matches, name_pairs};
 use super::{GridId, Ticket};
 use crate::domain::Outcome;
@@ -329,6 +330,10 @@ fn outcome(home_goals: u16, away_goals: u16) -> Outcome {
 }
 
 /// État de chaque rencontre d'une grille, dans l'ordre. Les résultats officiels priment sur les scores d'ESPN.
+///
+/// Une rencontre annulée (résultat officiel `C`, `docs/sources.md` §74) est définitive et sans signe : elle est bonne pour
+/// tous les signes (art. 10.6), donc n'ajoute aucune erreur à [`Standing`] et ne compte pas parmi les rencontres au signe
+/// connu ; son état le dit en clair.
 pub fn grid_now(conn: &Connection, grid: GridId) -> Result<Vec<MatchNow>> {
     let official = store::results(conn, grid)?;
     let scores = live::scores(conn, grid)?;
@@ -340,13 +345,20 @@ pub fn grid_now(conn: &Connection, grid: GridId) -> Result<Vec<MatchNow>> {
             format!("{} – {}", s.home_goals, s.away_goals)
         });
         let now = match (&official, score) {
-            (Some(results), _) => MatchNow {
-                outcome: results.get(index).copied(),
-                settled: true,
-                live: false,
-                score: text,
-                label: "résultat officiel".to_string(),
-            },
+            (Some(results), _) => {
+                let result = results.get(index).copied();
+                MatchNow {
+                    outcome: result.and_then(MatchResult::sign),
+                    settled: true,
+                    live: false,
+                    score: text,
+                    label: if result == Some(MatchResult::Canceled) {
+                        "annulée : bonne pour tous les signes".to_string()
+                    } else {
+                        "résultat officiel".to_string()
+                    },
+                }
+            }
             (None, None) => MatchNow {
                 outcome: None,
                 settled: false,
@@ -796,6 +808,49 @@ mod tests {
             &[known(Home, true), known(Draw, true), known(Home, true)],
         );
         assert_eq!(won.label(), "gagné : une erreur");
+    }
+
+    /// Une rencontre annulée est un résultat officiel définitif, sans signe : bonne pour tous (art. 10.6), elle n'ajoute
+    /// aucune erreur et le ticket qui s'y trompait reste sans faute.
+    #[test]
+    fn a_canceled_match_is_settled_without_a_sign_and_adds_no_error() {
+        let (conn, _, _) = setup();
+        let f = record_fetch(
+            &conn,
+            at("2026-10-24T20:00:00Z"),
+            Source::Fdj,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
+        for (position, code) in ["H", "D", "A", "H", "C", "A", "H"].iter().enumerate() {
+            conn.execute(
+                "INSERT INTO lotofoot_result VALUES ('lf7', 2026, 133, ?1, ?2, ?3)",
+                rusqlite::params![position as i64 + 1, code, f],
+            )
+            .unwrap();
+        }
+
+        let now = grid_now(&conn, grid_of_2026(Game::Lf7, 133)).unwrap();
+
+        assert!(now.iter().all(|m| m.settled && !m.live));
+        assert_eq!(now[4].outcome, None);
+        assert!(now[4].label.contains("annulée"), "{}", now[4].label);
+        assert_eq!(now[0].outcome, Some(Outcome::Home));
+        assert_eq!(now[0].label, "résultat officiel");
+        // « 1N21 2 21 » : le signe coché à la rencontre 5 (2) ne correspondrait à aucun signe sorti, mais elle est annulée.
+        let ticket = Ticket::parse("1N21221").unwrap();
+        let standing = Standing::of(&Standing::covers(&ticket), &now);
+        assert_eq!((standing.errors, standing.complete), (0, true));
+        assert_eq!(standing.label(), "gagné : sans faute");
+        // Une vraie erreur ailleurs compte : une erreur, toujours gagnant au deuxième rang.
+        let wrong = Ticket::parse("2N21221").unwrap();
+        let standing = Standing::of(&Standing::covers(&wrong), &now);
+        assert_eq!(
+            (standing.errors, standing.label().as_str()),
+            (1, "gagné : une erreur")
+        );
     }
 
     #[test]

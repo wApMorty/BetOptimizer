@@ -18,6 +18,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use statrs::distribution::{DiscreteCDF, Poisson};
 
+use super::grid_page::signs_of;
 use super::model::{FROZEN, GridModel, public_split};
 use super::{Game, GridId, Ticket};
 use crate::domain::{Euros, Outcome};
@@ -89,6 +90,15 @@ pub fn calibration(conn: &Connection) -> Result<Vec<Band>> {
         let (Some(results), Some(split)) =
             (store::results(conn, id)?, store::final_split(conn, id)?)
         else {
+            continue;
+        };
+        // Une grille à rencontre annulée n'entre pas dans la calibration : le modèle prédit les gagnants à partir d'une
+        // issue par rencontre (λ), et une rencontre annulée n'en a aucune. L'écarter vaut mieux que de lui inventer un
+        // signe, ou que de retirer la rencontre du produit comme le fait la mesure du §74 : ce modèle de substitution n'est
+        // pas validé, et ses rapports publiés / prédits (0,92 pour un annulé, 0,71 pour deux ou plus, sur les copies
+        // Wayback) pourraient faire déclarer le modèle gelé en défaut pour une raison qui n'est pas la sienne. Cas rare :
+        // 89 grilles sur 1 735 en avaient au moins une.
+        let Some(results) = signs_of(&results) else {
             continue;
         };
         let ranks = store::ranks(conn, id)?;
@@ -212,6 +222,10 @@ pub fn verify(conn: &Connection, now: DateTime<Utc>) -> Result<Verification> {
     };
     let mut realized = 0.0;
     for reco in &recos {
+        // Une rencontre annulée compte bonne pour tous les signes : le règlement `settle::paper` suit l'art. 10.6. La
+        // simulation du gain ci-dessous tire une issue pour chaque rencontre et ne connaît pas l'annulation : le gain réalisé
+        // d'une telle grille peut dépasser un peu sa loi simulée. Ce biais penche vers l'indulgence (il ne peut que retarder
+        // un verdict de défaut, jamais en créer un) ; il touche les rares grilles à annulé (89 sur 1 735).
         let Some(results) = store::results(conn, reco.grid)? else {
             continue;
         };
@@ -486,6 +500,95 @@ mod tests {
             .unwrap();
         let expected = FROZEN.expected(lambda, stakes, 7);
         assert!(band.predicted >= expected - 1e-6);
+    }
+
+    /// Une grille réglée dont une rencontre est annulée n'entre pas dans la calibration (aucune issue à prédire pour elle) ;
+    /// la même grille sans rencontre annulée y entre, avec ses deux rangs.
+    #[test]
+    fn a_grid_with_a_canceled_match_is_left_out_of_the_calibration() {
+        use crate::lotofoot::grid_page::{GridPage, GridResult, MatchResult, OpenGrid, RankLine};
+        use crate::store::lotofoot::{
+            Page, Source, record_fetch, record_grid_page, record_results,
+        };
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::store::migrate::migrate(&mut conn).unwrap();
+        let at = |s: &str| DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc);
+        let f = record_fetch(
+            &conn,
+            at("2026-10-25T15:00:00Z"),
+            Source::PronoMatch,
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        // Deux grilles de même composition de numéros différents : n°133 sans annulé, n°134 avec.
+        for (number, closes_at) in [(133, "2026-10-25T16:10:00Z"), (134, "2026-10-26T16:10:00Z")] {
+            let page = GridPage {
+                open: Some(OpenGrid {
+                    game: Game::Lf7,
+                    accepting: true,
+                    number,
+                    closes_at: at(closes_at),
+                    jackpot: None,
+                    matches: (1..=7)
+                        .map(|i| (format!("H{i}"), format!("A{i}")))
+                        .collect(),
+                    split: Some(vec![[50, 30, 20]; 7]),
+                    split_at: None,
+                }),
+                history: vec![],
+            };
+            record_grid_page(&mut conn, f, Game::Lf7, &page).unwrap();
+        }
+        let r = record_fetch(
+            &conn,
+            at("2026-10-27T21:00:00Z"),
+            Source::Fdj,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
+        let result = |number: u32, day: u32, canceled: Option<usize>| GridResult {
+            game: Some(Game::Lf7),
+            number,
+            date: chrono::NaiveDate::from_ymd_opt(2026, 10, day),
+            closes_at: None,
+            matches: (1..=7)
+                .map(|i| {
+                    let shown = if canceled == Some(i) {
+                        MatchResult::Canceled
+                    } else {
+                        MatchResult::Sign(Outcome::Home)
+                    };
+                    (format!("H{i}"), format!("A{i}"), shown)
+                })
+                .collect(),
+            ranks: vec![
+                RankLine {
+                    good: Some(7),
+                    winners: 1500,
+                    unit_gain: Euros::new(40.0),
+                },
+                RankLine {
+                    good: Some(6),
+                    winners: 15000,
+                    unit_gain: Euros::new(5.0),
+                },
+            ],
+        };
+        // La grille à annulé seule : rien à calibrer.
+        record_results(&mut conn, r, &[result(134, 26, Some(5))]).unwrap();
+        assert_eq!(store::settled_grids(&conn).unwrap().len(), 1);
+        let bands = calibration(&conn).unwrap();
+        assert_eq!(bands.iter().map(|b| b.observations).sum::<usize>(), 0);
+
+        // Avec la grille sans annulé, ses deux rangs seulement sont comptés.
+        record_results(&mut conn, r, &[result(133, 25, None)]).unwrap();
+        assert_eq!(store::settled_grids(&conn).unwrap().len(), 2);
+        let bands = calibration(&conn).unwrap();
+        assert_eq!(bands.iter().map(|b| b.observations).sum::<usize>(), 2);
     }
 
     #[test]

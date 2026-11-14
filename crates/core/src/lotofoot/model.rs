@@ -415,7 +415,7 @@ impl GridModel {
         if ticket.len() != n || results.len() != n {
             return 0.0;
         }
-        let errors = n - ticket.good(results);
+        let errors = n - ticket.good_signs(results);
         let Some(mass) = self.mass(errors) else {
             return 0.0;
         };

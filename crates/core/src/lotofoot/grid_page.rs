@@ -73,6 +73,50 @@ pub enum MatchResult {
     Canceled,
 }
 
+impl MatchResult {
+    /// Code à une lettre stocké dans `lotofoot_result.outcome` : `H`, `D` ou `A` pour un signe, `C` pour une rencontre
+    /// annulée (migration 24).
+    pub fn code(self) -> &'static str {
+        match self {
+            MatchResult::Sign(outcome) => outcome.code(),
+            MatchResult::Canceled => "C",
+        }
+    }
+
+    /// Résultat correspondant à un code de [`MatchResult::code`] ; `None` pour toute autre valeur.
+    pub fn from_code(code: &str) -> Option<MatchResult> {
+        if code == "C" {
+            Some(MatchResult::Canceled)
+        } else {
+            Outcome::from_code(code).map(MatchResult::Sign)
+        }
+    }
+
+    /// Signe sorti ; `None` pour une rencontre annulée, où aucun signe n'est sorti.
+    pub fn sign(self) -> Option<Outcome> {
+        match self {
+            MatchResult::Sign(outcome) => Some(outcome),
+            MatchResult::Canceled => None,
+        }
+    }
+
+    /// Un pronostic sur `pick` est-il bon ? Une rencontre annulée est bonne pour tous les signes (règlement Loto Sports v6,
+    /// art. 10.6 ; `docs/sources.md` §39 et §74) : les rangs restent « N bons » et « N − 1 bons ».
+    pub fn is_good_for(self, pick: Outcome) -> bool {
+        match self {
+            MatchResult::Sign(outcome) => outcome == pick,
+            MatchResult::Canceled => true,
+        }
+    }
+}
+
+/// Les signes de toute une grille, `None` si une rencontre est annulée : une rencontre annulée n'a aucun signe, et ce qui
+/// suppose une issue par rencontre (calibration du modèle) ne peut pas la lire.
+pub fn signs_of(results: &[MatchResult]) -> Option<Vec<Outcome>> {
+    // `collect` vers `Option<Vec<_>>` s'arrête au premier `None` : une seule rencontre annulée suffit à rendre `None`.
+    results.iter().map(|result| result.sign()).collect()
+}
+
 /// Résultat officiel d'une grille.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GridResult {
