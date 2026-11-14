@@ -406,7 +406,7 @@ mod tests {
     /// tranches de λ, et le gagnant prédit au rang 2 vaut le λ corrigé par le modèle gelé.
     #[test]
     fn a_settled_grid_feeds_the_calibration() {
-        use crate::lotofoot::pronomatch::{GridPage, GridResult, OpenGrid, RankLine};
+        use crate::lotofoot::grid_page::{GridPage, GridResult, MatchResult, OpenGrid, RankLine};
         use crate::store::lotofoot::{Page, record_fetch, record_grid_page, record_results};
         let mut conn = Connection::open_in_memory().unwrap();
         crate::store::migrate::migrate(&mut conn).unwrap();
@@ -440,8 +440,15 @@ mod tests {
             game: Some(Game::Lf7),
             number: 133,
             date: chrono::NaiveDate::from_ymd_opt(2026, 10, 25),
+            closes_at: None,
             matches: (1..=7)
-                .map(|i| (format!("H{i}"), format!("A{i}"), Outcome::Home))
+                .map(|i| {
+                    (
+                        format!("H{i}"),
+                        format!("A{i}"),
+                        MatchResult::Sign(Outcome::Home),
+                    )
+                })
                 .collect(),
             ranks: vec![
                 RankLine {

@@ -614,7 +614,7 @@ mod tests {
 
     #[test]
     fn a_played_grid_with_all_its_results_is_no_longer_shown() {
-        use crate::lotofoot::pronomatch::GridResult;
+        use crate::lotofoot::grid_page::{GridResult, MatchResult};
         use crate::lotofoot::{Game, grid_of_2026};
         use crate::store::lotofoot::{Page as FetchPage, record_fetch, record_results};
 
@@ -638,12 +638,13 @@ mod tests {
             game: Some(Game::Lf7),
             number: 133,
             date: chrono::NaiveDate::from_ymd_opt(2026, 10, 25),
+            closes_at: None,
             matches: (1..=7)
                 .map(|i| {
                     (
                         format!("H{i}"),
                         format!("A{i}"),
-                        crate::domain::Outcome::Home,
+                        MatchResult::Sign(crate::domain::Outcome::Home),
                     )
                 })
                 .collect(),

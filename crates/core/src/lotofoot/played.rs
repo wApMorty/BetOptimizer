@@ -161,7 +161,7 @@ pub fn declare_manual(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lotofoot::pronomatch::{GridPage, OpenGrid};
+    use crate::lotofoot::grid_page::{GridPage, OpenGrid};
     use crate::lotofoot::{Game, grid_of_2026};
     use crate::store::lotofoot::{
         NewReco, NewSession, Page, record_fetch, record_grid_page, record_session,

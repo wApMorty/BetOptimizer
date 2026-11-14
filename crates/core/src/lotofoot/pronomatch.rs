@@ -11,6 +11,7 @@ use chrono_tz::Europe::Paris;
 use scraper::{ElementRef, Html, Selector};
 
 use super::Game;
+use super::grid_page::{GridPage, GridResult, MatchResult, OpenGrid, PastRanks, RankLine};
 use crate::domain::{Euros, Outcome};
 use crate::error::{Error, Result};
 
@@ -24,74 +25,6 @@ pub fn grid_path(game: Game) -> String {
 
 /// Chemin de la page des derniers résultats.
 pub const RESULTS_PATH: &str = "resultats-loto-foot/";
-
-/// Grille en cours d'une formule, telle qu'affichée : ouverte aux paris, ou annoncée mais pas encore ouverte.
-#[derive(Debug, Clone, PartialEq)]
-pub struct OpenGrid {
-    /// Formule.
-    pub game: Game,
-    /// `true` si la grille accepte les prises de jeu (« grille ouverte ») ; `false` si elle est seulement annoncée
-    /// (« grille pas encore ouverte aux paris »), sans répartition.
-    pub accepting: bool,
-    /// Numéro du tirage (« n°133 »).
-    pub number: u32,
-    /// Fin de validation des prises de jeu, en UTC.
-    pub closes_at: DateTime<Utc>,
-    /// Gain minimum garanti du rang 1 (« pactole »), s'il est annoncé.
-    pub jackpot: Option<Euros>,
-    /// Rencontres : équipe à domicile, équipe à l'extérieur, noms bruts du site.
-    pub matches: Vec<(String, String)>,
-    /// Répartition FDJ en pourcents entiers (1, N, 2) ; `None` tant que la FDJ ne l'a pas publiée (« — »).
-    pub split: Option<Vec<[u32; 3]>>,
-    /// Heure du relevé de la répartition annoncée par le site, en UTC.
-    pub split_at: Option<DateTime<Utc>>,
-}
-
-/// Rapports d'une grille passée : un élément par rang, du sans-faute au dernier rang payé.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PastRanks {
-    /// Numéro du tirage.
-    pub number: u32,
-    /// Jour de clôture (`None` s'il est illisible) : le numéro seul ne dit pas de quelle année est la grille.
-    pub closed: Option<NaiveDate>,
-    /// Rangs : nombre de gagnants et gain unitaire (`None` quand il n'y a « aucun gagnant »).
-    pub ranks: Vec<RankLine>,
-}
-
-/// Un rang publié.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RankLine {
-    /// Bons pronostics du rang (7 pour le sans-faute du LF7) ; `None` si la page ne le dit pas (tableau d'historique).
-    pub good: Option<u32>,
-    /// Nombre de grilles gagnantes.
-    pub winners: u32,
-    /// Gain unitaire, `None` sans gagnant.
-    pub unit_gain: Option<Euros>,
-}
-
-/// Page d'une formule : la grille en cours (s'il y en a une) et les rapports des dernières grilles.
-#[derive(Debug, Clone, PartialEq)]
-pub struct GridPage {
-    /// Grille ouverte.
-    pub open: Option<OpenGrid>,
-    /// Rapports des dernières grilles.
-    pub history: Vec<PastRanks>,
-}
-
-/// Résultat officiel d'une grille (page des résultats).
-#[derive(Debug, Clone, PartialEq)]
-pub struct GridResult {
-    /// Formule, `None` pour le LF12 et le LF15 (non suivis).
-    pub game: Option<Game>,
-    /// Numéro du tirage.
-    pub number: u32,
-    /// Date affichée.
-    pub date: Option<NaiveDate>,
-    /// Rencontres dans l'ordre : équipes et signe sorti.
-    pub matches: Vec<(String, String, Outcome)>,
-    /// Rapports, du sans-faute au dernier rang.
-    pub ranks: Vec<RankLine>,
-}
 
 fn selector(css: &str) -> Selector {
     Selector::parse(css).expect("sélecteur CSS constant valide")
@@ -300,6 +233,8 @@ pub fn parse_results_page(html: &str) -> Result<Vec<GridResult>> {
                 game: size.and_then(Game::from_matches),
                 number,
                 date,
+                // prono-match ne donne que le jour, pas l'heure de clôture.
+                closes_at: None,
                 matches: Vec::new(),
                 ranks: Vec::new(),
             });
@@ -315,7 +250,7 @@ pub fn parse_results_page(html: &str) -> Result<Vec<GridResult>> {
                 .next()
                 .map(text_of);
             if let (Some(block), Some(home), Some(away)) = (out.last_mut(), home, away) {
-                block.matches.push((home, away, sign));
+                block.matches.push((home, away, MatchResult::Sign(sign)));
             }
         } else if element.value().classes().any(|c| c == "rk") {
             let good = own.trim_end_matches("bons").trim().parse::<u32>().ok();
@@ -582,7 +517,7 @@ mod tests {
         assert_eq!(lf7.game, Some(Game::Lf7));
         assert_eq!(lf7.number, 132);
         assert_eq!(lf7.date, NaiveDate::from_ymd_opt(2026, 10, 22));
-        assert_eq!(lf7.matches[1].2, Outcome::Draw);
+        assert_eq!(lf7.matches[1].2, MatchResult::Sign(Outcome::Draw));
         assert_eq!(
             lf7.ranks[0],
             RankLine {

@@ -680,8 +680,8 @@ mod tests {
     use super::*;
     use crate::domain::{Euros, Quota};
     use crate::ingest::client::HttpResponse;
+    use crate::lotofoot::grid_page::{GridPage, OpenGrid, PastRanks, RankLine};
     use crate::lotofoot::played;
-    use crate::lotofoot::pronomatch::{GridPage, OpenGrid, PastRanks, RankLine};
     use crate::lotofoot::{Game, grid_of_2026};
     use crate::store::archive::{self, Endpoint, NewApiCall};
     use crate::store::lotofoot::{Page, record_fetch, record_grid_page};

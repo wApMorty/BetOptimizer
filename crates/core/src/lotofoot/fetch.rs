@@ -15,7 +15,8 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 
-use super::pronomatch::{self, BASE_URL, OpenGrid, RESULTS_PATH, grid_path};
+use super::grid_page::OpenGrid;
+use super::pronomatch::{self, BASE_URL, RESULTS_PATH, grid_path};
 use super::{Game, GridId};
 use crate::error::{Error, Result};
 use crate::format::kickoff_label;

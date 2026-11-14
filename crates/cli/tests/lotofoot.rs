@@ -66,7 +66,7 @@ fn a_manual_ticket_is_linked_or_off_model_and_an_unknown_number_writes_nothing()
 mod journal {
     use super::run_edge;
     use chrono::{Duration, Utc};
-    use edge_core::lotofoot::pronomatch::{GridPage, OpenGrid};
+    use edge_core::lotofoot::grid_page::{GridPage, OpenGrid};
     use edge_core::lotofoot::{Game, GridId, Ticket};
     use edge_core::store::lotofoot::{
         NewReco, NewSession, Page, plays, record_fetch, record_grid_page, record_session,

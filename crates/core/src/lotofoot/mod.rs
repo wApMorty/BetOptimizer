@@ -1,14 +1,16 @@
 //! Loto Foot (FDJ) : jeu à répartition où les gagnants se partagent les mises des autres joueurs (phase 14).
 //!
 //! On y cherche les combinaisons que le marché juge plausibles mais que le public délaisse. Le module calcule
-//! l'espérance exacte d'un ticket ([`model`]), choisit les tickets de la semaine ([`optimize`]), lit les pages de
-//! prono-match ([`pronomatch`]) et règle les tickets joués ([`settle`]). Étude et choix : `docs/sources.md` §37 et §38.
+//! l'espérance exacte d'un ticket ([`model`]), choisit les tickets de la semaine ([`optimize`]), lit les pages des
+//! sources ([`pronomatch`] ; les types communs aux sources sont dans [`grid_page`]) et règle les tickets joués
+//! ([`settle`]). Étude et choix : `docs/sources.md` §37, §38 et §74.
 
 pub mod alert;
 pub mod bulletin;
 pub mod espn;
 pub mod exact;
 pub mod fetch;
+pub mod grid_page;
 pub mod live;
 pub mod model;
 pub mod odds;

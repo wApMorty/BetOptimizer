@@ -56,7 +56,7 @@ mod tests {
     use super::*;
     use crate::domain::Euros;
     use crate::lotofoot::Game;
-    use crate::lotofoot::pronomatch::{GridPage, OpenGrid};
+    use crate::lotofoot::grid_page::{GridPage, OpenGrid};
     use crate::store::lotofoot::{Page, record_fetch, record_grid_page};
     use crate::store::migrate::migrate;
 

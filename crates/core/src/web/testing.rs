@@ -8,7 +8,7 @@ use crate::betting::recommend::{self, RECOMMEND_MIN_EDGE};
 use crate::config::{Config, GrandLotoEdition, ServeToken};
 use crate::domain::{Euros, Event, Odds, Quota, Quote};
 use crate::ingest::aliases::Aliases;
-use crate::lotofoot::pronomatch::{GridPage, OpenGrid};
+use crate::lotofoot::grid_page::{GridPage, OpenGrid};
 use crate::lotofoot::{Game, Ticket, grid_of_2026};
 use crate::market::margin::MarginMethod;
 use crate::paths::Paths;

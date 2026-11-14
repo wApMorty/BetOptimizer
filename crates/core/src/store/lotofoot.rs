@@ -14,7 +14,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use super::journal::parse_timestamp;
 use crate::domain::{Euros, Outcome};
 use crate::error::{Error, Result};
-use crate::lotofoot::pronomatch::{GridPage, GridResult, OpenGrid, RankLine};
+use crate::lotofoot::grid_page::{GridPage, GridResult, MatchResult, OpenGrid, RankLine};
 use crate::lotofoot::{Game, GridId, PAYOUT_RATE, Ticket};
 
 fn timestamp(at: DateTime<Utc>) -> String {
@@ -297,12 +297,28 @@ pub struct ResultsRecord {
     pub refused: Vec<String>,
 }
 
+/// Les signes d'une grille, dans l'ordre ; `None` si une rencontre est annulée (la table n'accepte que H, D et A).
+fn signs_of(result: &GridResult) -> Option<Vec<Outcome>> {
+    result
+        .matches
+        .iter()
+        .map(|(_, _, shown)| match shown {
+            MatchResult::Sign(outcome) => Some(*outcome),
+            MatchResult::Canceled => None,
+        })
+        .collect()
+}
+
 /// Enregistre les résultats et rapports des grilles LF7 et LF8 de la page des résultats.
 ///
 /// L'année de la grille vient de la date affichée, égale au jour de clôture ; sans date, la grille n'est pas écrite. Pour
 /// une grille connue, les rencontres de la page doivent être celles de la composition en vigueur : les signes sont écrits
 /// par position. Une grille dont la composition a changé après des tickets déclarés joués n'est pas réglée : ces
 /// tickets portent sur des rencontres qui ne sont plus celles de la grille, ils se règlent à la main.
+///
+/// Toute grille non écrite est signalée dans [`ResultsRecord::refused`] : seules les formules non suivies sont ignorées
+/// sans bruit. Une rencontre annulée (`docs/sources.md` §74) est refusée tant que la colonne `outcome` n'a pas de valeur
+/// pour elle.
 pub fn record_results(
     conn: &mut Connection,
     fetch_id: i64,
@@ -313,6 +329,12 @@ pub fn record_results(
     for result in results {
         let Some(game) = result.game else { continue };
         if result.matches.len() != game.matches() {
+            record.refused.push(format!(
+                "{game} n°{} : {} rencontres lues au lieu de {}, résultats non écrits",
+                result.number,
+                result.matches.len(),
+                game.matches()
+            ));
             continue;
         }
         let Some(date) = result.date else {
@@ -326,6 +348,12 @@ pub fn record_results(
             game,
             year: date.year(),
             number: result.number,
+        };
+        let Some(signs) = signs_of(result) else {
+            record.refused.push(format!(
+                "{id} : rencontre annulée, que l'archive ne sait pas encore écrire (H, D ou A seulement), résultats non écrits"
+            ));
+            continue;
         };
         let current = matches(&tx, id)?;
         let shown: Vec<(String, String)> = result
@@ -346,7 +374,7 @@ pub fn record_results(
             continue;
         }
         let mut written = 0;
-        for (i, (_, _, outcome)) in result.matches.iter().enumerate() {
+        for (i, outcome) in signs.iter().enumerate() {
             written += tx.execute(
                 "INSERT OR IGNORE INTO lotofoot_result (game, year, number, position, outcome, fetch_id)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -1120,7 +1148,7 @@ pub fn settled_grids(conn: &Connection) -> Result<Vec<GridId>> {
 mod tests {
     use super::*;
     use crate::lotofoot::grid_of_2026;
-    use crate::lotofoot::pronomatch::{OpenGrid, PastRanks, RankLine};
+    use crate::lotofoot::grid_page::{OpenGrid, PastRanks, RankLine};
     use crate::store::migrate::migrate;
 
     fn db() -> Connection {
@@ -1511,9 +1539,16 @@ mod tests {
             game: Some(Game::Lf7),
             number: 133,
             date: chrono::NaiveDate::from_ymd_opt(2026, 10, 25),
+            closes_at: None,
             matches: matches
                 .iter()
-                .map(|(h, a)| (h.to_string(), a.to_string(), Outcome::Home))
+                .map(|(h, a)| {
+                    (
+                        h.to_string(),
+                        a.to_string(),
+                        MatchResult::Sign(Outcome::Home),
+                    )
+                })
                 .collect(),
             ranks: vec![rank(135, 578.0), rank(2393, 39.8)],
         }
@@ -1737,8 +1772,15 @@ mod tests {
             game: Some(Game::Lf7),
             number,
             date: date.and_then(|(y, m, d)| chrono::NaiveDate::from_ymd_opt(y, m, d)),
+            closes_at: None,
             matches: (1..=7)
-                .map(|i| (format!("{tag}H{i}"), format!("{tag}A{i}"), Outcome::Away))
+                .map(|i| {
+                    (
+                        format!("{tag}H{i}"),
+                        format!("{tag}A{i}"),
+                        MatchResult::Sign(Outcome::Away),
+                    )
+                })
                 .collect(),
             ranks: vec![rank(7, gain), rank(77, gain / 10.0)],
         }
@@ -2010,8 +2052,15 @@ mod tests {
             game: Some(Game::Lf7),
             number: 132,
             date: chrono::NaiveDate::from_ymd_opt(2026, 10, 25),
+            closes_at: None,
             matches: (0..7)
-                .map(|_| ("a".to_string(), "b".to_string(), Outcome::Draw))
+                .map(|_| {
+                    (
+                        "a".to_string(),
+                        "b".to_string(),
+                        MatchResult::Sign(Outcome::Draw),
+                    )
+                })
                 .collect(),
             ranks: vec![rank(135, 578.0), rank(2393, 39.8)],
         };
@@ -2038,5 +2087,44 @@ mod tests {
             settled_grids(&conn).unwrap(),
             vec![grid_of_2026(Game::Lf7, 132)]
         );
+    }
+
+    /// Une grille que l'archive ne sait pas écrire est refusée avec un message, jamais sautée en silence : rencontre
+    /// annulée (pas de valeur H, D ou A pour elle) ou nombre de rencontres différent de la formule.
+    #[test]
+    fn a_grid_that_cannot_be_written_is_refused_with_a_message() {
+        let mut conn = db();
+        let f = record_fetch(&conn, at("2026-11-14T22:00:00Z"), Page::Results, 200, None).unwrap();
+        let mut canceled = results_of(&[
+            ("a", "b"),
+            ("c", "d"),
+            ("e", "f"),
+            ("g", "h"),
+            ("i", "j"),
+            ("k", "l"),
+            ("m", "n"),
+        ]);
+        canceled.matches[4].2 = MatchResult::Canceled;
+        let mut short = canceled.clone();
+        short.number = 134;
+        short.matches.truncate(6);
+        short.matches[4].2 = MatchResult::Sign(Outcome::Draw);
+
+        let record = record_results(&mut conn, f, &[canceled, short]).unwrap();
+
+        assert_eq!(record.new, 0);
+        assert_eq!(record.refused.len(), 2);
+        assert!(
+            record.refused[0].contains("LF7 n°133"),
+            "{:?}",
+            record.refused
+        );
+        assert!(
+            record.refused[0].contains("annulée"),
+            "{:?}",
+            record.refused
+        );
+        assert!(record.refused[1].contains("6 rencontres lues au lieu de 7"));
+        assert!(settled_grids(&conn).unwrap().is_empty());
     }
 }
