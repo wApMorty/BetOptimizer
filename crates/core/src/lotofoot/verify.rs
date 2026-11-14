@@ -420,6 +420,7 @@ mod tests {
     /// tranches de λ, et le gagnant prédit au rang 2 vaut le λ corrigé par le modèle gelé.
     #[test]
     fn a_settled_grid_feeds_the_calibration() {
+        use crate::ingest::aliases::Aliases;
         use crate::lotofoot::grid_page::{GridPage, GridResult, MatchResult, OpenGrid, RankLine};
         use crate::store::lotofoot::{
             Page, Source, record_fetch, record_grid_page, record_results,
@@ -488,7 +489,7 @@ mod tests {
                 },
             ],
         };
-        record_results(&mut conn, r, &[result]).unwrap();
+        record_results(&mut conn, &Aliases::default(), r, &[result]).unwrap();
         let bands = calibration(&conn).unwrap();
         assert_eq!(bands.iter().map(|b| b.observations).sum::<usize>(), 2);
         // Mises déduites du rang 2 : 15 000 × 5 / 0,385 ; λ du rang 2 = S · 7 · 0,5^6 · 0,5 (tous les favoris sont sortis).
@@ -506,6 +507,7 @@ mod tests {
     /// la même grille sans rencontre annulée y entre, avec ses deux rangs.
     #[test]
     fn a_grid_with_a_canceled_match_is_left_out_of_the_calibration() {
+        use crate::ingest::aliases::Aliases;
         use crate::lotofoot::grid_page::{GridPage, GridResult, MatchResult, OpenGrid, RankLine};
         use crate::store::lotofoot::{
             Page, Source, record_fetch, record_grid_page, record_results,
@@ -579,13 +581,19 @@ mod tests {
             ],
         };
         // La grille à annulé seule : rien à calibrer.
-        record_results(&mut conn, r, &[result(134, 26, Some(5))]).unwrap();
+        record_results(
+            &mut conn,
+            &Aliases::default(),
+            r,
+            &[result(134, 26, Some(5))],
+        )
+        .unwrap();
         assert_eq!(store::settled_grids(&conn).unwrap().len(), 1);
         let bands = calibration(&conn).unwrap();
         assert_eq!(bands.iter().map(|b| b.observations).sum::<usize>(), 0);
 
         // Avec la grille sans annulé, ses deux rangs seulement sont comptés.
-        record_results(&mut conn, r, &[result(133, 25, None)]).unwrap();
+        record_results(&mut conn, &Aliases::default(), r, &[result(133, 25, None)]).unwrap();
         assert_eq!(store::settled_grids(&conn).unwrap().len(), 2);
         let bands = calibration(&conn).unwrap();
         assert_eq!(bands.iter().map(|b| b.observations).sum::<usize>(), 2);

@@ -218,6 +218,7 @@ pub fn recycled_gains(
 mod tests {
     use super::*;
     use crate::domain::Outcome;
+    use crate::ingest::aliases::Aliases;
     use crate::lotofoot::grid_of_2026;
     use crate::lotofoot::grid_page::{GridPage, GridResult, OpenGrid, RankLine};
     use crate::lotofoot::played::{declare, declare_manual};
@@ -568,7 +569,7 @@ mod tests {
             matches,
             ranks: vec![rank(210, 476.0), rank(3601, 29.7)],
         };
-        let record = record_results(&mut conn, f, &[result]).unwrap();
+        let record = record_results(&mut conn, &Aliases::default(), f, &[result]).unwrap();
         assert_eq!((record.new, record.refused.len()), (1, 0), "{record:?}");
         let id = second_ticket(&conn);
         declare(&conn, &[id], at(PLAYED), euros(1.0)).unwrap();

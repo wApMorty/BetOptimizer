@@ -206,12 +206,14 @@
 "St Johnstone" = ["St. Johnstone FC"]
 "St Mirren" = ["St Mirren FC"]
 
-# Loto Foot (phase 14) : noms de prono-match.fr (grilles FDJ, en français) → noms de The Odds API, toutes compétitions
-# confondues (une grille mêle Ligue 1, Ligue 2, coupes d'Europe…). Le nom canonique est celui de The Odds API ; les
-# variantes sont celles de prono-match. Chaque ligne a été appariée sur des noms réellement vus des deux côtés (relevés du
-# 2026-10-22) ; un club absent bloque la grille, avec son nom, jusqu'à ce qu'il soit ajouté ici. Depuis le 2026-10-29, les
-# variantes comprennent aussi les noms d'OddsPapi (« SL Benfica »), qui servent au repli quand The Odds API n'a pas le match
-# (docs/sources.md §62) ; la séance propose des pistes pour les écrire.
+# Loto Foot (phase 14) : noms des grilles FDJ (en français) → noms de The Odds API, toutes compétitions confondues (une
+# grille mêle Ligue 1, Ligue 2, coupes d'Europe…). Le nom canonique est celui de The Odds API ; les variantes sont celles de
+# prono-match (source jusqu'au 2026-11-14, dont l'archive garde les noms) et de la FDJ, qui abrège (« Atl. Madrid »,
+# « Man. City »). Chaque ligne a été appariée sur des noms réellement vus des deux côtés (relevés du 2026-10-22) ; un club
+# absent bloque la grille, avec son nom, jusqu'à ce qu'il soit ajouté ici. Depuis le 2026-10-29, les variantes comprennent
+# aussi les noms d'OddsPapi (« SL Benfica »), qui servent au repli quand The Odds API n'a pas le match (docs/sources.md §62) ;
+# la séance propose des pistes pour les écrire. La comparaison des résultats avec la composition d'une grille passe par cette
+# section (phase 22) : deux noms d'une même équipe, dont l'archive garde chacun, y sont reconnus comme la même rencontre.
 [LOTOFOOT]
 "AC Milan" = ["Milan AC"]
 "AS Monaco" = ["Monaco"]
@@ -223,7 +225,7 @@
 "Arsenal" = []
 "Aston Villa" = []
 "Atalanta BC" = ["Atalanta"]
-"Atlético Madrid" = []
+"Atlético Madrid" = ["Atl. Madrid"]
 "Auxerre" = []
 "Barcelona" = ["FC Barcelone"]
 "Bayer Leverkusen" = ["Leverkusen"]
@@ -261,8 +263,8 @@
 "Liverpool" = []
 "Lorient" = []
 "Lyon" = []
-"Manchester City" = []
-"Manchester United" = []
+"Manchester City" = ["Man. City"]
+"Manchester United" = ["Man. United"]
 "Marseille" = []
 "Metz" = []
 "Montpellier" = []

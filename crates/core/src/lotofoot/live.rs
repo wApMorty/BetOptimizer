@@ -54,6 +54,7 @@ pub fn recommend(
     let pages = PronoMatchClient::new();
     let fetched = fetch::run(
         conn,
+        aliases,
         &mut Utc::now,
         &mut |path, params| pages.get(path, params),
         &mut std::thread::sleep,

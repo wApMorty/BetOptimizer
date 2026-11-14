@@ -618,6 +618,7 @@ mod tests {
 
     #[test]
     fn a_played_grid_with_all_its_results_is_no_longer_shown() {
+        use crate::ingest::aliases::Aliases;
         use crate::lotofoot::grid_page::{GridResult, MatchResult};
         use crate::lotofoot::{Game, grid_of_2026};
         use crate::store::lotofoot::{Page as FetchPage, Source, record_fetch, record_results};
@@ -662,7 +663,7 @@ mod tests {
                 .collect(),
             ranks: vec![],
         };
-        record_results(&mut conn, fetch_id, &[result]).unwrap();
+        record_results(&mut conn, &Aliases::default(), fetch_id, &[result]).unwrap();
         let html = sample.html("/lotofoot");
         assert!(!html.contains("LF7 n°133"), "{html}");
     }

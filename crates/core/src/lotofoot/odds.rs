@@ -59,6 +59,34 @@ pub fn canonical_matches(
     }
 }
 
+/// Deux noms désignent-ils la même équipe ?
+///
+/// Oui s'ils sont écrits à l'identique, ou si la table d'alias les ramène **tous les deux** au même nom canonique (la FDJ
+/// écrit `Atl. Madrid` là où l'archive de prono-match garde `Atlético Madrid`). Un nom absent de la table ne se compare
+/// qu'à lui-même : jamais d'appariement approximatif (CLAUDE.md, « Noms d'équipes »).
+fn same_team(aliases: &Aliases, left: &str, right: &str) -> bool {
+    left == right
+        || matches!(
+            (aliases.resolve(ALIAS_SECTION, left), aliases.resolve(ALIAS_SECTION, right)),
+            (Some(a), Some(b)) if a == b
+        )
+}
+
+/// Position (à partir de 0) de la première rencontre qui diffère entre deux listes de rencontres (domicile, extérieur), ou
+/// `None` si elles désignent les mêmes équipes dans le même ordre, noms comparés par [`same_team`].
+///
+/// Deux listes de longueurs différentes diffèrent à la première position qui n'existe que dans la plus longue.
+pub fn first_difference(
+    aliases: &Aliases,
+    left: &[(String, String)],
+    right: &[(String, String)],
+) -> Option<usize> {
+    let differing = left.iter().zip(right).position(|((h1, a1), (h2, a2))| {
+        !(same_team(aliases, h1, h2) && same_team(aliases, a1, a2))
+    });
+    differing.or_else(|| (left.len() != right.len()).then(|| left.len().min(right.len())))
+}
+
 /// Toutes les paires de noms sous lesquelles The Odds API peut publier le match `home – away` (noms canoniques).
 ///
 /// La durée de vie `'a` lie les noms rendus à `aliases`, où ils sont stockés : pas de copie, et ils survivent aux
@@ -357,6 +385,47 @@ mod tests {
             ],
         );
         assert_eq!(err.unwrap_err(), vec!["LOTOFOOT: Inconnu FC".to_string()]);
+    }
+
+    fn matches_of(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(h, a)| (h.to_string(), a.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn matches_are_compared_by_canonical_name_when_both_names_are_known() {
+        let aliases = Aliases::parse(ALIASES).unwrap();
+        let stored = matches_of(&[("Paris Saint Germain", "Lyon"), ("Pau FC", "Napoli")]);
+        // Même rencontre sous un alias connu : aucune différence.
+        let alias = matches_of(&[("Paris SG", "Lyon"), ("Pau", "Napoli")]);
+        assert_eq!(first_difference(&aliases, &stored, &alias), None);
+        // Un autre club : la différence est à la position du club, ici la seconde rencontre.
+        let other = matches_of(&[("Paris SG", "Lyon"), ("Pau", "Grenoble")]);
+        assert_eq!(first_difference(&aliases, &stored, &other), Some(1));
+        // Domicile et extérieur ne s'échangent pas.
+        let swapped = matches_of(&[("Lyon", "Paris SG"), ("Pau", "Napoli")]);
+        assert_eq!(first_difference(&aliases, &stored, &swapped), Some(0));
+        // Un nom absent de la table ne se compare qu'à lui-même, même proche d'un nom connu.
+        let unknown = matches_of(&[("Paris SG FC", "Lyon"), ("Pau", "Napoli")]);
+        assert_eq!(first_difference(&aliases, &stored, &unknown), Some(0));
+        let same_unknown = matches_of(&[("Inconnu FC", "Lyon")]);
+        assert_eq!(
+            first_difference(&aliases, &same_unknown, &same_unknown),
+            None
+        );
+        // Longueurs différentes : la première position absente d'une des listes.
+        assert_eq!(first_difference(&aliases, &stored, &alias[..1]), Some(1));
+        // Table vide : seuls les noms identiques s'apparient.
+        assert_eq!(
+            first_difference(&Aliases::default(), &stored, &alias),
+            Some(0)
+        );
+        assert_eq!(
+            first_difference(&Aliases::default(), &stored, &stored),
+            None
+        );
     }
 
     /// Le match de Ligue 2 est absent de l'archive : `/events` le trouve, `/odds` le relève (1 crédit), puis l'archive

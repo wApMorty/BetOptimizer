@@ -100,8 +100,10 @@ fn alert_stale_source(
 
 fn run_fetch(conn: &mut store::Connection) -> Result<FetchReport> {
     let client = PronoMatchClient::new();
+    let aliases = Aliases::bundled()?;
     Ok(fetch::run(
         conn,
+        &aliases,
         &mut Utc::now,
         &mut |path, params| client.get(path, params),
         &mut std::thread::sleep,

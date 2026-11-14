@@ -13,7 +13,9 @@ use crate::error::{Error, Result};
 const BUNDLED: &str = include_str!("../../../../config/aliases.toml");
 
 /// Correspondance nom publié → nom canonique, par ligue (code football-data : `E0`, `SP1`…).
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Default` donne la table vide, où aucun nom ne se résout : les comparaisons s'y font alors sur les noms bruts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Aliases {
     by_div: HashMap<String, HashMap<String, String>>,
 }
@@ -172,5 +174,17 @@ mod tests {
             aliases.resolve("ESPN", "F.C. København"),
             Some("FC Copenhagen")
         );
+        // Abréviations de la FDJ (LF7 n°137 et 139, LF8 n°153 et 155, `docs/sources.md` §74).
+        for (shown, canonical) in [
+            ("Atl. Madrid", "Atlético Madrid"),
+            ("Man. United", "Manchester United"),
+            ("Man. City", "Manchester City"),
+        ] {
+            assert_eq!(
+                aliases.resolve("LOTOFOOT", shown),
+                Some(canonical),
+                "{shown}"
+            );
+        }
     }
 }

@@ -20,6 +20,7 @@ use super::pronomatch::{self, BASE_URL, RESULTS_PATH, grid_path};
 use super::{Game, GridId};
 use crate::error::{Error, Result};
 use crate::format::kickoff_label;
+use crate::ingest::aliases::Aliases;
 use crate::ingest::client::HttpResponse;
 use crate::ingest::oddspapi::fetch::Pause;
 use crate::ingest::snapshot::{Clock, Fetch};
@@ -127,7 +128,13 @@ pub struct FetchReport {
 }
 
 /// Lance un passage : page du LF7, page du LF8, page des résultats.
-pub fn run(conn: &mut Connection, now: Clock, fetch: Fetch, pause: Pause) -> Result<FetchReport> {
+pub fn run(
+    conn: &mut Connection,
+    aliases: &Aliases,
+    now: Clock,
+    fetch: Fetch,
+    pause: Pause,
+) -> Result<FetchReport> {
     let mut report = FetchReport::default();
     for (i, game) in Game::ALL.into_iter().enumerate() {
         if i > 0 {
@@ -242,7 +249,7 @@ pub fn run(conn: &mut Connection, now: Clock, fetch: Fetch, pause: Pause) -> Res
             Ok(results) => {
                 let fetch_id =
                     store::record_fetch(conn, at, Source::PronoMatch, Page::Results, 200, None)?;
-                let record = store::record_results(conn, fetch_id, &results)?;
+                let record = store::record_results(conn, aliases, fetch_id, &results)?;
                 report.new_results += record.new;
                 report.warnings.extend(record.refused);
             }
@@ -312,7 +319,14 @@ mod tests {
         };
         let mut pauses = 0;
         let mut pause = |_: Duration| pauses += 1;
-        let report = run(&mut conn, &mut clock, &mut fetch, &mut pause).unwrap();
+        let report = run(
+            &mut conn,
+            &Aliases::default(),
+            &mut clock,
+            &mut fetch,
+            &mut pause,
+        )
+        .unwrap();
         assert_eq!(
             calls,
             ["loto-foot-7/", "loto-foot-8/", "resultats-loto-foot/"]
@@ -342,7 +356,14 @@ mod tests {
                 },
             })
         };
-        run(conn, &mut || at, &mut fetch, &mut |_| {}).unwrap()
+        run(
+            conn,
+            &Aliases::default(),
+            &mut || at,
+            &mut fetch,
+            &mut |_| {},
+        )
+        .unwrap()
     }
 
     fn count(conn: &Connection, sql: &str) -> i64 {
@@ -437,7 +458,14 @@ mod tests {
                     },
                 })
             };
-            run(conn, &mut clock, &mut fetch, &mut |_| {}).unwrap()
+            run(
+                conn,
+                &Aliases::default(),
+                &mut clock,
+                &mut fetch,
+                &mut |_| {},
+            )
+            .unwrap()
         };
         assert!(pass(&mut conn, page(7, 133)).warnings.is_empty());
         // Même grille, rencontre 1 remplacée.
@@ -463,7 +491,14 @@ mod tests {
                 body: String::new(),
             })
         };
-        let report = run(&mut conn, &mut clock, &mut fetch, &mut |_| {}).unwrap();
+        let report = run(
+            &mut conn,
+            &Aliases::default(),
+            &mut clock,
+            &mut fetch,
+            &mut |_| {},
+        )
+        .unwrap();
         assert_eq!(report.failures.len(), 3);
         let errors: i64 = conn
             .query_row(

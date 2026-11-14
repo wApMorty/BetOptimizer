@@ -15,7 +15,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 use super::journal::parse_timestamp;
 use crate::domain::Euros;
 use crate::error::{Error, Result};
+use crate::ingest::aliases::Aliases;
 use crate::lotofoot::grid_page::{GridPage, GridResult, MatchResult, OpenGrid, RankLine};
+use crate::lotofoot::odds::first_difference;
 use crate::lotofoot::{Game, GridId, PAYOUT_RATE, Ticket};
 
 fn timestamp(at: DateTime<Utc>) -> String {
@@ -352,14 +354,17 @@ pub struct ResultsRecord {
 ///
 /// L'année de la grille vient de la date affichée, égale au jour de clôture ; sans date, la grille n'est pas écrite. Pour
 /// une grille connue, les rencontres de la page doivent être celles de la composition en vigueur : les signes sont écrits
-/// par position. Une grille dont la composition a changé après des tickets déclarés joués n'est pas réglée : ces
-/// tickets portent sur des rencontres qui ne sont plus celles de la grille, ils se règlent à la main.
+/// par position. Les équipes se comparent par nom canonique quand la table d'alias `aliases` connaît les deux noms (la
+/// FDJ écrit `Atl. Madrid`, l'archive de prono-match `Atlético Madrid`), sinon par nom brut
+/// ([`crate::lotofoot::odds::first_difference`]). Une grille dont la composition a changé après des tickets déclarés joués
+/// n'est pas réglée : ces tickets portent sur des rencontres qui ne sont plus celles de la grille, ils se règlent à la main.
 ///
 /// Toute grille non écrite est signalée dans [`ResultsRecord::refused`] : seules les formules non suivies sont ignorées
 /// sans bruit. Une rencontre annulée (`docs/sources.md` §74) s'écrit `C` dans la colonne `outcome` (migration 24) : la
 /// grille n'est pas refusée pour autant, son règlement la compte bonne pour tous les signes ([`MatchResult::is_good_for`]).
 pub fn record_results(
     conn: &mut Connection,
+    aliases: &Aliases,
     fetch_id: i64,
     results: &[GridResult],
 ) -> Result<ResultsRecord> {
@@ -394,9 +399,20 @@ pub fn record_results(
             .iter()
             .map(|(home, away, _)| (home.clone(), away.clone()))
             .collect();
-        if !current.is_empty() && current != shown {
+        if !current.is_empty()
+            && let Some(at) = first_difference(aliases, &current, &shown)
+        {
+            // Le message nomme la rencontre : l'écart vient presque toujours d'un nom à ajouter dans `config/aliases.toml`.
+            let saved = current
+                .get(at)
+                .map_or(String::new(), |(h, a)| format!("« {h} – {a} »"));
+            let read = shown
+                .get(at)
+                .map_or(String::new(), |(h, a)| format!("« {h} – {a} »"));
             record.refused.push(format!(
-                "{id} : les rencontres des résultats diffèrent de la composition enregistrée, résultats non écrits"
+                "{id} : les rencontres des résultats diffèrent de la composition enregistrée (rencontre {} : {read} lu, {saved} \
+                 en base), résultats non écrits",
+                at + 1
             ));
             continue;
         }
@@ -1811,11 +1827,13 @@ mod tests {
             None,
         )
         .unwrap();
-        let refused = record_results(&mut conn, r, &[results_of(&ANNOUNCED)]).unwrap();
+        let refused =
+            record_results(&mut conn, &Aliases::default(), r, &[results_of(&ANNOUNCED)]).unwrap();
         assert_eq!(refused.new, 0);
         assert!(refused.refused[0].contains("LF7 n°133"), "{refused:?}");
         assert_eq!(results(&conn, grid_of_2026(Game::Lf7, 133)).unwrap(), None);
-        let written = record_results(&mut conn, r, &[results_of(&OPENED)]).unwrap();
+        let written =
+            record_results(&mut conn, &Aliases::default(), r, &[results_of(&OPENED)]).unwrap();
         assert_eq!((written.new, written.refused.len()), (1, 0));
     }
 
@@ -1877,7 +1895,8 @@ mod tests {
             None,
         )
         .unwrap();
-        let record = record_results(&mut conn, r, &[results_of(&OPENED)]).unwrap();
+        let record =
+            record_results(&mut conn, &Aliases::default(), r, &[results_of(&OPENED)]).unwrap();
         assert_eq!(record.new, 0);
         assert!(record.refused[0].contains("à la main"), "{record:?}");
     }
@@ -1978,7 +1997,9 @@ mod tests {
         .unwrap();
         let old_results = results_page(133, Some((2026, 10, 25)), "A", 500.0);
         assert_eq!(
-            record_results(&mut conn, r1, &[old_results]).unwrap().new,
+            record_results(&mut conn, &Aliases::default(), r1, &[old_results])
+                .unwrap()
+                .new,
             1
         );
         let before = current_recos(&conn).unwrap();
@@ -2019,7 +2040,7 @@ mod tests {
         )
         .unwrap();
         let new_results = results_page(133, Some((2027, 10, 24)), "B", 900.0);
-        let written = record_results(&mut conn, r2, &[new_results]).unwrap();
+        let written = record_results(&mut conn, &Aliases::default(), r2, &[new_results]).unwrap();
         assert_eq!((written.new, written.refused.len()), (1, 0));
         let gain = |year| {
             ranks(&conn, lf7(year, 133)).unwrap()[0]
@@ -2087,7 +2108,13 @@ mod tests {
             None,
         )
         .unwrap();
-        let record = record_results(&mut conn, r, &[results_page(1, None, "N", 90.0)]).unwrap();
+        let record = record_results(
+            &mut conn,
+            &Aliases::default(),
+            r,
+            &[results_page(1, None, "N", 90.0)],
+        )
+        .unwrap();
         assert_eq!(record.new, 0);
         assert!(record.refused[0].contains("date illisible"), "{record:?}");
         assert_eq!(rank_rows(&conn), 0);
@@ -2279,13 +2306,18 @@ mod tests {
             ..lf7.clone()
         };
         assert_eq!(
-            record_results(&mut conn, f, &[lf7.clone(), lf15])
+            record_results(&mut conn, &Aliases::default(), f, &[lf7.clone(), lf15])
                 .unwrap()
                 .new,
             1
         );
         // Un second relevé identique n'écrit rien de nouveau.
-        assert_eq!(record_results(&mut conn, f, &[lf7]).unwrap().new, 0);
+        assert_eq!(
+            record_results(&mut conn, &Aliases::default(), f, &[lf7])
+                .unwrap()
+                .new,
+            0
+        );
         assert_eq!(
             results(&conn, grid_of_2026(Game::Lf7, 132)).unwrap(),
             Some(vec![MatchResult::Sign(Outcome::Draw); 7])
@@ -2296,6 +2328,106 @@ mod tests {
             settled_grids(&conn).unwrap(),
             vec![grid_of_2026(Game::Lf7, 132)]
         );
+    }
+
+    /// LF7 n°139 (`docs/sources.md` §74) : la composition est en base sous les noms de prono-match (`Atlético Madrid`), la
+    /// page de la FDJ écrit `Atl. Madrid`. Avec la table d'alias, c'est la même rencontre ; sans elle, ou avec un nom
+    /// que la table ne connaît pas, les résultats sont refusés, et le message nomme la rencontre.
+    #[test]
+    fn results_under_an_alias_are_matched_by_canonical_name_and_others_are_refused() {
+        const STORED: [(&str, &str); 7] = [
+            ("Atlético Madrid", "Barcelona"),
+            ("Manchester City", "Arsenal"),
+            ("Rennes", "Strasbourg"),
+            ("Auxerre", "Angers"),
+            ("Brest", "Lorient"),
+            ("Toulouse", "Nantes"),
+            ("Celtic", "Rangers"),
+        ];
+        let mut conn = db();
+        let f = record_fetch(
+            &conn,
+            at("2026-10-24T09:00:00Z"),
+            Source::PronoMatch,
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        record_grid_page(&mut conn, f, Game::Lf7, &composed(&STORED, None)).unwrap();
+        let r = record_fetch(
+            &conn,
+            at("2026-10-26T09:00:00Z"),
+            Source::Fdj,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
+        let aliases = Aliases::bundled().unwrap();
+        let mut abbreviated = STORED;
+        abbreviated[0].0 = "Atl. Madrid";
+        abbreviated[1].0 = "Man. City";
+
+        // Sans table : deux noms bruts différents ne se rapprochent pas, jamais d'appariement approximatif.
+        let without = record_results(
+            &mut conn,
+            &Aliases::default(),
+            r,
+            &[results_of(&abbreviated)],
+        )
+        .unwrap();
+        assert_eq!(without.new, 0);
+        assert!(
+            without.refused[0].contains("rencontre 1 : « Atl. Madrid – Barcelona » lu, « Atlético Madrid – Barcelona » en base"),
+            "{without:?}"
+        );
+
+        // Avec la table : même rencontre. Les noms écrits au journal restent ceux de la première composition.
+        let with = record_results(&mut conn, &aliases, r, &[results_of(&abbreviated)]).unwrap();
+        assert_eq!((with.new, with.refused.len()), (1, 0), "{with:?}");
+        let id = grid_of_2026(Game::Lf7, 133);
+        assert_eq!(
+            grid(&conn, id).unwrap().unwrap().matches[0].0,
+            "Atlético Madrid"
+        );
+    }
+
+    /// Un nom que la table ne connaît pas reste refusé, même si un seul des deux noms est connu.
+    #[test]
+    fn a_name_the_alias_table_does_not_know_is_still_refused() {
+        let mut conn = db();
+        let f = record_fetch(
+            &conn,
+            at("2026-10-24T09:00:00Z"),
+            Source::PronoMatch,
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        record_grid_page(&mut conn, f, Game::Lf7, &composed(&OPENED, None)).unwrap();
+        let r = record_fetch(
+            &conn,
+            at("2026-10-26T09:00:00Z"),
+            Source::Fdj,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
+        let mut other = OPENED;
+        // « Marseille » est connue de la table, « Olympique Inconnu » non : pas de rapprochement.
+        other[0].0 = "Olympique Inconnu";
+        let record = record_results(
+            &mut conn,
+            &Aliases::bundled().unwrap(),
+            r,
+            &[results_of(&other)],
+        )
+        .unwrap();
+        assert_eq!(record.new, 0);
+        assert!(record.refused[0].contains("rencontre 1"), "{record:?}");
     }
 
     /// Sept rencontres pour un LF7, la cinquième annulée, tirées de [`results_of`].
@@ -2331,7 +2463,13 @@ mod tests {
         let result = lf7_with_a_canceled_match(133);
 
         // `from_ref` fait d'une référence un tableau d'un élément, sans cloner `result`, que le test relit ensuite.
-        let record = record_results(&mut conn, f, std::slice::from_ref(&result)).unwrap();
+        let record = record_results(
+            &mut conn,
+            &Aliases::default(),
+            f,
+            std::slice::from_ref(&result),
+        )
+        .unwrap();
 
         assert_eq!((record.new, record.refused.len()), (1, 0), "{record:?}");
         let id = grid_of_2026(Game::Lf7, 133);
@@ -2349,7 +2487,7 @@ mod tests {
         assert_eq!(settled_grids(&conn).unwrap(), vec![id]);
         assert_eq!(ranks(&conn, id).unwrap().len(), 2);
         // Un second relevé identique n'écrit rien : la première observation fait foi.
-        let again = record_results(&mut conn, f, &[result]).unwrap();
+        let again = record_results(&mut conn, &Aliases::default(), f, &[result]).unwrap();
         assert_eq!(again.new, 0);
     }
 
@@ -2370,7 +2508,7 @@ mod tests {
         let mut short = lf7_with_a_canceled_match(134);
         short.matches.truncate(6);
 
-        let record = record_results(&mut conn, f, &[short]).unwrap();
+        let record = record_results(&mut conn, &Aliases::default(), f, &[short]).unwrap();
 
         assert_eq!(record.new, 0);
         assert_eq!(record.refused.len(), 1);
