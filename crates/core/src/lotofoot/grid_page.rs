@@ -89,3 +89,24 @@ pub struct GridResult {
     /// Rapports, du sans-faute au dernier rang. Vide tant que la source ne les a pas publiés.
     pub ranks: Vec<RankLine>,
 }
+
+/// Répartition à garder : `None` si tous les pourcentages sont à zéro.
+///
+/// Une grille annoncée (pas encore ouverte) porte des pourcentages à 0 : ce n'est pas une répartition, et l'écrire dans
+/// l'archive (qui n'est jamais modifiée) y inscrirait un faux relevé (`docs/sources.md` §74).
+pub(super) fn published_split(split: Vec<[u32; 3]>) -> Option<Vec<[u32; 3]>> {
+    split.iter().flatten().any(|&q| q > 0).then_some(split)
+}
+
+/// Rapports à garder : une liste vide si aucun rang n'a de gagnant.
+///
+/// Sur une grille LF7 ou LF8 réelle, le rang 2 a toujours des gagnants (des milliers, `docs/sources.md` §74) : des rangs
+/// tous à zéro sont un rapport pas encore publié, non un rapport sans gagnant. L'archive n'écrit un rang qu'une fois
+/// (`INSERT OR IGNORE`, jamais de mise à jour) : mieux vaut ne rien écrire que figer des zéros provisoires.
+pub(super) fn published_ranks(ranks: Vec<RankLine>) -> Vec<RankLine> {
+    if ranks.iter().all(|rank| rank.winners == 0) {
+        Vec::new()
+    } else {
+        ranks
+    }
+}

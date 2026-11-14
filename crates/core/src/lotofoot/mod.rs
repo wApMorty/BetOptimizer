@@ -2,13 +2,14 @@
 //!
 //! On y cherche les combinaisons que le marché juge plausibles mais que le public délaisse. Le module calcule
 //! l'espérance exacte d'un ticket ([`model`]), choisit les tickets de la semaine ([`optimize`]), lit les pages des
-//! sources ([`pronomatch`] ; les types communs aux sources sont dans [`grid_page`]) et règle les tickets joués
-//! ([`settle`]). Étude et choix : `docs/sources.md` §37, §38 et §74.
+//! sources ([`fdj`], [`resultats_fdj`], et [`pronomatch`] en cours de retrait ; leurs types communs sont dans
+//! [`grid_page`]) et règle les tickets joués ([`settle`]). Étude et choix : `docs/sources.md` §37, §38 et §74.
 
 pub mod alert;
 pub mod bulletin;
 pub mod espn;
 pub mod exact;
+pub mod fdj;
 pub mod fetch;
 pub mod grid_page;
 pub mod live;
@@ -20,6 +21,7 @@ pub mod outlets;
 pub mod played;
 pub mod price;
 pub mod pronomatch;
+pub mod resultats_fdj;
 pub mod scores;
 pub mod session;
 pub mod settle;
@@ -59,7 +61,7 @@ impl Game {
         Game::ALL.into_iter().find(|game| game.code() == code)
     }
 
-    /// Formule correspondant au nombre de rencontres affiché par prono-match (« Loto Foot 7 ») ; `None` sinon.
+    /// Formule correspondant au numéro affiché dans son nom (« Loto Foot 7 », « LF 8 ») ; `None` sinon.
     pub fn from_matches(matches: usize) -> Option<Game> {
         Game::ALL.into_iter().find(|game| game.matches() == matches)
     }
