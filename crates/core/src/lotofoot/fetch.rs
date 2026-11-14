@@ -23,7 +23,7 @@ use crate::format::kickoff_label;
 use crate::ingest::client::HttpResponse;
 use crate::ingest::oddspapi::fetch::Pause;
 use crate::ingest::snapshot::{Clock, Fetch};
-use crate::store::lotofoot::{self as store, Page};
+use crate::store::lotofoot::{self as store, Page, Source};
 
 /// Délai entre deux pages : le site n'est pas une API, on le ménage.
 pub const PAGE_COOLDOWN: Duration = Duration::from_secs(5);
@@ -167,8 +167,14 @@ pub fn run(conn: &mut Connection, now: Clock, fetch: Fetch, pause: Pause) -> Res
                     let closed = page.open.take_if(|grid| grid.closes_at <= at);
                     let stale = closed.as_ref().and_then(|grid| stale_grid(game, grid, at));
                     let reason = stale.map(|s| s.reason());
-                    let fetch_id =
-                        store::record_fetch(conn, at, Page::Grid(game), 200, reason.as_deref())?;
+                    let fetch_id = store::record_fetch(
+                        conn,
+                        at,
+                        Source::PronoMatch,
+                        Page::Grid(game),
+                        200,
+                        reason.as_deref(),
+                    )?;
                     let record = store::record_grid_page(conn, fetch_id, game, &page)?;
                     match (stale, closed) {
                         (Some(stale), _) => report.stale.push(stale),
@@ -234,7 +240,8 @@ pub fn run(conn: &mut Connection, now: Clock, fetch: Fetch, pause: Pause) -> Res
                 &mut report,
             )?,
             Ok(results) => {
-                let fetch_id = store::record_fetch(conn, at, Page::Results, 200, None)?;
+                let fetch_id =
+                    store::record_fetch(conn, at, Source::PronoMatch, Page::Results, 200, None)?;
                 let record = store::record_results(conn, fetch_id, &results)?;
                 report.new_results += record.new;
                 report.warnings.extend(record.refused);
@@ -253,7 +260,7 @@ fn failed(
     reason: &str,
     report: &mut FetchReport,
 ) -> Result<()> {
-    store::record_fetch(conn, at, page, status, Some(reason))?;
+    store::record_fetch(conn, at, Source::PronoMatch, page, status, Some(reason))?;
     report.failures.push(format!("{page:?} : {reason}"));
     Ok(())
 }

@@ -153,7 +153,11 @@ struct Page {
 fn source_issues(conn: &store::Connection) -> Result<Vec<String>> {
     let mut issues = Vec::new();
     for game in Game::ALL {
-        let health = lotofoot_store::page_health(conn, lotofoot_store::Page::Grid(game))?;
+        let health = lotofoot_store::page_health(
+            conn,
+            lotofoot_store::Source::PronoMatch,
+            lotofoot_store::Page::Grid(game),
+        )?;
         if let Some(reason) = health.failing {
             let since = health
                 .last_ok
@@ -487,7 +491,7 @@ fn detail(ticket: &TicketView, matches: &[MatchNow]) -> Detail {
 #[cfg(test)]
 mod tests {
     use crate::lotofoot::Game;
-    use crate::store::lotofoot::{Page, record_fetch};
+    use crate::store::lotofoot::{Page, Source, record_fetch};
     use crate::web::testing::{empty, sample};
 
     #[test]
@@ -505,7 +509,7 @@ mod tests {
         record_fetch(
             &conn,
             site.now,
-            Page::Grid(Game::Lf8),
+            Source::PronoMatch, Page::Grid(Game::Lf8),
             200,
             Some("page périmée : LF8 n°154 encore affichée comme grille en cours, close depuis ven. 06/11 19:55"),
         )
@@ -616,7 +620,7 @@ mod tests {
     fn a_played_grid_with_all_its_results_is_no_longer_shown() {
         use crate::lotofoot::grid_page::{GridResult, MatchResult};
         use crate::lotofoot::{Game, grid_of_2026};
-        use crate::store::lotofoot::{Page as FetchPage, record_fetch, record_results};
+        use crate::store::lotofoot::{Page as FetchPage, Source, record_fetch, record_results};
 
         let sample = sample();
         let mut conn = crate::store::open_migrated(&sample.app.paths.db_file).unwrap();
@@ -633,7 +637,15 @@ mod tests {
         assert!(html.contains("En cours"), "{html}");
         assert!(html.contains("LF7 n°133"), "{html}");
         // Tous les résultats connus : la grille n'est plus suivie (elle reste au bilan).
-        let fetch_id = record_fetch(&conn, sample.now, FetchPage::Results, 200, None).unwrap();
+        let fetch_id = record_fetch(
+            &conn,
+            sample.now,
+            Source::PronoMatch,
+            FetchPage::Results,
+            200,
+            None,
+        )
+        .unwrap();
         let result = GridResult {
             game: Some(Game::Lf7),
             number: 133,

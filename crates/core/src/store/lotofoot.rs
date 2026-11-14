@@ -1,4 +1,5 @@
-//! Archive du Loto Foot (migration 15) : faits relevés sur prono-match, séances de recommandation, tickets joués.
+//! Archive du Loto Foot (migration 15) : faits relevés sur les sites des sources (FDJ, resultats-fdj.fr, et prono-match
+//! jusqu'à son retrait), séances de recommandation, tickets joués.
 //!
 //! Uniquement des `INSERT` : des déclencheurs interdisent toute modification ou suppression. Une grille, un résultat ou
 //! un rapport déjà connu n'est pas réécrit (`INSERT OR IGNORE`) : la première observation fait foi. Seule exception, la
@@ -27,35 +28,65 @@ fn int(n: usize) -> i64 {
     i64::try_from(n).unwrap_or(i64::MAX)
 }
 
-/// Page lue : `lf7`, `lf8` ou `results`.
+/// Site d'où vient une page lue (colonne `lotofoot_fetch.source`, migration 24).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Page {
-    /// Page d'une formule.
-    Grid(Game),
-    /// Page des derniers résultats.
-    Results,
+pub enum Source {
+    /// prono-match.fr, lu jusqu'au 2026-11-14 : figé depuis le 5 novembre (`docs/sources.md` §74). Son archive reste.
+    PronoMatch,
+    /// Site des points de vente de la FDJ : source principale depuis la phase 22.
+    Fdj,
+    /// resultats-fdj.fr : repli, lu seulement si la FDJ échoue.
+    ResultatsFdj,
 }
 
-impl Page {
+impl Source {
+    /// Code stocké dans `lotofoot_fetch.source`.
     fn code(self) -> &'static str {
         match self {
-            Page::Grid(game) => game.code(),
-            Page::Results => "results",
+            Source::PronoMatch => "pronomatch",
+            Source::Fdj => "fdj",
+            Source::ResultatsFdj => "resultats_fdj",
         }
     }
 }
 
-/// Journalise la lecture d'une page et renvoie son identifiant.
+/// Page lue : `lf7`, `lf8`, `results`, `open` ou `detail`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Page {
+    /// Page d'une formule (prono-match).
+    Grid(Game),
+    /// Page des derniers résultats.
+    Results,
+    /// Page des grilles ouvertes, toutes formules : `/grilles/ouvertes/loto-foot` de la FDJ, accueil de resultats-fdj.fr.
+    Open,
+    /// Page de détail d'une grille (repli de resultats-fdj.fr).
+    Detail,
+}
+
+impl Page {
+    /// Code stocké dans `lotofoot_fetch.page`.
+    fn code(self) -> &'static str {
+        match self {
+            Page::Grid(game) => game.code(),
+            Page::Results => "results",
+            Page::Open => "open",
+            Page::Detail => "detail",
+        }
+    }
+}
+
+/// Journalise la lecture d'une page de `source` et renvoie son identifiant.
 pub fn record_fetch(
     conn: &Connection,
     at: DateTime<Utc>,
+    source: Source,
     page: Page,
     http_status: u16,
     error: Option<&str>,
 ) -> Result<i64> {
     conn.execute(
-        "INSERT INTO lotofoot_fetch (fetched_at, page, http_status, error) VALUES (?1, ?2, ?3, ?4)",
-        params![timestamp(at), page.code(), http_status, error],
+        "INSERT INTO lotofoot_fetch (fetched_at, source, page, http_status, error) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![timestamp(at), source.code(), page.code(), http_status, error],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -79,19 +110,20 @@ pub struct PageHealth {
     pub failing: Option<String>,
 }
 
-/// État du relevé de `page` (page injoignable, illisible ou périmée : `lotofoot_fetch.error`).
-pub fn page_health(conn: &Connection, page: Page) -> Result<PageHealth> {
+/// État du relevé de `page` chez `source` (page injoignable, illisible ou périmée : `lotofoot_fetch.error`). La même page
+/// (`results`, par exemple) peut venir de deux sources : leurs états ne se mêlent pas.
+pub fn page_health(conn: &Connection, source: Source, page: Page) -> Result<PageHealth> {
     let last_ok: Option<String> = conn.query_row(
-        "SELECT MAX(fetched_at) FROM lotofoot_fetch WHERE page = ?1 AND error IS NULL",
-        [page.code()],
+        "SELECT MAX(fetched_at) FROM lotofoot_fetch WHERE source = ?1 AND page = ?2 AND error IS NULL",
+        params![source.code(), page.code()],
         |row| row.get(0),
     )?;
     // La lecture la plus récente, réussie ou non : `error` y est NULL si elle a réussi. Deux `Option` emboîtées, donc :
     // celle d'`optional()` (aucune lecture du tout) et celle de la colonne (lecture réussie) ; `flatten` les réunit.
     let failing: Option<String> = conn
         .query_row(
-            "SELECT error FROM lotofoot_fetch WHERE page = ?1 ORDER BY id DESC LIMIT 1",
-            [page.code()],
+            "SELECT error FROM lotofoot_fetch WHERE source = ?1 AND page = ?2 ORDER BY id DESC LIMIT 1",
+            params![source.code(), page.code()],
             |row| row.get::<_, Option<String>>(0),
         )
         .optional()?
@@ -115,7 +147,8 @@ pub struct GridRecord {
     /// Les rencontres de la grille en cours diffèrent de la composition en vigueur : la nouvelle composition a été
     /// enregistrée et fait foi à partir de ce relevé.
     pub recomposed: bool,
-    /// La grille en cours n'a pas été écrite : sa clôture ou son numéro contredit ce qui est connu ([`refusal`]).
+    /// La grille en cours n'a pas été écrite : son nombre de rencontres n'est pas celui de la formule ([`wrong_size`]), ou
+    /// sa clôture ou son numéro contredit ce qui est connu ([`refusal`]).
     pub refused: Option<String>,
     /// Lignes de rapports non écrites, faute de jour de clôture lisible : leur année serait devinée.
     pub undated: usize,
@@ -164,6 +197,21 @@ fn refusal(conn: &Connection, id: GridId, closes_at: DateTime<Utc>) -> Result<Op
     }))
 }
 
+/// Raison de refuser une grille dont le nombre de rencontres n'est pas celui de sa formule, `None` sinon.
+///
+/// Le règlement permet un LF8 à 7 rencontres (`docs/sources.md` §74), mais le modèle et l'optimiseur supposent N rencontres
+/// par formule : une telle grille n'est pas prise en charge, et le dit au lieu d'être écrite de travers. Comparée au nombre
+/// de la formule, jamais au nombre lu : une grille de 7 rencontres ne devient pas un LF7 sous prétexte qu'elle en a 7.
+fn wrong_size(id: GridId, grid: &OpenGrid) -> Option<String> {
+    let expected = id.game.matches();
+    (grid.matches.len() != expected).then(|| {
+        format!(
+            "{id} : {} rencontres lues au lieu de {expected}, grille non prise en charge, non écrite",
+            grid.matches.len()
+        )
+    })
+}
+
 /// Enregistre ce qu'a montré la page d'une formule : la grille en cours, sa composition si elle a changé, sa
 /// répartition, les rapports passés. Une seule transaction : tout ou rien.
 ///
@@ -179,7 +227,10 @@ pub fn record_grid_page(
     let mut record = GridRecord::default();
     if let Some(grid) = &page.open {
         let id = GridId::closing(game, grid.number, grid.closes_at);
-        record.refused = refusal(&tx, id, grid.closes_at)?;
+        record.refused = match wrong_size(id, grid) {
+            Some(reason) => Some(reason),
+            None => refusal(&tx, id, grid.closes_at)?,
+        };
         if record.refused.is_none() {
             write_open_grid(&tx, fetch_id, id, grid, &mut record)?;
         }
@@ -1114,6 +1165,18 @@ pub fn plays(conn: &Connection) -> Result<Vec<PlayRow>> {
         .collect()
 }
 
+/// Nombre de tickets déclarés joués sur une grille. Sert à signaler une grille entièrement annulée (`drawCancelled`,
+/// `docs/sources.md` §74) à qui a joué dessus : les mises sont remboursées au guichet, et à saisir à la main. Rien n'est
+/// réglé automatiquement ici ; `played_count(..)? > 0` dit s'il y a quelque chose à signaler.
+pub fn played_count(conn: &Connection, id: GridId) -> Result<usize> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM lotofoot_play WHERE game = ?1 AND year = ?2 AND number = ?3",
+        params![id.game.code(), id.year, id.number],
+        |row| row.get(0),
+    )?;
+    Ok(usize::try_from(count).unwrap_or(usize::MAX))
+}
+
 /// Répartition finale d'une grille (dernier relevé avant sa clôture), pour la vérification du modèle.
 pub fn final_split(conn: &Connection, id: GridId) -> Result<Option<Vec<[u32; 3]>>> {
     let Some(grid) = grid(conn, id)? else {
@@ -1167,13 +1230,22 @@ mod tests {
         let lf8 = Page::Grid(Game::Lf8);
 
         // Jamais relevée : ni lecture réussie, ni erreur en cours.
-        let never = page_health(&conn, lf8).unwrap();
+        let never = page_health(&conn, Source::PronoMatch, lf8).unwrap();
         assert_eq!((never.last_ok, never.failing), (None, None));
 
-        record_fetch(&conn, at("2026-11-05T12:07:00Z"), lf8, 200, None).unwrap();
+        record_fetch(
+            &conn,
+            at("2026-11-05T12:07:00Z"),
+            Source::PronoMatch,
+            lf8,
+            200,
+            None,
+        )
+        .unwrap();
         record_fetch(
             &conn,
             at("2026-11-06T22:07:00Z"),
+            Source::PronoMatch,
             lf8,
             200,
             Some("page périmée"),
@@ -1183,25 +1255,97 @@ mod tests {
         record_fetch(
             &conn,
             at("2026-11-06T22:07:05Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
         )
         .unwrap();
 
-        let failing = page_health(&conn, lf8).unwrap();
+        let failing = page_health(&conn, Source::PronoMatch, lf8).unwrap();
         assert_eq!(failing.last_ok, Some(at("2026-11-05T12:07:00Z")));
         assert_eq!(failing.failing.as_deref(), Some("page périmée"));
         assert_eq!(
-            page_health(&conn, Page::Grid(Game::Lf7)).unwrap().failing,
+            page_health(&conn, Source::PronoMatch, Page::Grid(Game::Lf7))
+                .unwrap()
+                .failing,
             None
         );
 
         // Le site revient : la dernière lecture réussit, l'erreur disparaît.
-        record_fetch(&conn, at("2026-11-13T09:07:00Z"), lf8, 200, None).unwrap();
-        let back = page_health(&conn, lf8).unwrap();
+        record_fetch(
+            &conn,
+            at("2026-11-13T09:07:00Z"),
+            Source::PronoMatch,
+            lf8,
+            200,
+            None,
+        )
+        .unwrap();
+        let back = page_health(&conn, Source::PronoMatch, lf8).unwrap();
         assert_eq!(back.last_ok, Some(at("2026-11-13T09:07:00Z")));
         assert_eq!(back.failing, None);
+    }
+
+    /// La même page chez deux sources a deux états : l'échec de la FDJ ne dit rien de resultats-fdj.fr, ni de prono-match.
+    #[test]
+    fn the_health_of_a_page_does_not_mix_sources() {
+        let conn = db();
+        record_fetch(
+            &conn,
+            at("2026-11-15T09:00:00Z"),
+            Source::Fdj,
+            Page::Open,
+            200,
+            None,
+        )
+        .unwrap();
+        record_fetch(
+            &conn,
+            at("2026-11-15T10:00:00Z"),
+            Source::Fdj,
+            Page::Open,
+            503,
+            Some("réponse HTTP inattendue"),
+        )
+        .unwrap();
+        record_fetch(
+            &conn,
+            at("2026-11-15T10:00:05Z"),
+            Source::ResultatsFdj,
+            Page::Open,
+            200,
+            None,
+        )
+        .unwrap();
+
+        let fdj = page_health(&conn, Source::Fdj, Page::Open).unwrap();
+        assert_eq!(fdj.last_ok, Some(at("2026-11-15T09:00:00Z")));
+        assert_eq!(fdj.failing.as_deref(), Some("réponse HTTP inattendue"));
+        let fallback = page_health(&conn, Source::ResultatsFdj, Page::Open).unwrap();
+        assert_eq!(fallback.last_ok, Some(at("2026-11-15T10:00:05Z")));
+        assert_eq!(fallback.failing, None);
+        let old = page_health(&conn, Source::PronoMatch, Page::Open).unwrap();
+        assert_eq!((old.last_ok, old.failing), (None, None));
+        // Les pages du détail et des résultats s'enregistrent aussi (migration 24).
+        record_fetch(
+            &conn,
+            at("2026-11-15T10:01:00Z"),
+            Source::Fdj,
+            Page::Detail,
+            200,
+            None,
+        )
+        .unwrap();
+        record_fetch(
+            &conn,
+            at("2026-11-15T10:02:00Z"),
+            Source::Fdj,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
     }
 
     fn page(number: u32, split: Option<Vec<[u32; 3]>>) -> GridPage {
@@ -1252,6 +1396,7 @@ mod tests {
         let f1 = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1266,6 +1411,7 @@ mod tests {
         let f2 = record_fetch(
             &conn,
             at("2026-10-24T10:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1285,6 +1431,7 @@ mod tests {
         let f3 = record_fetch(
             &conn,
             at("2026-10-24T11:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1335,6 +1482,7 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1387,6 +1535,7 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1428,6 +1577,7 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1580,7 +1730,15 @@ mod tests {
     fn a_changed_composition_voids_earlier_splits_and_tickets() {
         let mut conn = db();
         let grid_fetch = |conn: &Connection, when: &str| {
-            record_fetch(conn, at(when), Page::Grid(Game::Lf7), 200, None).unwrap()
+            record_fetch(
+                conn,
+                at(when),
+                Source::PronoMatch,
+                Page::Grid(Game::Lf7),
+                200,
+                None,
+            )
+            .unwrap()
         };
         let f1 = grid_fetch(&conn, "2026-10-24T03:07:00Z");
         let first = record_grid_page(
@@ -1659,7 +1817,15 @@ mod tests {
         );
 
         // Les résultats s'écrivent par position : seuls ceux de la composition en vigueur sont acceptés.
-        let r = record_fetch(&conn, at("2026-10-26T09:00:00Z"), Page::Results, 200, None).unwrap();
+        let r = record_fetch(
+            &conn,
+            at("2026-10-26T09:00:00Z"),
+            Source::PronoMatch,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
         let refused = record_results(&mut conn, r, &[results_of(&ANNOUNCED)]).unwrap();
         assert_eq!(refused.new, 0);
         assert!(refused.refused[0].contains("LF7 n°133"), "{refused:?}");
@@ -1674,6 +1840,7 @@ mod tests {
         let f1 = record_fetch(
             &conn,
             at("2026-10-24T03:07:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1703,6 +1870,7 @@ mod tests {
         let f2 = record_fetch(
             &conn,
             at("2026-10-24T06:07:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1715,7 +1883,15 @@ mod tests {
         assert!(change.played_before);
         // Le ticket joué reste suivi ; ses résultats ne sont pas réglés automatiquement.
         assert_eq!(current_recos(&conn).unwrap().len(), 1);
-        let r = record_fetch(&conn, at("2026-10-26T09:00:00Z"), Page::Results, 200, None).unwrap();
+        let r = record_fetch(
+            &conn,
+            at("2026-10-26T09:00:00Z"),
+            Source::PronoMatch,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
         let record = record_results(&mut conn, r, &[results_of(&OPENED)]).unwrap();
         assert_eq!(record.new, 0);
         assert!(record.refused[0].contains("à la main"), "{record:?}");
@@ -1791,14 +1967,30 @@ mod tests {
     fn a_new_year_reuses_numbers_without_touching_the_old_grid() {
         let mut conn = db();
         let grid_fetch = |conn: &Connection, when: &str| {
-            record_fetch(conn, at(when), Page::Grid(Game::Lf7), 200, None).unwrap()
+            record_fetch(
+                conn,
+                at(when),
+                Source::PronoMatch,
+                Page::Grid(Game::Lf7),
+                200,
+                None,
+            )
+            .unwrap()
         };
         let f1 = grid_fetch(&conn, "2026-10-24T09:00:00Z");
         let old = year_page(133, "2026-10-25T16:10:00Z", "A", true, Vec::new());
         record_grid_page(&mut conn, f1, Game::Lf7, &old).unwrap();
         let ticket = Ticket::parse("1111111").unwrap();
         recommend(&mut conn, f1, &ticket);
-        let r1 = record_fetch(&conn, at("2026-10-26T09:00:00Z"), Page::Results, 200, None).unwrap();
+        let r1 = record_fetch(
+            &conn,
+            at("2026-10-26T09:00:00Z"),
+            Source::PronoMatch,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
         let old_results = results_page(133, Some((2026, 10, 25)), "A", 500.0);
         assert_eq!(
             record_results(&mut conn, r1, &[old_results]).unwrap().new,
@@ -1832,7 +2024,15 @@ mod tests {
         assert_eq!(current_recos(&conn).unwrap(), before);
 
         // Résultats et rapports de chaque année restent séparés.
-        let r2 = record_fetch(&conn, at("2027-10-25T09:00:00Z"), Page::Results, 200, None).unwrap();
+        let r2 = record_fetch(
+            &conn,
+            at("2027-10-25T09:00:00Z"),
+            Source::PronoMatch,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
         let new_results = results_page(133, Some((2027, 10, 24)), "B", 900.0);
         let written = record_results(&mut conn, r2, &[new_results]).unwrap();
         assert_eq!((written.new, written.refused.len()), (1, 0));
@@ -1854,6 +2054,7 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2027-01-02T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1876,6 +2077,7 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2027-01-02T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1891,7 +2093,15 @@ mod tests {
         assert_eq!(record.undated, 1);
         assert_eq!(rank_rows(&conn), 0);
 
-        let r = record_fetch(&conn, at("2027-01-02T09:00:00Z"), Page::Results, 200, None).unwrap();
+        let r = record_fetch(
+            &conn,
+            at("2027-01-02T09:00:00Z"),
+            Source::PronoMatch,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
         let record = record_results(&mut conn, r, &[results_page(1, None, "N", 90.0)]).unwrap();
         assert_eq!(record.new, 0);
         assert!(record.refused[0].contains("date illisible"), "{record:?}");
@@ -1909,6 +2119,7 @@ mod tests {
         let f1 = record_fetch(
             &conn,
             at("2027-03-01T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1921,6 +2132,7 @@ mod tests {
         let f2 = record_fetch(
             &conn,
             at("2027-04-01T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1950,6 +2162,7 @@ mod tests {
         let f3 = record_fetch(
             &conn,
             at("2027-03-02T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1964,6 +2177,7 @@ mod tests {
         let f4 = record_fetch(
             &conn,
             at("2027-05-01T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1980,6 +2194,7 @@ mod tests {
         let f1 = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -1995,6 +2210,7 @@ mod tests {
         let f2 = record_fetch(
             &conn,
             at("2027-10-24T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -2047,7 +2263,15 @@ mod tests {
     #[test]
     fn results_are_kept_for_lf7_and_lf8_only() {
         let mut conn = db();
-        let f = record_fetch(&conn, at("2026-10-23T09:00:00Z"), Page::Results, 200, None).unwrap();
+        let f = record_fetch(
+            &conn,
+            at("2026-10-23T09:00:00Z"),
+            Source::PronoMatch,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
         let lf7 = GridResult {
             game: Some(Game::Lf7),
             number: 132,
@@ -2094,7 +2318,15 @@ mod tests {
     #[test]
     fn a_grid_that_cannot_be_written_is_refused_with_a_message() {
         let mut conn = db();
-        let f = record_fetch(&conn, at("2026-11-14T22:00:00Z"), Page::Results, 200, None).unwrap();
+        let f = record_fetch(
+            &conn,
+            at("2026-11-14T22:00:00Z"),
+            Source::PronoMatch,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
         let mut canceled = results_of(&[
             ("a", "b"),
             ("c", "d"),
@@ -2126,5 +2358,104 @@ mod tests {
         );
         assert!(record.refused[1].contains("6 rencontres lues au lieu de 7"));
         assert!(settled_grids(&conn).unwrap().is_empty());
+    }
+
+    /// Le règlement permet un LF8 à 7 rencontres (§74), mais le modèle suppose 8 : la grille est refusée avec un message,
+    /// et rien n'en est écrit (ni grille, ni rencontres, ni répartition). Les rapports de la page, eux, restent écrits.
+    #[test]
+    fn a_lf8_with_seven_matches_is_refused_loudly_and_not_written() {
+        let mut conn = db();
+        let f = record_fetch(
+            &conn,
+            at("2026-10-24T09:00:00Z"),
+            Source::Fdj,
+            Page::Open,
+            200,
+            None,
+        )
+        .unwrap();
+        let mut seven = page(150, Some(vec![[50, 30, 20]; 7]));
+        if let Some(open) = &mut seven.open {
+            open.game = Game::Lf8;
+        }
+
+        let record = record_grid_page(&mut conn, f, Game::Lf8, &seven).unwrap();
+
+        let reason = record.refused.as_deref().unwrap_or_default();
+        assert!(
+            reason.contains("LF8 n°150") && reason.contains("7 rencontres lues au lieu de 8"),
+            "{reason}"
+        );
+        assert_eq!((record.splits, record.recomposed), (0, false));
+        assert_eq!(count_grids(&conn).unwrap(), 0);
+        for table in [
+            "lotofoot_match",
+            "lotofoot_split",
+            "lotofoot_match_revision",
+        ] {
+            let rows: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(rows, 0, "{table}");
+        }
+        assert_eq!(
+            ranks(&conn, grid_of_2026(Game::Lf8, 131)).unwrap().len(),
+            2,
+            "les rapports de la page restent écrits"
+        );
+        // Le même nombre de rencontres, pour un LF7, est bien accepté : le refus tient à la formule, non au nombre lu.
+        let accepted = record_grid_page(
+            &mut conn,
+            f,
+            Game::Lf7,
+            &page(133, Some(vec![[50, 30, 20]; 7])),
+        )
+        .unwrap();
+        assert_eq!(accepted.refused, None);
+        assert_eq!(count_grids(&conn).unwrap(), 1);
+    }
+
+    /// Une grille entièrement annulée (`drawCancelled`) ne s'écrit pas ici, mais le magasin dit si des tickets déclarés
+    /// joués existent dessus : c'est ce qu'il faudra signaler (mises remboursées au guichet).
+    #[test]
+    fn played_tickets_of_a_grid_are_counted() {
+        let mut conn = db();
+        let f = record_fetch(
+            &conn,
+            at("2026-10-24T09:00:00Z"),
+            Source::PronoMatch,
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
+        record_grid_page(&mut conn, f, Game::Lf7, &page(133, None)).unwrap();
+        let id = grid_of_2026(Game::Lf7, 133);
+        assert_eq!(played_count(&conn, id).unwrap(), 0);
+
+        let ticket = Ticket::parse("1111111").unwrap();
+        for stake in [1.0, 2.0] {
+            record_play(
+                &conn,
+                &NewPlay {
+                    played_at: at("2026-10-24T11:00:00Z"),
+                    grid: id,
+                    ticket: &ticket,
+                    stake: Euros::new(stake).unwrap(),
+                    reco_id: None,
+                },
+            )
+            .unwrap();
+        }
+
+        assert_eq!(played_count(&conn, id).unwrap(), 2);
+        // Une autre grille n'est pas comptée.
+        assert_eq!(
+            played_count(&conn, grid_of_2026(Game::Lf8, 133)).unwrap(),
+            0
+        );
+        assert_eq!(played_count(&conn, GridId { year: 2027, ..id }).unwrap(), 0);
     }
 }

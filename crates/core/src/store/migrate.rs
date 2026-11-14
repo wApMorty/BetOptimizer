@@ -33,6 +33,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0021_lotofoot_oddspapi.sql"),
     include_str!("migrations/0022_lotofoot_year.sql"),
     include_str!("migrations/0023_alert_log.sql"),
+    include_str!("migrations/0024_lotofoot_sources.sql"),
 ];
 
 /// Version du schéma attendue par ce programme (le nombre de migrations connues).
@@ -188,6 +189,215 @@ mod tests {
             [],
         )
         .unwrap();
+    }
+
+    /// Données d'un LF7 n°133 à la version 23 du schéma, chaque table du Loto Foot ayant au moins une ligne, dont les six
+    /// tables qui référencent `lotofoot_fetch`. Deux lectures, pour que les identifiants conservés ne soient pas triviaux.
+    const VERSION_23_ROWS: &str = "
+        INSERT INTO lotofoot_fetch (id, fetched_at, page, http_status, error) VALUES
+            (7, '2026-10-24T09:00:00Z', 'lf7', 200, NULL),
+            (9, '2026-10-26T09:00:00Z', 'results', 200, 'page illisible');
+        INSERT INTO lotofoot_grid (game, year, number, closes_at, jackpot, fetch_id)
+            VALUES ('lf7', 2026, 133, '2026-10-25T16:10:00Z', 100000.0, 7);
+        INSERT INTO lotofoot_match (game, year, number, position, home_raw, away_raw) VALUES ('lf7', 2026, 133, 1, 'A', 'B');
+        INSERT INTO lotofoot_match_revision (game, year, number, fetch_id, position, home_raw, away_raw)
+            VALUES ('lf7', 2026, 133, 7, 1, 'C', 'D');
+        INSERT INTO lotofoot_split (fetch_id, game, year, number, position, q_home, q_draw, q_away)
+            VALUES (7, 'lf7', 2026, 133, 1, 50, 30, 20);
+        INSERT INTO lotofoot_result (game, year, number, position, outcome, fetch_id) VALUES ('lf7', 2026, 133, 1, 'H', 9);
+        INSERT INTO lotofoot_rank (game, year, number, rank, winners, unit_gain, fetch_id)
+            VALUES ('lf7', 2026, 133, 2, 3160, 26.5, 9);
+        INSERT INTO lotofoot_session (id, created_at, model_version, params, notes)
+            VALUES (3, '2026-10-24T10:00:00Z', 'lotofoot-1', '{}', '{}');
+        INSERT INTO lotofoot_reco (id, session_id, game, year, number, ticket, position, ev_base, ev_pessimistic,
+                                   paid_probability, stakes_estimate, split_fetch_id, inputs)
+            VALUES (11, 3, 'lf7', 2026, 133, '1111111', 1, 2.0, 1.8, 0.1, 200000.0, 7, '{}');";
+
+    fn count(conn: &Connection, table: &str) -> u32 {
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+    }
+
+    /// Lignes du verdict d'un `PRAGMA` qui n'en rend aucune quand tout va bien (`foreign_key_check`).
+    fn pragma_rows(conn: &Connection, pragma: &str) -> usize {
+        conn.prepare(&format!("PRAGMA {pragma}"))
+            .unwrap()
+            .query_map([], |_| Ok(()))
+            .unwrap()
+            .count()
+    }
+
+    /// La migration 24 reconstruit `lotofoot_fetch`, que six tables référencent : rien ne se perd, les clés étrangères
+    /// retrouvent leur parent, et les déclencheurs d'immuabilité sont recréés. Clés étrangères actives, comme en production.
+    #[test]
+    fn the_lotofoot_sources_migration_keeps_rows_and_references() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON").unwrap();
+        migrate_with(&mut conn, &MIGRATIONS[..23]).unwrap();
+        conn.execute_batch(VERSION_23_ROWS).unwrap();
+        let tables = [
+            "fetch",
+            "grid",
+            "match",
+            "match_revision",
+            "split",
+            "result",
+            "rank",
+            "reco",
+        ];
+        let before: Vec<u32> = tables
+            .iter()
+            .map(|t| count(&conn, &format!("lotofoot_{t}")))
+            .collect();
+        assert_eq!(before, [2, 1, 1, 1, 1, 1, 1, 1]);
+
+        assert_eq!(migrate(&mut conn).unwrap(), LATEST_VERSION);
+
+        let after: Vec<u32> = tables
+            .iter()
+            .map(|t| count(&conn, &format!("lotofoot_{t}")))
+            .collect();
+        assert_eq!(after, before);
+        assert_eq!(pragma_rows(&conn, "foreign_key_check"), 0);
+        let integrity: String = conn
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(integrity, "ok");
+        // Identifiants, pages et erreurs repris tels quels ; toutes les lectures déjà journalisées viennent de prono-match.
+        let mut stmt = conn
+            .prepare("SELECT id, source, page, http_status, error FROM lotofoot_fetch ORDER BY id")
+            .unwrap();
+        let fetches: Vec<(i64, String, String, i64, Option<String>)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            fetches,
+            [
+                (7, "pronomatch".to_string(), "lf7".to_string(), 200, None),
+                (
+                    9,
+                    "pronomatch".to_string(),
+                    "results".to_string(),
+                    200,
+                    Some("page illisible".to_string())
+                ),
+            ]
+        );
+        // Les six tables filles pointent toujours `lotofoot_fetch` : leur clé ne suit pas une table supprimée.
+        for child in ["grid", "match_revision", "split", "result", "rank", "reco"] {
+            let parents: Vec<String> = conn
+                .prepare(&format!("PRAGMA foreign_key_list(lotofoot_{child})"))
+                .unwrap()
+                .query_map([], |row| row.get::<_, String>("table"))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap();
+            assert!(parents.iter().any(|p| p == "lotofoot_fetch"), "{child}");
+        }
+        // Une clé étrangère reste appliquée : un rapport ne peut citer une lecture qui n'existe pas.
+        assert!(
+            conn.execute(
+                "INSERT INTO lotofoot_rank (game, year, number, rank, winners, unit_gain, fetch_id)
+                 VALUES ('lf7', 2026, 133, 1, 1, 100.0, 999)",
+                [],
+            )
+            .is_err()
+        );
+        let leftovers: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE instr(sql, '_old') > 0 OR instr(name, '_old') > 0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(leftovers, 0);
+    }
+
+    /// Mêmes lignes, clés étrangères inactives (le réglage par défaut d'une connexion qui ne les active pas) : la
+    /// migration passe aussi, et laisse le même contenu.
+    #[test]
+    fn the_lotofoot_sources_migration_also_runs_without_foreign_keys() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
+        migrate_with(&mut conn, &MIGRATIONS[..23]).unwrap();
+        conn.execute_batch(VERSION_23_ROWS).unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        assert_eq!(count(&conn, "lotofoot_fetch"), 2);
+        assert_eq!(pragma_rows(&conn, "foreign_key_check"), 0);
+    }
+
+    /// Après la migration 24, une rencontre annulée s'écrit (`C`), un signe inconnu est refusé, la source et la page sont
+    /// contrôlées, et les deux tables restent immuables.
+    #[test]
+    fn the_new_schema_accepts_canceled_matches_and_new_pages_and_stays_immutable() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON").unwrap();
+        migrate(&mut conn).unwrap();
+        let insert_fetch = |source: &str, page: &str| {
+            conn.execute(
+                "INSERT INTO lotofoot_fetch (fetched_at, source, page, http_status)
+                 VALUES ('2026-11-15T09:00:00Z', ?1, ?2, 200)",
+                [source, page],
+            )
+        };
+        for (source, page) in [
+            ("pronomatch", "lf8"),
+            ("fdj", "open"),
+            ("fdj", "results"),
+            ("fdj", "detail"),
+            ("resultats_fdj", "open"),
+        ] {
+            insert_fetch(source, page).unwrap();
+        }
+        assert!(insert_fetch("inconnue", "open").is_err());
+        assert!(insert_fetch("fdj", "inconnue").is_err());
+        // La colonne `source` n'a pas de valeur par défaut : une écriture qui l'oublie est refusée.
+        assert!(
+            conn.execute(
+                "INSERT INTO lotofoot_fetch (fetched_at, page, http_status) VALUES ('2026-11-15T09:00:00Z', 'open', 200)",
+                [],
+            )
+            .is_err()
+        );
+
+        let insert_result = |position: i64, outcome: &str| {
+            conn.execute(
+                "INSERT INTO lotofoot_result (game, year, number, position, outcome, fetch_id)
+                 VALUES ('lf7', 2026, 140, ?1, ?2, 1)",
+                rusqlite::params![position, outcome],
+            )
+        };
+        for (position, outcome) in [(1, "H"), (2, "D"), (3, "A"), (4, "C")] {
+            insert_result(position, outcome).unwrap();
+        }
+        assert!(insert_result(5, "X").is_err());
+        assert!(insert_result(6, "N").is_err());
+
+        for table in ["lotofoot_fetch", "lotofoot_result"] {
+            assert!(conn.execute(&format!("DELETE FROM {table}"), []).is_err());
+        }
+        assert!(
+            conn.execute("UPDATE lotofoot_fetch SET http_status = 500", [])
+                .is_err()
+        );
+        assert!(
+            conn.execute("UPDATE lotofoot_result SET outcome = 'H'", [])
+                .is_err()
+        );
     }
 
     #[test]

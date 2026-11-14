@@ -69,7 +69,7 @@ mod journal {
     use edge_core::lotofoot::grid_page::{GridPage, OpenGrid};
     use edge_core::lotofoot::{Game, GridId, Ticket};
     use edge_core::store::lotofoot::{
-        NewReco, NewSession, Page, plays, record_fetch, record_grid_page, record_session,
+        NewReco, NewSession, Page, Source, plays, record_fetch, record_grid_page, record_session,
     };
     use edge_core::store::{migrate, open};
 
@@ -79,7 +79,15 @@ mod journal {
         let mut conn = open(&home.join("edge.db")).unwrap();
         migrate::migrate(&mut conn).unwrap();
         let now = Utc::now();
-        let fetch_id = record_fetch(&conn, now, Page::Grid(Game::Lf7), 200, None).unwrap();
+        let fetch_id = record_fetch(
+            &conn,
+            now,
+            Source::PronoMatch,
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
         let page = GridPage {
             open: Some(OpenGrid {
                 game: Game::Lf7,

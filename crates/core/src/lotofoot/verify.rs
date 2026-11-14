@@ -407,13 +407,16 @@ mod tests {
     #[test]
     fn a_settled_grid_feeds_the_calibration() {
         use crate::lotofoot::grid_page::{GridPage, GridResult, MatchResult, OpenGrid, RankLine};
-        use crate::store::lotofoot::{Page, record_fetch, record_grid_page, record_results};
+        use crate::store::lotofoot::{
+            Page, Source, record_fetch, record_grid_page, record_results,
+        };
         let mut conn = Connection::open_in_memory().unwrap();
         crate::store::migrate::migrate(&mut conn).unwrap();
         let at = |s: &str| DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc);
         let f = record_fetch(
             &conn,
             at("2026-10-25T15:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -435,7 +438,15 @@ mod tests {
             history: vec![],
         };
         record_grid_page(&mut conn, f, Game::Lf7, &page).unwrap();
-        let r = record_fetch(&conn, at("2026-10-25T21:00:00Z"), Page::Results, 200, None).unwrap();
+        let r = record_fetch(
+            &conn,
+            at("2026-10-25T21:00:00Z"),
+            Source::PronoMatch,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
         let result = GridResult {
             game: Some(Game::Lf7),
             number: 133,

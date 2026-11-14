@@ -684,7 +684,7 @@ mod tests {
     use crate::lotofoot::played;
     use crate::lotofoot::{Game, grid_of_2026};
     use crate::store::archive::{self, Endpoint, NewApiCall};
-    use crate::store::lotofoot::{Page, record_fetch, record_grid_page};
+    use crate::store::lotofoot::{Page, Source, record_fetch, record_grid_page};
     use crate::store::migrate::migrate;
 
     fn at(s: &str) -> DateTime<Utc> {
@@ -747,7 +747,15 @@ mod tests {
         fetched: DateTime<Utc>,
         teams: Vec<(String, String)>,
     ) {
-        let fetch_id = record_fetch(conn, fetched, Page::Grid(Game::Lf7), 200, None).unwrap();
+        let fetch_id = record_fetch(
+            conn,
+            fetched,
+            Source::PronoMatch,
+            Page::Grid(Game::Lf7),
+            200,
+            None,
+        )
+        .unwrap();
         let page = GridPage {
             open: Some(OpenGrid {
                 game: Game::Lf7,
@@ -1127,7 +1135,15 @@ mod tests {
             Euros::new(1.0).unwrap(),
         )
         .unwrap();
-        let fetch_id = record_fetch(conn, published, Page::Results, 200, None).unwrap();
+        let fetch_id = record_fetch(
+            conn,
+            published,
+            Source::PronoMatch,
+            Page::Results,
+            200,
+            None,
+        )
+        .unwrap();
         for (i, sign) in winner.ticket.signs().iter().enumerate() {
             conn.execute(
                 "INSERT INTO lotofoot_result VALUES ('lf7', 2026, ?1, ?2, ?3, ?4)",
@@ -1414,6 +1430,7 @@ mod tests {
         let fetch_id = record_fetch(
             &conn,
             at("2026-10-24T09:45:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,

@@ -25,7 +25,7 @@ use crate::domain::Euros;
 use crate::error::{Error, Result};
 use crate::format;
 use crate::lotofoot::Game;
-use crate::store::lotofoot::{self as lotofoot_store, Page};
+use crate::store::lotofoot::{self as lotofoot_store, Page, Source};
 use crate::store::{archive, history, nba, tennis};
 
 /// Les prix du dernier relevé, partagés en notifiés (avantage ≥ seuil, avec mise suggérée) et en dessous.
@@ -155,7 +155,7 @@ fn lotofoot_feed(conn: &Connection, now: DateTime<Utc>) -> Result<Feed> {
     let mut oldest: Option<DateTime<Utc>> = None;
     let mut failing = false;
     for game in Game::ALL {
-        let health = lotofoot_store::page_health(conn, Page::Grid(game))?;
+        let health = lotofoot_store::page_health(conn, Source::PronoMatch, Page::Grid(game))?;
         failing |= health.failing.is_some();
         if let Some(at) = health.last_ok {
             // La plus ancienne des deux : le flux n'est à jour que si les deux pages le sont.

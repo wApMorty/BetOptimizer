@@ -217,7 +217,7 @@ mod tests {
     use crate::lotofoot::grid_page::{GridPage, OpenGrid};
     use crate::lotofoot::played::{declare, declare_manual};
     use crate::store::lotofoot::{
-        NewReco, NewSession, Page, record_fetch, record_grid_page, record_session,
+        NewReco, NewSession, Page, Source, record_fetch, record_grid_page, record_session,
     };
     use crate::store::migrate::migrate;
 
@@ -234,6 +234,7 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-23T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,
@@ -286,7 +287,7 @@ mod tests {
 
     /// Résultats « 1N21N21 » et rapports relevés à `fetched` : 476 € au sans-faute, 29,70 € à une erreur.
     fn publish(conn: &Connection, fetched: DateTime<Utc>) {
-        let f = record_fetch(conn, fetched, Page::Results, 200, None).unwrap();
+        let f = record_fetch(conn, fetched, Source::PronoMatch, Page::Results, 200, None).unwrap();
         for (i, outcome) in ["H", "D", "A", "H", "D", "A", "H"].iter().enumerate() {
             conn.execute(
                 "INSERT INTO lotofoot_result VALUES ('lf7', 2026, 133, ?1, ?2, ?3)",

@@ -57,7 +57,7 @@ mod tests {
     use crate::domain::Euros;
     use crate::lotofoot::Game;
     use crate::lotofoot::grid_page::{GridPage, OpenGrid};
-    use crate::store::lotofoot::{Page, record_fetch, record_grid_page};
+    use crate::store::lotofoot::{Page, Source, record_fetch, record_grid_page};
     use crate::store::migrate::migrate;
 
     fn at(text: &str) -> DateTime<Utc> {
@@ -71,6 +71,7 @@ mod tests {
         let fetch = record_fetch(
             conn,
             at("2026-10-24T08:07:00Z"),
+            Source::PronoMatch,
             Page::Grid(game),
             200,
             None,

@@ -164,7 +164,7 @@ mod tests {
     use crate::lotofoot::grid_page::{GridPage, OpenGrid};
     use crate::lotofoot::{Game, grid_of_2026};
     use crate::store::lotofoot::{
-        NewReco, NewSession, Page, record_fetch, record_grid_page, record_session,
+        NewReco, NewSession, Page, Source, record_fetch, record_grid_page, record_session,
     };
     use crate::store::migrate::migrate;
 
@@ -179,6 +179,7 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
+            Source::PronoMatch,
             Page::Grid(Game::Lf7),
             200,
             None,

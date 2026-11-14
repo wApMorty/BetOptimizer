@@ -14,7 +14,7 @@ use crate::market::margin::MarginMethod;
 use crate::paths::Paths;
 use crate::store::archive::{Endpoint, NewApiCall, record_api_call, record_snapshot};
 use crate::store::lotofoot::{
-    NewReco, NewSession, Page, record_fetch, record_grid_page, record_session,
+    NewReco, NewSession, Page, Source, record_fetch, record_grid_page, record_session,
 };
 use crate::store::{Connection, open_migrated};
 
@@ -180,7 +180,15 @@ pub fn sample() -> Sample {
 /// Une grille LF7 relevée il y a une heure et une séance de deux tickets dessus, pas encore déclarés joués.
 fn lotofoot_session(conn: &mut Connection, now: DateTime<Utc>) {
     let fetched = now - Duration::hours(1);
-    let fetch_id = record_fetch(conn, fetched, Page::Grid(Game::Lf7), 200, None).unwrap();
+    let fetch_id = record_fetch(
+        conn,
+        fetched,
+        Source::PronoMatch,
+        Page::Grid(Game::Lf7),
+        200,
+        None,
+    )
+    .unwrap();
     let page = GridPage {
         open: Some(OpenGrid {
             game: Game::Lf7,
