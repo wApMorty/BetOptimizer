@@ -3192,3 +3192,40 @@ déplacer vers un autre support dès qu'il y en a un.
 
 **Reste à faire, hors code** : règle d'arrêt du Loto Foot (budget annuel, perte cumulée, date de revue) ; statut retirable du bonus PMU ;
 `backup_dir` vers un support hors du portable ; permissions 0600 sur la base et ses copies existantes (les nouvelles sauvegardes le sont).
+
+## 74. Loto Foot : prono-match figé, sources de remplacement, lecture des sites FDJ autorisée (2026-11-14)
+
+**Constat.** Le 2026-11-14 à 21 h 07 UTC, prono-match affiche encore le LF7 n°139 et le LF8 n°154 (« page périmée » dans
+`lotofoot_fetch`, §73) : neuf jours sans grille ; au moins les LF7 n°140 à 142 et les LF8 n°155 à 158 ont été manqués.
+
+**Décision de Paul du 2026-11-14** : la règle « aucune interaction automatisée avec les sites des opérateurs » est retirée du
+CLAUDE.md pour **tous les opérateurs**. Reste : le programme ne parie jamais lui-même, lit seulement des pages publiques, sans compte,
+sans jamais utiliser celui de Paul. Les exclusions qui en découlaient (§37 : Pronosoft, site des points de vente FDJ) tombent.
+
+**Site des points de vente FDJ** (lu le 2026-11-14 vers 21 h 40 UTC, trois requêtes) :
+- `robots.txt` de `www.pointdevente.parionssport.fdj.fr` : seuls `/digishopp/` et `/prweb/` sont interdits ; les pages de grilles sont
+  permises. Celui de `www.fdj.fr` interdit `/api/`, `/apigw/` et les PDF (hors règlements listés).
+- Mentions légales et CGU (`/mentions-legales`) : « reproduction, représentation ou exploitation » du site « strictement interdites » ;
+  site « exclusivement destiné à un usage personnel, à l'exclusion de tout autre usage et notamment commercial ». **Aucune clause** sur
+  les robots, l'extraction automatisée ou les fréquences d'accès. Lecture : un relevé personnel des faits (sans reproduire les pages,
+  même règle que prono-match) reste dans l'usage personnel ; non validé par un juriste.
+- Protection : la page porte une clé reCAPTCHA (`captchaSiteKey`, pour la création de QR codes, §55) et deux mentions de DataDome
+  (service anti-robots). Trois requêtes simples (`curl`, en-tête navigateur) ont reçu HTTP 200 sans défi. Un blocage à un rythme horaire
+  n'est pas exclu ; non essayé.
+- Données : état Angular embarqué (`<script id="serverApp-state">`, entités `&q;` pour les guillemets). Page
+  `/grilles/ouvertes/loto-foot` : toutes les grilles ouvertes ; page `/grilles/loto-foot/loto-foot-8/<internalDrawNumber>` : une grille.
+  Champs : `gridNumber`, `internalDrawNumber`, `startValidationDate`, `endValidationDate` (UTC), `jackpot.amount`, `drawCancelled`,
+  `product.numberEvents`, et par match `opponents`, `startDate`, `result`, `outcomes[].percentagePlayed`, `winranks`.
+- **La répartition n'est donnée qu'en pourcentages entiers**, pas en nombre de grilles jouées : contrairement aux copies Wayback de
+  2021 à 2026 décrites au §37, le nombre de grilles S n'est pas lisible sur ces deux pages. L'estimation des mises (§65) reste donc
+  nécessaire. Non vérifié : la page `/grilles/resultats/loto-foot` (gagnants et rapports).
+
+**resultats-fdj.fr** (lu le 2026-11-14 vers 21 h 30 UTC) : site d'un particulier, « ni affilié, ni partenaire » de la FDJ, `robots.txt`
+n'interdisant que `/admin/`, reproduction interdite. Grilles ouvertes avec répartition (« source FDJ »), clôture, pactole, prochaines
+grilles ; résultats et rapports des grilles manquées. Première copie Wayback : 2026-10-27. **Concordance** avec la FDJ sur le LF8 n°158 :
+France – Turquie 90/6/4 et Espagne – Angleterre 58/25/17 sur les deux sites (deux matchs seulement).
+
+**Choix de Paul du 2026-11-14** (phase 22) : FDJ en source principale ; resultats-fdj.fr lu **seulement si la FDJ échoue** ;
+lecteur prono-match retiré (son archive reste) ; si DataDome refuse notre `User-Agent` honnête, bascule sur le repli, **aucune
+tentative de contournement** ; résultats et rapports des grilles manquées (LF7 n°140 à 142, LF8 n°155 à 157) rattrapés par la page
+des résultats.

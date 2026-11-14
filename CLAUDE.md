@@ -7,8 +7,9 @@
 
 Un outil personnel qui estime des probabilités de résultats sportifs, les confronte aux cotes des
 bookmakers français agréés (Winamax, Betclic) et me **recommande** des paris quand l'écart justifie
-une mise. **Le programme ne parie jamais lui-même** et n'automatise aucune interaction avec les sites
-des bookmakers (pas de scraping, pas de navigation automatisée) : je place, ou non, chaque pari moi-même.
+une mise. **Le programme ne parie jamais lui-même** : je place, ou non, chaque pari moi-même. Il peut lire
+automatiquement les pages publiques des opérateurs (FDJ comprise), sans compte et sans jamais utiliser le mien
+(décision du 2026-11-14).
 
 Objectif : le profit. Conséquence : rien n'est un « avantage » tant qu'il n'a pas été mesuré hors
 échantillon contre le marché.
