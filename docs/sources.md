@@ -3229,3 +3229,93 @@ France – Turquie 90/6/4 et Espagne – Angleterre 58/25/17 sur les deux sites 
 lecteur prono-match retiré (son archive reste) ; si DataDome refuse notre `User-Agent` honnête, bascule sur le repli, **aucune
 tentative de contournement** ; résultats et rapports des grilles manquées (LF7 n°140 à 142, LF8 n°155 à 157) rattrapés par la page
 des résultats.
+
+**Étape 0 (2026-11-14).** Huit requêtes le 2026-11-14 entre 22 h 45 et 22 h 52 UTC (cinq à la FDJ, trois à resultats-fdj.fr), 28 s au
+moins d'écart, en `curl` avec le `User-Agent` de `lotofoot/fetch.rs` (`edge/0.1 (usage personnel, une page par heure)`). Les copies restent
+hors du dépôt. Les comparaisons s'appuient aussi sur la base de production (lecture seule), sur les 1 735 copies Wayback de la FDJ déjà
+collectées (§37, 2021 à juin 2026) et sur les 51 grilles lues ce jour.
+
+*Vérifié le 2026-11-14.*
+- **Anti-robots : aucun défi.** Les cinq pages FDJ (ouvertes, prochaines, résultats pages 1 et 5, détail d'une grille close) répondent
+  HTTP 200 avec l'état `serverApp-state`, sans cookie ni en-tête de défi ; DataDome n'y figure que comme script chargé par le navigateur.
+  `Cache-Control: public,max-age=300` : une page peut avoir cinq minutes de retard. resultats-fdj.fr répond aussi 200 à ce `User-Agent`
+  (cinq secondes par page).
+- **Un même format sur trois pages.** `/grilles/ouvertes/loto-foot`, `/grilles/prochaines/loto-foot` et `/grilles/resultats/loto-foot`
+  portent `gridsResolver` = `{grids[], pagination{limit, offset, total, page}}` pour les quatre jeux (LF7, LF8, LF12, LF15). La page de
+  détail `/grilles/loto-foot/loto-foot-N/<internalDrawNumber>` porte `gridResolver` (une grille) et `gridCompetitionsResolver` (libellés
+  de compétition) : rien de plus que la liste. Les copies Wayback d'avant juin 2026 avaient `gridResolver` avec `order` et `numberPlayed` ;
+  ce format n'est plus servi.
+- **Champs d'une grille.** `gridNumber`, `internalDrawNumber`, `externalDrawNumber`, `gameId` (entiers) ; `startValidationDate`,
+  `endValidationDate`, `foreclosureDate` (UTC, `Z`) ; `drawCancelled` ; `jackpot{amount, type, gmg}` ; `product{numberEvents, label,
+  limits{maxDouble, maxStake, maxTriple}}` ; `events[]` ; `winranks[]`. Un match : `eventId`, `startDate`, `result`, `opponents[2]`,
+  `outcomes[{label, percentagePlayed}]`. Pas de champ `order` : la position est l'ordre du tableau (identique à l'archive sur 8 grilles).
+  La formule se lit dans `product.numberEvents`.
+- **Grilles ouvertes et annoncées.** À 22 h 45 UTC, `/ouvertes` listait deux grilles (LF8 n°158, LF12 n°99), **une par formule** : sur les
+  51 grilles lues (clôtures du 2026-09-16 au 2026-11-22), aucune formule n'a deux grilles qui se chevauchent : chacune s'ouvre à 0 h 10
+  heure de Paris (23 h 10 UTC en hiver, 22 h 10 en été), après la clôture de la précédente. `/prochaines` listait 11 grilles à venir (`total` 11), avec noms, `startDate` et pactole, mais
+  `percentagePlayed` à 0 sur chaque issue. Sur une grille ouverte, les trois pourcentages sont des entiers de somme 100 (20 matchs sur 20),
+  `result` vaut `null`, et `startDate` donne le coup d'envoi. Aucune date de relevé dans l'état : seul l'en-tête `Date` de la réponse sert.
+  **Après la clôture** la répartition disparaît : `outcomes` se réduit à un élément sans libellé, à 0, et `startDate` devient `""`.
+- **Pactole.** `jackpot.amount` (euros entiers, 0 si aucun), `type` (0 aucun, 1 pactole, 2 « super pactole », vu au LF15 seulement), `gmg`
+  (libellé interne). Lisible dès la grille annoncée et conservé sur la grille close. Sur les 8 grilles communes avec la base (LF7 n°136
+  à 139, LF8 n°152 à 155) : clôture et pactole identiques à ce qu'a archivé prono-match.
+- **Grille close : résultat et rapports.** `result` ∈ `firstOpponentWinner`, `draw`, `secondOpponentWinner`, `canceled`. `winranks[]` :
+  `rankNumberMarket` (nombre de bons pronostics du rang : 7 et 6 au LF7, 8 et 7 au LF8, donc rang = formule − bons + 1), `rankNumberGrid`
+  (gagnants), `rankAmount` (**gain unitaire en centimes**, entier). Contrôle : sur 5 grilles de l'archive prono-match (LF7 n°136 à 138, LF8
+  n°152 et 153), gagnants égaux sur 10 rangs, gains égaux sur 9 ; le dixième (LF8 n°152, rang 2) vaut 246,0 € chez prono-match et 246,10 €
+  chez la FDJ, l'écart est un arrondi côté prono-match (la FDJ donne les centimes). Même rapport chez resultats-fdj.fr sur le LF8 n°155
+  (62 € et 6,50 €, soit 6 200 et 650). Un rang sans gagnant
+  vaut `rankNumberGrid` 0 et `rankAmount` 0 (LF12 n°96, rang 1). Les rangs sont rendus par bons décroissants.
+- **Résultats : pagination et profondeur.** `total` 99, 20 par page, `?page=N`, cinq pages. La page 1 porte 19 grilles, clôtures du
+  2026-11-01 au 2026-11-14 : LF7 n°136 à 142 et LF8 n°152 à 157, donc **toutes les grilles manquées** (LF7 n°140 à 142, LF8 n°155 à 157,
+  plus LF8 n°154 et LF7 n°139). La page 5 (`offset` 80, 19 grilles) va du LF8 n°125 (clos le 2026-09-16) et du LF7 n°117 (le 09-17) au
+  LF7 n°121 et au LF8 n°130 (le 09-26). La liste est une fenêtre de forclusion : `foreclosureDate` vaut la clôture plus deux mois, et chaque jour la
+  grille la plus ancienne sort. L'ordre du tableau JSON n'est pas chronologique ; le HTML rend la clôture décroissante.
+- **Match annulé.** LF7 n°140, match 5 : `result` vaut `canceled` (une orthographe, un seul `l`). `drawCancelled` reste `false` : drapeau de
+  la grille entière, `false` sur les 51 grilles lues. Dans les 1 735 copies Wayback : 110 matchs `canceled` sur 89 grilles (78 à un seul,
+  10 à deux ou plus) dont **une** grille entière annulée (LF8 n°69 de 2021 : `drawCancelled` vrai, les 8 matchs `canceled`, deux
+  `winranks` à `rankNumberMarket` 0 et `rankAmount` 0). Un match annulé ne change pas les libellés de rang : N et N − 1 bons, toujours
+  (LF7 n°140 : rangs 7 et 6). Mesure sur ces copies, toutes formules (indépendance, match annulé retiré du produit, λ ≥ 3) : gagnants
+  observés sur attendus 0,92 pour 58 grilles à un annulé, 0,71 pour 8 grilles à deux ou plus, 1,17 sans annulé (1 298 grilles) ; le
+  rang 1 n'a pas de gagnant dans 10 grilles sur 74 avec un annulé, 157 sur 1 589 sans (les copies sans répartition lisible sont écartées). Cela soutient la lecture du règlement (§39, art. 10.6) : **un match
+  annulé est bon pour tous les signes**. Le code actuel n'en sait rien : `Outcome` n'a que `Home`, `Draw`, `Away`, la colonne
+  `lotofoot_result.outcome` n'accepte que `H`, `D`, `A`, et `Ticket::good` ne compte qu'un signe égal. `pronomatch::parse_results_page`
+  ne lit que les rencontres portant un signe : un LF7 à un annulé donne 6 rencontres, `store::record_results` saute la grille **sans
+  message**, et `store::results` (7 résultats exigés) ne la règle jamais.
+- **`externalDrawNumber`.** Égal à (dernier chiffre de l'année de **clôture**) × 1 000 + `gridNumber` sur les 1 735 copies Wayback
+  (4 jeux, 2021 à 2026, aucune exception) et sur les 51 grilles lues (6158 pour le LF8 n°158). C'est la clôture qui compte, pas
+  l'ouverture : 8 grilles n°1 ouvertes fin décembre et closes début janvier portent le chiffre de l'année suivante. Les clôtures vont
+  de 10 h à 21 h UTC : UTC et Paris ne s'y distinguent jamais. Il encode donc la renumérotation du 1er janvier (§66). `internalDrawNumber`
+  est égal au `gid` de l'URL, strictement croissant avec la clôture, sans remise à zéro (4 jeux, 1 735 grilles) ; il n'est unique que par
+  formule (62 existe au LF8 et au LF12).
+- **Noms d'équipes : la FDJ abrège.** Sur les 8 grilles communes avec la base (60 matchs), 5 noms diffèrent de ceux de prono-match :
+  `Atl. Madrid` (LF7 n°137 et 139), `Man. United` (LF7 n°137), `Man. City` (LF8 n°153 et 155), prono-match écrivant les noms entiers. Le
+  reste est identique, `Nottingham F.` compris. Dans `[LOTOFOOT]`, `Atlético Madrid`, `Manchester United` et `Manchester City` n'ont
+  aucune variante : ces trois noms FDJ bloqueraient une grille. Grilles manquées touchées par le contrôle strict de
+  `store::record_results` (rencontres de la page égales à celles de la base) : LF7 n°139 et LF8 n°155 seraient refusées ; LF8 n°154 passe.
+  Aucune grille ouverte n'est en base sous les noms de prono-match. Autres formes vues le 2026-11-14 : suffixe ` F` (LF7 n°140, Ligue
+  des champions féminine), abréviations sans espace (`Bay.Munich F`, `Man.City F`), `Rép.Tchèque`, `Rép.Irlande`, `Bosnie Herzég.`,
+  `I.Féroé`, `MacédoineduNo.`, `Slo.Bratislava`.
+- **resultats-fdj.fr (repli).** Liste `/loto-foot/resultats?page=N` : 20 grilles par page, liens de pagination en fenêtre autour de la
+  page courante ; la page 3 remonte du LF7 n°131 (2026-10-20) au LF7 n°126 (2026-10-08). Chaque ligne donne formule, numéro, jour de
+  clôture **avec l'année**, signes sortis (`A` pour un match annulé), gagnants et gain du rang 1 ; **pas le rang 2**, ni les noms. La page
+  de détail `/loto-foot/grille/<internalDrawNumber>-loto-foot-N-n<numéro>` donne les noms, les signes, le score de chaque match, la
+  clôture à la minute (heure de Paris, jour et année), et le tableau `Rang · Gagnants · Gain` de **tous** les rangs. Un match annulé y
+  porte `data-res="A"` et la mention « (match annulé) » ; la ligne `7 sur 7` garde son libellé. Noms **identiques** à ceux de la FDJ
+  (LF7 n°140, LF8 n°155, et 20 matchs ouverts LF8 n°158 et LF12 n°99) ; rapports identiques (LF8 n°155). Répartitions des grilles ouvertes :
+  mêmes grilles et mêmes noms, pourcentages à un point près à 1 h 30 d'écart (21 h 13 et 22 h 45 UTC ; sur 20 matchs, 4 écarts d'un point).
+  Dans le tableau des rapports, les milliers sont séparés par une espace fine insécable (U+202F) et `€` suit une espace insécable (U+00A0) ;
+  dans la liste, le nombre de gagnants du rang 1 n'a pas de séparateur.
+
+*Non vérifié.*
+- Le client Rust (`ureq` 3.4.2, rustls, HTTP/1.1) n'a pas été essayé : seul `curl` (OpenSSL, HTTP/2) l'a été. Un blocage par empreinte TLS
+  ou par rythme, sur des semaines de relevés horaires, n'est pas exclu.
+- Le calcul exact des gagnants d'une grille à un match annulé (la répartition de ces grilles n'est plus lisible) ; l'état d'une grille
+  entièrement annulée dans le format actuel ; la valeur de `percentagePlayed` à l'ouverture (zéros ?) et l'instant précis où une grille
+  passe de `/prochaines` à `/ouvertes` (`startValidationDate`, supposé).
+- Le passage au 1er janvier 2027 chez la FDJ ; une clôture entre minuit UTC et minuit de Paris ; le chiffre d'année seul est ambigu à
+  dix ans (2026 et 2036, 6).
+- Pages 2 à 4 de la FDJ. La 20e place de la page 1 (19 grilles pour `limit` 20, et 99 − 80 = 19 en page 5) : le LF15 n°94, clos le 14 et
+  « en direct » chez resultats-fdj.fr à 21 h 13 UTC, figurait sur aucune page FDJ lue, d'où l'hypothèse d'une grille retirée tant que ses
+  résultats manquent.
+- Le pactole d'une grille ouverte sur resultats-fdj.fr (aucune n'en avait) ; le nombre total de pages de sa liste.
