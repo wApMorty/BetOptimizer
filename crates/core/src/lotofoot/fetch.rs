@@ -470,7 +470,9 @@ fn read_results(
         Err(failure) => failure,
     };
     journal_failure(conn, at, Source::Fdj, Page::Results, &fdj_failure)?;
-    read_results_fallback(conn, aliases, io, page_number, &fdj_failure, report)
+    read_results_fallback(conn, aliases, io, page_number, &fdj_failure, report)?;
+    // La FDJ vient d'échouer : on ne lui redemande pas les pages suivantes dans ce passage, le prochain réessaiera.
+    Ok(false)
 }
 
 /// Grilles entièrement annulées (`docs/sources.md` §74) : toujours un avertissement ; et, si des tickets y sont joués, une
@@ -488,7 +490,7 @@ fn note_canceled(conn: &Connection, canceled: &[GridId], report: &mut FetchRepor
 }
 
 /// Repli pour la page `page_number` des résultats : la liste de resultats-fdj.fr, puis la page de détail des grilles
-/// LF7 et LF8 dont les résultats ou les rapports manquent encore en base. Rend `true` si la liste n'était pas vide.
+/// LF7 et LF8 dont les résultats ou les rapports manquent encore en base.
 fn read_results_fallback(
     conn: &mut Connection,
     aliases: &Aliases,
@@ -496,7 +498,7 @@ fn read_results_fallback(
     page_number: u32,
     fdj_failure: &Failure,
     report: &mut FetchReport,
-) -> Result<bool> {
+) -> Result<()> {
     let (at, body) = io.get(&fallback_url(&resultats_fdj::results_path(page_number)));
     let links =
         body.and_then(|html| resultats_fdj::parse_results_list(&html).map_err(Failure::unreadable));
@@ -511,7 +513,7 @@ fn read_results_fallback(
                 &fallback_failure,
             )?;
             note_failure(Page::Results, fdj_failure, &fallback_failure, report);
-            return Ok(false);
+            return Ok(());
         }
     };
     store::record_fetch(conn, at, Source::ResultatsFdj, Page::Results, 200, None)?;
@@ -524,7 +526,7 @@ fn read_results_fallback(
     for link in &links {
         read_detail(conn, aliases, io, link, report)?;
     }
-    Ok(!links.is_empty())
+    Ok(())
 }
 
 /// Les résultats et les deux rapports de la grille du lien sont-ils déjà en base ? Sans jour de clôture lisible dans la
@@ -1453,6 +1455,29 @@ mod tests {
             3,
         );
         assert_eq!(fake.calls, [FDJ_OPEN, FDJ_RESULTS]);
+    }
+
+    /// La FDJ échoue sur la première page des résultats : le repli lit sa liste, et la FDJ n'est pas sollicitée de nouveau pour
+    /// les pages suivantes, même si l'on en demande plusieurs.
+    #[test]
+    fn once_the_fdj_has_failed_it_is_not_asked_for_the_next_result_pages() {
+        let mut conn = db();
+        let mut fake = Fake::new()
+            .page(FDJ_OPEN, fdj_page(vec![], 0))
+            .status(FDJ_RESULTS, 403)
+            .page(RFDJ_LIST, rfdj_list(&[]));
+
+        let (report, _) = pass(
+            &mut conn,
+            &Aliases::default(),
+            &mut fake,
+            "2026-11-15T09:00:00Z",
+            3,
+        );
+
+        assert_eq!(fake.calls, [FDJ_OPEN, FDJ_RESULTS, RFDJ_LIST]);
+        assert_eq!(report.fallbacks.len(), 1);
+        assert!(report.failures.is_empty());
     }
 
     /// Un détail illisible du repli n'est pas un échec du passage : un avertissement, journalisé, relu au passage suivant.
