@@ -3,6 +3,7 @@
 //! Ce fichier ne fait que lire la ligne de commande et aiguiller vers [`commands`] ; toute la logique
 //! vit dans la bibliothèque `edge-core`.
 
+mod aliases;
 mod bonus;
 mod boost;
 mod commands;
@@ -150,6 +151,26 @@ enum Command {
     Loto {
         #[command(subcommand)]
         command: LotoCommand,
+    },
+    /// Alias d'équipes déduits par la rencontre (phase 23) : propositions, report dans config/aliases.toml.
+    Aliases {
+        #[command(subcommand)]
+        command: AliasesCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum AliasesCommand {
+    /// Liste les propositions en attente (à valider sur la page Loto Foot de l'application) et les alias acceptés.
+    List,
+    /// Reporte les alias acceptés dans le fichier d'alias du dépôt, commentaires gardés, et affiche les lignes changées.
+    Export {
+        /// Fichier à compléter : `config/aliases.toml` du dépôt.
+        #[arg(long, value_name = "FICHIER")]
+        to: PathBuf,
+        /// Affiche les lignes à changer sans écrire le fichier.
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -626,6 +647,10 @@ fn main() -> Result<()> {
         Command::Latency { command } => match command {
             LatencyCommand::Fetch { dry_run } => latency::fetch(&paths, dry_run),
             LatencyCommand::Report => latency::report(&paths),
+        },
+        Command::Aliases { command } => match command {
+            AliasesCommand::List => aliases::list(&paths),
+            AliasesCommand::Export { to, dry_run } => aliases::export(&paths, &to, dry_run),
         },
         Command::Lotofoot { command } => match command {
             LotofootCommand::Fetch {

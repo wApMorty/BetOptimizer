@@ -112,6 +112,103 @@ impl Aliases {
     }
 }
 
+/// Écrit un nom comme une chaîne TOML entre guillemets (`\` et `"` échappés).
+fn quoted(name: &str) -> String {
+    format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Reporte des alias appris (section, nom, nom canonique) dans le texte de `config/aliases.toml`, en gardant ses
+/// commentaires et son ordre. Renvoie le nouveau texte et les lignes ajoutées ou complétées, au format du fichier ; un alias
+/// que le fichier connaît déjà n'y change rien.
+///
+/// Une variante s'ajoute à la ligne de son équipe (`"Málaga" = ["Malaga"]`) ; une équipe absente prend une ligne neuve en
+/// fin de section. Le résultat est relu et vérifié : chaque alias doit s'y résoudre vers son équipe, sinon c'est une erreur
+/// et rien ne doit être écrit (conflit avec un nom attribué à une autre équipe, section absente, tableau sur plusieurs
+/// lignes).
+pub fn export_learned(
+    text: &str,
+    learned: &[(String, String, String)],
+) -> Result<(String, Vec<String>)> {
+    let file = Aliases::parse(text)?;
+    // Le fichier se modifie ligne à ligne ; `String` par ligne pour pouvoir en remplacer une ou en insérer.
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let mut changed: Vec<String> = Vec::new();
+    // Alias à vérifier dans le résultat : (section, nom, équipe).
+    let mut expected: Vec<(String, String, String)> = Vec::new();
+    for (section, name, canonical) in learned {
+        let team = file
+            .resolve(section, canonical)
+            .unwrap_or(canonical)
+            .to_string();
+        expected.push((section.clone(), name.clone(), team.clone()));
+        if file.resolve(section, name).is_some() {
+            continue; // déjà connu : la vérification finale dira s'il désigne bien la même équipe
+        }
+        let header = format!("[{section}]");
+        let Some(start) = lines.iter().position(|l| l.trim() == header) else {
+            return Err(Error::Aliases(format!(
+                "section [{section}] absente du fichier"
+            )));
+        };
+        // Fin de la section : la ligne d'en-tête suivante, ou la fin du fichier.
+        let end = lines[start + 1..]
+            .iter()
+            .position(|l| l.trim_start().starts_with('['))
+            .map_or(lines.len(), |i| start + 1 + i);
+        let prefix = format!("{} = [", quoted(&team));
+        let existing = (start + 1..end).find(|i| lines[*i].starts_with(&prefix));
+        let line = match existing {
+            Some(i) if name == &team => i, // l'équipe a déjà sa ligne : rien à ajouter
+            Some(i) => {
+                let current = lines[i].trim_end();
+                let Some(inner) = current
+                    .strip_prefix(&prefix)
+                    .and_then(|r| r.strip_suffix(']'))
+                else {
+                    return Err(Error::Aliases(format!(
+                        "[{section}] ligne de « {team} » illisible (tableau sur plusieurs lignes ?) : {current}"
+                    )));
+                };
+                let separator = if inner.trim().is_empty() { "" } else { ", " };
+                lines[i] = format!("{prefix}{}{separator}{}]", inner.trim(), quoted(name));
+                i
+            }
+            None => {
+                let variants = if name == &team {
+                    String::new()
+                } else {
+                    quoted(name)
+                };
+                // Après la dernière ligne non vide de la section : les lignes vides qui la séparent de la suivante restent.
+                let at = (start + 1..end)
+                    .rev()
+                    .find(|i| !lines[*i].trim().is_empty())
+                    .map_or(start + 1, |i| i + 1);
+                lines.insert(at, format!("{prefix}{variants}]"));
+                at
+            }
+        };
+        let shown = format!("[{section}] {}", lines[line]);
+        // Une ligne complétée deux fois n'est montrée que sous sa forme finale.
+        changed.retain(|c| !c.starts_with(&format!("[{section}] {prefix}")));
+        changed.push(shown);
+    }
+    let mut out = lines.join("\n");
+    if text.ends_with('\n') {
+        out.push('\n');
+    }
+    let result = Aliases::parse(&out)?;
+    for (section, name, team) in &expected {
+        if result.resolve(section, name) != Some(team.as_str()) {
+            return Err(Error::Aliases(format!(
+                "[{section}] « {name} » devrait désigner « {team} », le fichier dit {:?} : corrige à la main",
+                result.resolve(section, name)
+            )));
+        }
+    }
+    Ok((out, changed))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,6 +287,68 @@ mod tests {
         // Section absente : créée.
         aliases.learn("ESPN", "FC Cologne", "1. FC Köln");
         assert_eq!(aliases.resolve("ESPN", "FC Cologne"), Some("1. FC Köln"));
+    }
+
+    const FILE: &str = "# Commentaire gardé\n[LOTOFOOT]\n# Clubs\n\"Fulham\" = []\n\"Málaga\" = [\"Malaga CF\"]\n\n[ESPN]\n\"Fulham\" = []\n";
+
+    fn learned(items: &[(&str, &str, &str)]) -> Vec<(String, String, String)> {
+        items
+            .iter()
+            .map(|(s, n, c)| (s.to_string(), n.to_string(), c.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn exported_aliases_join_their_team_line_or_get_a_new_one_and_comments_stay() {
+        let (out, changed) = export_learned(
+            FILE,
+            &learned(&[
+                ("LOTOFOOT", "Malaga", "Málaga"),
+                ("LOTOFOOT", "Fulham FC", "Fulham"),
+                ("LOTOFOOT", "Burgos CF", "Burgos CF"),
+                ("ESPN", "Málaga CF", "Málaga"),
+                // Déjà dans le fichier : rien ne change.
+                ("LOTOFOOT", "Malaga CF", "Málaga"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(
+            out,
+            "# Commentaire gardé\n[LOTOFOOT]\n# Clubs\n\"Fulham\" = [\"Fulham FC\"]\n\"Málaga\" = [\"Malaga CF\", \"Malaga\"]\n\"Burgos CF\" = []\n\n[ESPN]\n\"Fulham\" = []\n\"Málaga\" = [\"Málaga CF\"]\n"
+        );
+        assert_eq!(
+            changed,
+            [
+                "[LOTOFOOT] \"Málaga\" = [\"Malaga CF\", \"Malaga\"]",
+                "[LOTOFOOT] \"Fulham\" = [\"Fulham FC\"]",
+                "[LOTOFOOT] \"Burgos CF\" = []",
+                "[ESPN] \"Málaga\" = [\"Málaga CF\"]",
+            ]
+        );
+        // Reporter une seconde fois ne change plus rien.
+        let (again, changed) =
+            export_learned(&out, &learned(&[("LOTOFOOT", "Malaga", "Málaga")])).unwrap();
+        assert_eq!(again, out);
+        assert!(changed.is_empty());
+    }
+
+    #[test]
+    fn an_export_that_contradicts_the_file_is_refused() {
+        // « Malaga CF » désigne déjà Málaga : il ne peut pas aller à Fulham.
+        let err =
+            export_learned(FILE, &learned(&[("LOTOFOOT", "Malaga CF", "Fulham")])).unwrap_err();
+        assert!(
+            err.to_string().contains("devrait désigner « Fulham »"),
+            "{err}"
+        );
+        let err = export_learned(FILE, &learned(&[("E0", "Spurs", "Tottenham")])).unwrap_err();
+        assert!(err.to_string().contains("section [E0] absente"), "{err}");
+    }
+
+    #[test]
+    fn names_are_quoted_as_toml_strings() {
+        assert_eq!(quoted("Nott'm Forest"), "\"Nott'm Forest\"");
+        assert_eq!(quoted("A \"B\""), "\"A \\\"B\\\"\"");
     }
 
     #[test]
