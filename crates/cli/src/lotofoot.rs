@@ -95,7 +95,8 @@ fn send_source_alerts(
 
 fn run_fetch(conn: &mut store::Connection, result_pages: u32) -> Result<FetchReport> {
     let client = SiteClient::new();
-    let aliases = Aliases::bundled()?;
+    // Table versionnée et alias acceptés dans l'application (phase 23).
+    let aliases = Aliases::bundled()?.with_learned(conn)?;
     Ok(fetch::run(
         conn,
         &aliases,
@@ -136,7 +137,8 @@ pub fn recommend(paths: &Paths, notify: bool, dry_run: bool) -> Result<()> {
     let config = Config::load(&paths.config_file)?;
     let mut conn = store::open_migrated(&paths.db_file)
         .context("base inaccessible : lance d'abord `edge init`")?;
-    let aliases = Aliases::bundled()?;
+    // Table versionnée et alias acceptés dans l'application (phase 23).
+    let aliases = Aliases::bundled()?.with_learned(&conn)?;
     // Le timer ne remplace jamais une recommandation : il n'analyse que les grilles nouvelles. Budget : celui saisi dans
     // l'application, sinon celui de la configuration.
     let budget = session::monthly_budget(&conn, &config, Utc::now())?;
@@ -185,6 +187,18 @@ fn print_session(report: &SessionReport, dry_run: bool) {
         println!(
             "  noms inconnus (à ajouter dans config/aliases.toml) : {}",
             report.unknown_names.join(", ")
+        );
+    }
+    for proposal in &report.alias_proposals {
+        println!(
+            "  alias proposé, à valider sur la page Loto Foot de l'application : {}",
+            session::proposal_text(proposal)
+        );
+    }
+    if !report.alias_refused.is_empty() {
+        println!(
+            "  recherche d'alias : compétitions sans réponse : {}",
+            report.alias_refused.join(" ; ")
         );
     }
     if !report.leagues.fetched.is_empty() || !report.leagues.refused.is_empty() {

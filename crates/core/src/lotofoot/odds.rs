@@ -13,15 +13,19 @@
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 
+use super::alias_deduction::{Seen, SeenSource};
 use crate::config::Config;
 use crate::domain::{Odds, Odds1x2, Probs1x2};
 use crate::error::Result;
 use crate::ingest::aliases::Aliases;
 use crate::ingest::budget;
-use crate::ingest::odds_api::{events_path, odds_params, parse_events, sport_is_active};
+use crate::ingest::odds_api::{
+    ListedEvent, events_path, odds_params, parse_events, sport_is_active,
+};
 use crate::ingest::snapshot::{self, Clock, Fetch, Outcome as LeagueOutcome};
 use crate::market::margin::{MarginMethod, remove_margin};
 use crate::store::archive::{self, Endpoint, NewApiCall};
+use crate::store::journal::parse_timestamp;
 
 /// Section de la table d'alias : noms des grilles → noms de The Odds API.
 pub const ALIAS_SECTION: &str = "LOTOFOOT";
@@ -245,55 +249,17 @@ pub fn refresh_leagues(
     if wanted.is_empty() {
         return Ok(search);
     }
-    let (_, sports_body) = snapshot::read_sports(conn, now, fetch)?;
-    // Ordre conservé (les ligues archivées d'abord), doublons retirés.
-    let mut keys: Vec<&String> = Vec::new();
-    for key in config.leagues.iter().chain(&config.lotofoot_leagues) {
-        if !keys.contains(&key) {
-            keys.push(key);
-        }
-    }
     let is_club = |name: &str, club: &str| aliases.resolve(ALIAS_SECTION, name) == Some(club);
     let mut needed: Vec<String> = Vec::new();
     let mut found = vec![false; wanted.len()];
-    for key in keys {
+    for key in active_leagues(conn, config, now, fetch)? {
         if found.iter().all(|f| *f) {
             break;
         }
-        if !sport_is_active(&sports_body, key).unwrap_or(false) {
+        let Some(events) = list_events(conn, &key, now, fetch, &mut search.refused)? else {
             continue;
-        }
-        let path = events_path(key);
-        let params = "dateFormat=iso";
-        let response = match fetch(&path, params) {
-            Ok(response) => response,
-            Err(error) => {
-                search.refused.push(format!("{key} : {error}"));
-                continue;
-            }
         };
-        archive::record_api_call(
-            conn,
-            &NewApiCall {
-                called_at: now(),
-                endpoint: Endpoint::Events,
-                sport_key: Some(key),
-                params,
-                http_status: response.status,
-                quota: response.quota,
-                body: None,
-            },
-        )?;
-        if response.status != 200 {
-            continue;
-        }
         search.listed += 1;
-        let Ok(events) = parse_events(&response.body) else {
-            search
-                .refused
-                .push(format!("{key} : liste des matchs illisible"));
-            continue;
-        };
         let mut useful = false;
         for event in &events {
             if event.commence_time < window.0 || event.commence_time > window.1 {
@@ -307,7 +273,7 @@ pub fn refresh_leagues(
             }
         }
         if useful {
-            needed.push(key.clone());
+            needed.push(key);
         }
     }
 
@@ -340,6 +306,157 @@ pub fn refresh_leagues(
         }
     }
     Ok(search)
+}
+
+/// Compétitions où chercher les matchs d'une grille : `leagues` puis `lotofoot_leagues` (ordre conservé, les ligues archivées
+/// d'abord), sans doublon, et actives selon `/sports` (gratuit).
+fn active_leagues(
+    conn: &Connection,
+    config: &Config,
+    now: Clock,
+    fetch: Fetch,
+) -> Result<Vec<String>> {
+    let (_, sports_body) = snapshot::read_sports(conn, now, fetch)?;
+    let mut keys: Vec<String> = Vec::new();
+    for key in config.leagues.iter().chain(&config.lotofoot_leagues) {
+        if !keys.contains(key) && sport_is_active(&sports_body, key).unwrap_or(false) {
+            keys.push(key.clone());
+        }
+    }
+    Ok(keys)
+}
+
+/// Matchs d'une compétition listés par `/events` (gratuit) ; l'appel est archivé. `None` sans liste : erreur réseau ou
+/// liste illisible (raison ajoutée à `refused`), ou statut HTTP autre que 200.
+fn list_events(
+    conn: &Connection,
+    key: &str,
+    now: Clock,
+    fetch: Fetch,
+    refused: &mut Vec<String>,
+) -> Result<Option<Vec<ListedEvent>>> {
+    let path = events_path(key);
+    let params = "dateFormat=iso";
+    let response = match fetch(&path, params) {
+        Ok(response) => response,
+        Err(error) => {
+            refused.push(format!("{key} : {error}"));
+            return Ok(None);
+        }
+    };
+    archive::record_api_call(
+        conn,
+        &NewApiCall {
+            called_at: now(),
+            endpoint: Endpoint::Events,
+            sport_key: Some(key),
+            params,
+            http_status: response.status,
+            quota: response.quota,
+            body: None,
+        },
+    )?;
+    if response.status != 200 {
+        return Ok(None);
+    }
+    match parse_events(&response.body) {
+        Ok(events) => Ok(Some(events)),
+        Err(_) => {
+            refused.push(format!("{key} : liste des matchs illisible"));
+            Ok(None)
+        }
+    }
+}
+
+/// Matchs à venir des compétitions actives dont le coup d'envoi tombe dans `window`, listés par `/events` (gratuit, chaque
+/// appel archivé) : candidats de la déduction d'alias quand une grille porte un nom inconnu (phase 23). Aucun crédit.
+/// Renvoie aussi les compétitions qui n'ont pas répondu.
+pub fn listed_matches(
+    conn: &Connection,
+    config: &Config,
+    window: (DateTime<Utc>, DateTime<Utc>),
+    now: Clock,
+    fetch: Fetch,
+) -> Result<(Vec<Seen>, Vec<String>)> {
+    let mut seen = Vec::new();
+    let mut refused = Vec::new();
+    for key in active_leagues(conn, config, now, fetch)? {
+        let Some(events) = list_events(conn, &key, now, fetch, &mut refused)? else {
+            continue;
+        };
+        // `into_iter` : les matchs listés sont consommés, leurs noms passent dans `Seen` sans copie.
+        seen.extend(
+            events
+                .into_iter()
+                .filter(|e| e.commence_time >= window.0 && e.commence_time <= window.1)
+                .map(|e| Seen {
+                    source: SeenSource::OddsApi,
+                    id: e.id,
+                    home: e.home_team,
+                    away: e.away_team,
+                    kickoff: e.commence_time,
+                }),
+        );
+    }
+    Ok((seen, refused))
+}
+
+/// Matchs déjà relevés dont le coup d'envoi tombe dans `window` et relevés au plus tard à `observed_by` (rien de postérieur à
+/// la séance, CLAUDE.md, invariant 1) : `/odds` de The Odds API et OddsPapi (latence, repli des séances). Candidats de la
+/// déduction d'alias (phase 23).
+pub fn archived_matches(
+    conn: &Connection,
+    window: (DateTime<Utc>, DateTime<Utc>),
+    observed_by: DateTime<Utc>,
+) -> Result<Vec<Seen>> {
+    let read = |sql: &str, source: SeenSource| -> Result<Vec<Seen>> {
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt
+            .query_map(
+                params![
+                    timestamp(window.0),
+                    timestamp(window.1),
+                    timestamp(observed_by)
+                ],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|(id, home, away, kickoff)| {
+                Ok(Seen {
+                    source,
+                    id,
+                    home,
+                    away,
+                    kickoff: parse_timestamp(&kickoff)?,
+                })
+            })
+            .collect()
+    };
+    // Les horodatages d'OddsPapi ont des fractions de seconde : la comparaison de textes reste juste, `.` précédant `Z`.
+    let mut seen = read(
+        "SELECT DISTINCT e.event_id, e.home_team_raw, e.away_team_raw, e.commence_time
+         FROM event_seen e JOIN api_call a ON a.id = e.api_call_id
+         WHERE e.commence_time BETWEEN ?1 AND ?2 AND a.called_at <= ?3 ORDER BY e.commence_time, e.event_id",
+        SeenSource::OddsApi,
+    )?;
+    seen.extend(read(
+        "SELECT fixture_id, home_raw, away_raw, kickoff FROM oddspapi_fixture
+         WHERE kickoff BETWEEN ?1 AND ?2 AND fetched_at <= ?3
+         UNION
+         SELECT fixture_id, home_raw, away_raw, kickoff FROM lotofoot_oddspapi_quote
+         WHERE kickoff BETWEEN ?1 AND ?2 AND fetched_at <= ?3
+         ORDER BY 4, 1",
+        SeenSource::OddsPapi,
+    )?);
+    Ok(seen)
 }
 
 #[cfg(test)]

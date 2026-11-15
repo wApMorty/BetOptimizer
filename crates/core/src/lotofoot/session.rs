@@ -14,6 +14,7 @@ use rusqlite::Connection;
 use serde_json::json;
 
 use super::GridId;
+use super::alias_deduction::{self, Proposal, Seen};
 use super::exact::ExactValues;
 use super::model::{FROZEN, GridModel, PESSIMISTIC_LOW_MULT, PESSIMISTIC_SHRINK, public_split};
 use super::odds::{self, LeagueSearch, MatchMarket, Source};
@@ -24,8 +25,10 @@ use super::settle;
 use crate::config::Config;
 use crate::domain::Probs1x2;
 use crate::error::Result;
+use crate::format::kickoff_label;
 use crate::ingest::aliases::Aliases;
 use crate::ingest::snapshot::{Clock, Fetch};
+use crate::store::alias_proposals;
 use crate::store::lotofoot::{self as store, GridRow, NewReco, NewSession, RecoRow};
 
 /// Version du modèle, enregistrée avec chaque recommandation. `lotofoot-2` : vivier de 64 candidats (§63) ; `lotofoot-3` :
@@ -84,6 +87,10 @@ pub struct SessionReport {
     pub skipped: Vec<Skipped>,
     /// Noms d'équipes inconnus de la table d'alias (à ajouter dans `config/aliases.toml`).
     pub unknown_names: Vec<String>,
+    /// Alias déduits par la rencontre pour ces noms (phase 23), à valider dans l'application.
+    pub alias_proposals: Vec<Proposal>,
+    /// Compétitions dont `/events` n'a pas répondu pendant la recherche de ces alias.
+    pub alias_refused: Vec<String>,
     /// Recherche des compétitions manquantes.
     pub leagues: LeagueSearch,
     /// Repli OddsPapi pour les rencontres encore sans cote.
@@ -211,6 +218,55 @@ impl Request {
     }
 }
 
+/// Les rencontres d'une grille se jouent entre deux heures avant sa clôture et [`MATCH_WINDOW_DAYS`] jours après.
+fn match_window(row: &GridRow) -> (DateTime<Utc>, DateTime<Utc>) {
+    (
+        row.closes_at - Duration::hours(2),
+        row.closes_at + Duration::days(MATCH_WINDOW_DAYS),
+    )
+}
+
+/// Alias déduits par la rencontre pour les noms inconnus des grilles `blocked` ([`alias_deduction::from_grid`]), parmi les
+/// matchs relevés `seen` dont le coup d'envoi tombe dans la fenêtre de chaque grille. Une même proposition venue de deux
+/// grilles n'apparaît qu'une fois.
+fn propose_aliases(aliases: &Aliases, blocked: &[GridRow], seen: &[Seen]) -> Vec<Proposal> {
+    let mut out: Vec<Proposal> = Vec::new();
+    for row in blocked {
+        let (from, until) = match_window(row);
+        // `cloned` : `from_grid` reçoit une liste à part, celle des matchs de cette grille.
+        let in_window: Vec<Seen> = seen
+            .iter()
+            .filter(|s| s.kickoff >= from && s.kickoff <= until)
+            .cloned()
+            .collect();
+        for (index, (home, away)) in row.matches.iter().enumerate() {
+            let context = format!("{}, rencontre {} : {home} – {away}", row.id, index + 1);
+            for proposal in alias_deduction::from_grid(aliases, (home, away), &in_window, &context)
+            {
+                let same =
+                    |p: &Proposal| p.name == proposal.name && p.canonical == proposal.canonical;
+                if !out.iter().any(same) {
+                    out.push(proposal);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Une proposition en une ligne : « « Malaga » → « Málaga » (The Odds API : Málaga – Fulham, dim. 1/11 16:00) ».
+pub fn proposal_text(p: &Proposal) -> String {
+    format!(
+        "« {} » → « {} » ({} : {} – {}, {})",
+        p.name,
+        p.canonical,
+        p.seen.source.label(),
+        p.seen.home,
+        p.seen.away,
+        kickoff_label(p.seen.kickoff)
+    )
+}
+
 /// Lance la séance.
 ///
 /// Une grille déjà recommandée est écartée, sauf si `request.replace` : elle est alors recalculée, et la séance la
@@ -237,6 +293,8 @@ pub fn run(
         evaluated: Vec::new(),
         skipped: Vec::new(),
         unknown_names: Vec::new(),
+        alias_proposals: Vec::new(),
+        alias_refused: Vec::new(),
         leagues: LeagueSearch::default(),
         oddspapi: oddspapi::Search::default(),
         chosen: Vec::new(),
@@ -253,6 +311,8 @@ pub fn run(
         .filter_map(|p| p.reco_id)
         .collect();
     let mut pending: Vec<Pending> = Vec::new();
+    // Grilles écartées pour un nom inconnu : on y cherche ensuite des alias par la rencontre.
+    let mut blocked: Vec<GridRow> = Vec::new();
     for row in store::grids_closing_after(conn, min_close)? {
         let label = row.id.to_string();
         let skip = |reason: String| Skipped {
@@ -313,6 +373,7 @@ pub fn run(
                     .skipped
                     .push(skip(format!("{} {UNKNOWN_NAMES_REASON}", unknown.len())));
                 report.unknown_names.extend(unknown);
+                blocked.push(row);
                 continue;
             }
         };
@@ -333,17 +394,41 @@ pub fn run(
 
     // 2. Probabilités du marché ; relevé des compétitions manquantes puis repli OddsPapi (sauf à blanc), et nouvelle
     // lecture de l'archive après chaque relevé.
-    let window_of = |row: &GridRow| {
-        (
-            row.closes_at - Duration::hours(2),
-            row.closes_at + Duration::days(MATCH_WINDOW_DAYS),
-        )
-    };
+    // 1 bis. Noms inconnus : alias déduits par la rencontre, inscrits pour que Paul les valide (phase 23).
+    // Candidats : matchs relevés avant la séance, plus (sauf à blanc) ceux que listent les `/events` gratuits des
+    // compétitions actives. Une proposition déjà inscrite, ou refusée, ne l'est pas une seconde fois.
+    if !blocked.is_empty() {
+        let window = (
+            blocked
+                .iter()
+                .map(|row| match_window(row).0)
+                .min()
+                .unwrap_or(started),
+            blocked
+                .iter()
+                .map(|row| match_window(row).1)
+                .max()
+                .unwrap_or(started),
+        );
+        let mut seen = odds::archived_matches(conn, window, started)?;
+        if !dry_run {
+            let (listed, refused) = odds::listed_matches(conn, config, window, now, fetch)?;
+            seen.extend(listed);
+            report.alias_refused = refused;
+        }
+        report.alias_proposals = propose_aliases(aliases, &blocked, &seen);
+        if !dry_run {
+            for proposal in &report.alias_proposals {
+                alias_proposals::record(conn, proposal, started)?;
+            }
+        }
+    }
+
     let lookup = |conn: &Connection,
                   row: &GridRow,
                   canonical: &[(String, String)]|
      -> Result<Vec<Option<MatchMarket>>> {
-        let (from, until) = window_of(row);
+        let (from, until) = match_window(row);
         canonical
             .iter()
             .map(|(h, a)| {
@@ -387,7 +472,7 @@ pub fn run(
         started,
         pending
             .iter()
-            .map(|p| window_of(&p.row).1)
+            .map(|p| match_window(&p.row).1)
             .max()
             .unwrap_or(started),
     );
@@ -542,6 +627,7 @@ pub fn run(
             })).collect::<Vec<_>>(),
             "skipped": report.skipped.iter().map(|s| json!({"grid": s.grid, "reason": s.reason})).collect::<Vec<_>>(),
             "unknown_names": report.unknown_names,
+            "alias_proposals": report.alias_proposals.iter().map(proposal_text).collect::<Vec<_>>(),
             "leagues_fetched": report.leagues.fetched, "credits_spent": report.leagues.spent,
             "oddspapi_found": report.oddspapi.found, "oddspapi_refused": report.oddspapi.refused,
             "oddspapi_hints": report.oddspapi.hints,
@@ -1530,6 +1616,100 @@ mod tests {
         .unwrap();
         assert!(report.skipped[0].reason.contains("plus de 3 h"));
     }
+    /// Phase 23 : « H1 », inconnu, bloque la grille ; la séance propose les alias que donnent les matchs d'A1 à l'extérieur
+    /// (l'archive `/odds` et un `/events` gratuit), les inscrit une fois, et un alias accepté débloque la grille.
+    #[test]
+    fn an_unknown_name_gets_proposals_from_the_matches_of_its_opponent() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let mut aliases_text = String::new();
+        setup(&mut conn, &mut aliases_text);
+        let bundled = Aliases::parse(&aliases_text.replace("\"H1\" = []\n", "")).unwrap();
+        let config = Config::default();
+        let league = config.leagues[0].clone();
+        let events_path = format!("/sports/{league}/events");
+        let mut calls: Vec<String> = Vec::new();
+        let mut fetch = |path: &str, _: &str| -> Result<HttpResponse> {
+            calls.push(path.to_string());
+            let body = if path == crate::ingest::odds_api::SPORTS_PATH {
+                format!(
+                    r#"[{{"key":"{league}","group":"Soccer","title":"L","description":"","active":true,"has_outrights":false}}]"#
+                )
+            } else if path == events_path {
+                // A1 rejoue à l'extérieur le lendemain, dans la fenêtre de la grille ; et un match sans rapport.
+                r#"[{"id":"x9","sport_key":"k","commence_time":"2026-10-26T18:00:00Z","home_team":"H1 Club","away_team":"A1"},
+                    {"id":"x8","sport_key":"k","commence_time":"2026-10-26T18:00:00Z","home_team":"Z1","away_team":"Z2"}]"#
+                    .to_string()
+            } else {
+                panic!("appel inattendu : {path}")
+            };
+            Ok(HttpResponse {
+                status: 200,
+                quota: Quota::default(),
+                body,
+            })
+        };
+        let mut clock = || at("2026-10-24T10:00:00Z");
+        let report = run(
+            &mut conn,
+            &config,
+            &bundled,
+            &mut clock,
+            &mut fetch,
+            None,
+            ask(16, 1.7, false, false),
+        )
+        .unwrap();
+        assert_eq!(report.unknown_names, ["LOTOFOOT: H1"]);
+        let found: Vec<(&str, &str)> = report
+            .alias_proposals
+            .iter()
+            .map(|p| (p.name.as_str(), p.canonical.as_str()))
+            .collect();
+        assert_eq!(found, [("H1", "H1"), ("H1", "H1 Club")]);
+        assert_eq!(
+            report.alias_proposals[0].context,
+            "LF7 n°133, rencontre 1 : H1 – A1"
+        );
+        assert!(
+            proposal_text(&report.alias_proposals[1])
+                .starts_with("« H1 » → « H1 Club » (The Odds API : H1 Club – A1")
+        );
+        assert_eq!(alias_proposals::all(&conn).unwrap().len(), 2);
+
+        // Seconde séance : les mêmes propositions ne sont pas inscrites deux fois.
+        run(
+            &mut conn,
+            &config,
+            &bundled,
+            &mut clock,
+            &mut fetch,
+            None,
+            ask(16, 1.7, false, false),
+        )
+        .unwrap();
+        assert_eq!(alias_proposals::all(&conn).unwrap().len(), 2);
+
+        // Paul accepte « H1 » → « H1 » : la grille n'est plus bloquée.
+        alias_proposals::decide(&mut conn, &bundled, 1, true, at("2026-10-24T10:05:00Z")).unwrap();
+        let merged = bundled.with_learned(&conn).unwrap();
+        let report = run(
+            &mut conn,
+            &config,
+            &merged,
+            &mut clock,
+            &mut fetch,
+            None,
+            ask(16, 1.7, false, true),
+        )
+        .unwrap();
+        assert!(report.unknown_names.is_empty());
+        assert!(report.alias_proposals.is_empty());
+        assert_eq!(report.evaluated.len(), 1);
+        // `fetch` n'est plus utilisée : la liste des appels peut être relue.
+        assert!(calls.contains(&events_path));
+    }
+
     /// Grille dont la 7e rencontre (H7 – A7) manque à l'archive The Odds API ; OddsPapi la liste sous d'autres noms.
     fn setup_without_the_last_match(conn: &mut Connection) -> Aliases {
         let teams: Vec<(String, String)> = (1..=7)

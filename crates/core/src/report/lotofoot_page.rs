@@ -1004,6 +1004,17 @@ pub fn discord_text(report: &SessionReport, site_url: Option<&str>) -> String {
             report.unknown_names.join(", ")
         ));
     }
+    if !report.alias_proposals.is_empty() {
+        let proposals: Vec<String> = report
+            .alias_proposals
+            .iter()
+            .map(session::proposal_text)
+            .collect();
+        text.push_str(&format!(
+            "Alias proposés par la rencontre, à valider dans l'application : {}\n",
+            proposals.join(" ; ")
+        ));
+    }
     if let Some(oddspapi) = oddspapi_text(&report.oddspapi) {
         text.push_str(&format!("\n{oddspapi}\n"));
     }
@@ -1129,6 +1140,20 @@ mod tests {
             }],
             skipped: vec![],
             unknown_names: vec!["LOTOFOOT: Inconnu FC".into()],
+            alias_proposals: vec![crate::lotofoot::alias_deduction::Proposal {
+                section: "LOTOFOOT".into(),
+                name: "Inconnu FC".into(),
+                canonical: "Inconnu".into(),
+                context: "LF8 n°147, rencontre 1".into(),
+                seen: crate::lotofoot::alias_deduction::Seen {
+                    source: crate::lotofoot::alias_deduction::SeenSource::OddsApi,
+                    id: "e1".into(),
+                    home: "Inconnu".into(),
+                    away: "A1".into(),
+                    kickoff: at,
+                },
+            }],
+            alias_refused: vec![],
             leagues: Default::default(),
             oddspapi: Default::default(),
             chosen: vec![Candidate {
@@ -1163,6 +1188,7 @@ mod tests {
         );
         assert!(text.contains("une erreur 1 sur 410 (≈ "), "{text}");
         assert!(text.contains("Inconnu FC"));
+        assert!(text.contains("à valider dans l'application : « Inconnu FC » → « Inconnu » (The Odds API : Inconnu – A1"));
         assert!(
             text.contains(
                 "octobre 2026 : 55 € restant(s) sur 60 € ; seuil de 1,80 (prix dynamique"

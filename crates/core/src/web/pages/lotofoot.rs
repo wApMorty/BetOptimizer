@@ -393,7 +393,9 @@ fn run_now(app: &App, monthly_budget: u32, notify: bool) -> Result<String> {
     let mut conn = store::open_migrated(&app.paths.db_file)?;
     // Le bouton recalcule aussi les grilles déjà recommandées (pas encore jouées) : la répartition a pu bouger.
     let request = Request::from_budget(monthly_budget, true, false)?;
-    let live = live::recommend(&mut conn, &app.config, &app.aliases, request, notify)?;
+    // Table versionnée et alias acceptés sur cette page (phase 23).
+    let aliases = app.aliases.with_learned(&conn)?;
+    let live = live::recommend(&mut conn, &app.config, &aliases, request, notify)?;
     Ok(summary(&live))
 }
 
@@ -426,6 +428,12 @@ fn summary(live: &Live) -> String {
             "Budget : {} ; {}.",
             lotofoot_page::months_text(&report.months),
             lotofoot_page::threshold_text(report)
+        ));
+    }
+    if !report.alias_proposals.is_empty() {
+        parts.push(format!(
+            "{} alias proposé(s) par la rencontre : à valider plus bas.",
+            report.alias_proposals.len()
         ));
     }
     if let Some(oddspapi) = lotofoot_page::oddspapi_text(&report.oddspapi) {
