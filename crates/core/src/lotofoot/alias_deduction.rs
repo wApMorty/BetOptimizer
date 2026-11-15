@@ -8,7 +8,8 @@
 //! Une rencontre se reconnaît à ses deux places (domicile, extérieur). Chaque place est soit **ancrée** (nom connu de la
 //! table qui désigne la même équipe, ou nom écrit à l'identique chez les deux sources), soit libre (nom inconnu, qui accepte
 //! tout nom). Un match relevé convient s'il respecte les places ancrées et en a au moins une : deux noms inconnus et
-//! différents de ceux de la source ne prouvent rien. Plusieurs matchs qui conviennent donnent plusieurs propositions, entre
+//! différents de ceux de la source ne prouvent rien, sauf chez ESPN pour un match unique au coup d'envoi exact
+//! ([`from_espn`]). Plusieurs matchs qui conviennent donnent plusieurs propositions, entre
 //! lesquelles Paul choisit ; aucun n'est préféré en silence.
 
 use chrono::{DateTime, Duration, Utc};
@@ -165,6 +166,10 @@ pub fn from_grid(
 ///
 /// Sens inverse de [`from_grid`] : ici nos noms sont connus, ce sont ceux d'ESPN qui manquent ; la proposition attribue le
 /// nom d'ESPN à notre équipe de la même place.
+///
+/// Une règle de plus qu'avec les grilles, parce que le coup d'envoi est connu à la minute : si aucun match n'est ancré, un
+/// match aux deux noms inconnus qui commence **exactement** à notre heure fait foi, à condition d'être le seul dans ce cas
+/// (une page de Ligue 2 en multiplex n'en désigne aucun).
 pub fn from_espn(
     aliases: &Aliases,
     ours: (&str, &str),
@@ -174,7 +179,8 @@ pub fn from_espn(
     context: &str,
 ) -> Vec<Proposal> {
     let ours = [ours.0, ours.1];
-    let mut out: Vec<Proposal> = Vec::new();
+    let mut anchored_games: Vec<&Seen> = Vec::new();
+    let mut same_time: Vec<&Seen> = Vec::new();
     for g in games {
         if (g.kickoff - kickoff).abs() > tolerance {
             continue;
@@ -192,10 +198,24 @@ pub fn from_espn(
                 None => anchored |= theirs[side] == ours[side],
             }
         }
-        if !(fits && anchored) {
-            continue;
+        if fits && anchored && known.contains(&None) {
+            anchored_games.push(g);
+        } else if known == [None, None] && g.kickoff == kickoff {
+            same_time.push(g);
         }
-        for side in (0..2).filter(|side| known[*side].is_none()) {
+    }
+    let chosen = if anchored_games.is_empty() && same_time.len() == 1 {
+        same_time
+    } else {
+        anchored_games
+    };
+    let mut out: Vec<Proposal> = Vec::new();
+    for g in chosen {
+        let theirs = [g.home.as_str(), g.away.as_str()];
+        for side in 0..2 {
+            if aliases.resolve(ESPN, theirs[side]).is_some() {
+                continue;
+            }
             push_new(
                 &mut out,
                 Proposal {
@@ -203,6 +223,7 @@ pub fn from_espn(
                     name: theirs[side].to_string(),
                     canonical: ours[side].to_string(),
                     context: context.to_string(),
+                    // `clone` : la proposition possède son match, car elle survit à la page lue.
                     seen: g.clone(),
                 },
             );
@@ -495,6 +516,56 @@ mod tests {
             at("2026-11-08T16:00:00Z"),
             Duration::hours(3),
             &page,
+            "",
+        );
+        assert!(found.is_empty());
+    }
+
+    #[test]
+    fn two_unknown_espn_names_need_a_single_match_at_our_exact_kickoff() {
+        let aliases = Aliases::parse(TABLE).unwrap();
+        let kickoff = at("2026-10-24T16:00:00Z");
+        let dijon = seen(
+            SeenSource::Espn,
+            "402",
+            "Dijon FCO",
+            "Rodez Aveyron",
+            "2026-10-24T16:00:00Z",
+        );
+        // Une heure plus tard : dans la tolérance, mais pas à l'heure exacte.
+        let later = seen(
+            SeenSource::Espn,
+            "403",
+            "Amiens SC",
+            "Laval",
+            "2026-10-24T17:00:00Z",
+        );
+        let found = from_espn(
+            &aliases,
+            ("Dijon", "Rodez"),
+            kickoff,
+            Duration::hours(3),
+            &[dijon.clone(), later],
+            "",
+        );
+        assert_eq!(
+            pairs(&found),
+            [("Dijon FCO", "Dijon"), ("Rodez Aveyron", "Rodez")]
+        );
+        // Multiplex : deux matchs aux noms inconnus à la même heure, aucun n'est désigné.
+        let other = seen(
+            SeenSource::Espn,
+            "404",
+            "Bastia",
+            "Annecy",
+            "2026-10-24T16:00:00Z",
+        );
+        let found = from_espn(
+            &aliases,
+            ("Dijon", "Rodez"),
+            kickoff,
+            Duration::hours(3),
+            &[dijon, other],
             "",
         );
         assert!(found.is_empty());

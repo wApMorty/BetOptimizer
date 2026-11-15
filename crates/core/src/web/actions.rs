@@ -15,6 +15,7 @@ use crate::format;
 use crate::ingest::aliases::Aliases;
 use crate::loto::{self, Grid};
 use crate::lotofoot::{TICKET_PRICE, played};
+use crate::store::alias_proposals;
 use crate::store::bonus::{self, MatchResult, NewOffer};
 use crate::store::journal::{self, Settlement, SettlementSource};
 use crate::store::open_migrated;
@@ -68,6 +69,13 @@ pub enum Action {
     LotofootPlayedSession,
     /// Déclarer joués les tickets en vigueur d'une grille Loto Foot (bouton « J'ai joué cette grille »).
     LotofootPlayedGrid(crate::lotofoot::GridId),
+    /// Valider (`accept`) ou refuser un alias proposé par la rencontre (phase 23).
+    DecideAlias {
+        /// Numéro de la proposition.
+        proposal_id: i64,
+        /// `true` : valider ; `false` : refuser.
+        accept: bool,
+    },
     /// Déclarer jouées les grilles de la dernière séance du Grand Loto (comme `edge loto played --last-session`).
     LotoPlayedSession,
     /// Déclarer une grille de Grand Loto saisie à la main (comme `edge loto played --grid … --date …`).
@@ -187,6 +195,11 @@ pub fn apply(
             }
             Ok(message)
         }
+        // `aliases` est la table versionnée : `decide` y ajoute lui-même les alias déjà acceptés.
+        Action::DecideAlias {
+            proposal_id,
+            accept,
+        } => alias_proposals::decide(&mut conn, aliases, *proposal_id, *accept, now),
         Action::LotofootPlayedGrid(grid) => {
             let stake = Euros::new(TICKET_PRICE)
                 .ok_or_else(|| Error::Data("prix du ticket invalide".to_string()))?;

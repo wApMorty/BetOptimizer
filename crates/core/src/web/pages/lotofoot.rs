@@ -17,6 +17,7 @@ use serde::Serialize;
 
 use crate::domain::Outcome;
 use crate::error::Result;
+use crate::ingest::aliases::Aliases;
 use crate::lotofoot::bulletin::session_lines;
 use crate::lotofoot::espn::EspnClient;
 use crate::lotofoot::live::{self, Live, Notified};
@@ -28,6 +29,7 @@ use crate::report::lotofoot_page::{
     self, GridTotal, Group, LineView, LotofootPage, RankView, TicketView,
 };
 use crate::store;
+use crate::store::alias_proposals;
 use crate::store::lotofoot as lotofoot_store;
 use crate::web::App;
 use crate::web::form::Form;
@@ -147,6 +149,49 @@ struct Page {
     /// Pages dont le relevé est en défaut (la FDJ en échec, avec ou sans repli) : tant que cela dure, la formule n'a ni
     /// grille nouvelle ni répartition à jour de la FDJ.
     source_issues: Vec<SourceIssue>,
+    /// Alias proposés par la rencontre, à valider ou refuser.
+    aliases: Vec<AliasView>,
+}
+
+/// Un alias proposé par la rencontre, en attente de décision (phase 23).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct AliasView {
+    /// Numéro de la proposition (champ du formulaire).
+    id: i64,
+    /// Section de la table d'alias (`LOTOFOOT`, `ESPN`).
+    section: String,
+    /// Nom inconnu.
+    name: String,
+    /// Nom canonique proposé.
+    canonical: String,
+    /// Le match qui le prouve : « The Odds API : Málaga – Fulham, dim. 1/11 16:00 ».
+    evidence: String,
+    /// Où le nom a bloqué.
+    context: String,
+}
+
+/// Propositions en attente : sans décision, et dont le nom est encore inconnu de la table complète.
+fn alias_views(conn: &store::Connection, aliases: &Aliases) -> Result<Vec<AliasView>> {
+    Ok(alias_proposals::pending(conn, aliases)?
+        .into_iter()
+        .map(|stored| {
+            let p = stored.proposal;
+            AliasView {
+                id: stored.id,
+                evidence: format!(
+                    "{} : {} – {}, {}",
+                    p.seen.source.label(),
+                    p.seen.home,
+                    p.seen.away,
+                    crate::format::kickoff_label(p.seen.kickoff)
+                ),
+                section: p.section,
+                name: p.name,
+                canonical: p.canonical,
+                context: p.context,
+            }
+        })
+        .collect())
 }
 
 /// Un défaut de source, affiché en tête de page.
@@ -242,11 +287,13 @@ fn follow(app: &App, now: DateTime<Utc>) -> Result<Follow> {
     let followed = lotofoot_page::followed(&conn, now)?;
     let mut recos = followed.to_play;
     recos.extend(followed.in_play);
-    let (tracked, mut issues) = scores::tracked(&conn, &app.aliases, &recos)?;
+    // Table versionnée et alias acceptés sur cette page (phase 23).
+    let aliases = app.aliases.with_learned(&conn)?;
+    let (tracked, mut issues) = scores::tracked(&conn, &aliases, &recos)?;
     let mut watching = 0;
     if app.live_scores {
         let client = EspnClient::new();
-        let report = scores::refresh(&conn, &app.aliases, &tracked, now, &mut |path, params| {
+        let report = scores::refresh(&conn, &aliases, &tracked, now, &mut |path, params| {
             client.get(path, params)
         })?;
         watching = report.watching;
@@ -277,7 +324,8 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
     let conn = store::open_read_only(&app.paths.db_file)?;
     let budget = session::monthly_budget(&conn, &app.config, now)?;
     let mut lotofoot = lotofoot_page::page(&conn, now, budget)?;
-    lotofoot_page::forget_declared_names(&mut lotofoot, &app.aliases);
+    let aliases = app.aliases.with_learned(&conn)?;
+    lotofoot_page::forget_declared_names(&mut lotofoot, &aliases);
     let play_bulletins = bulletins(&lotofoot.to_play, &follow);
     let live_bulletins = bulletins(&lotofoot.in_play, &follow);
     render(
@@ -293,6 +341,7 @@ pub fn page(app: &App, now: DateTime<Utc>, flash: Option<Flash>) -> Result<Strin
             auto_refresh: follow.watching > 0,
             live_issues: follow.issues,
             source_issues: source_issues(&conn)?,
+            aliases: alias_views(&conn, &aliases)?,
         },
     )
 }

@@ -56,6 +56,22 @@
   <p class="meta" style="margin: 8px 0 0">À lancer au guichet, juste avant de valider. Les grilles ouvertes se partagent le budget du mois dans l'ordre de clôture : la plus proche prend d'abord ses tickets au-dessus du seuil. Une grille vue depuis moins de 8 h est évaluée sans engager de budget. Les tickets déclarés joués ne sont jamais recalculés.</p>
 </form>
 
+{% if aliases %}
+<h2>Alias à valider<small>noms inconnus, déduits du match relevé dont l'autre équipe est connue</small></h2>
+<div class="card">
+  <p class="meta" style="margin: 0 0 8px">Chaque proposition repose sur un match réel : vérifie qu'il s'agit bien de la même rencontre. Un alias validé sert tout de suite ; <code>edge aliases export</code> le reporte ensuite dans <code>config/aliases.toml</code>. Plusieurs propositions pour un même nom : valide la bonne, refuse les autres.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Nom inconnu</th><th>Équipe proposée</th><th>Match qui le prouve</th><th>Bloqué dans</th><th></th></tr></thead>
+    <tbody>
+    {% for a in aliases %}<tr><td><b>{{ a.name }}</b><br><span class="meta">{{ a.section }}</span></td><td><b>{{ a.canonical }}</b></td><td>{{ a.evidence }}</td><td class="meta">{{ a.context }}</td><td><form method="post" action="/lotofoot/alias" class="inline"><input type="hidden" name="proposition" value="{{ a.id }}"><button class="btn" type="submit" name="decision" value="valider">Valider</button> <button class="btn" type="submit" name="decision" value="refuser">Refuser</button></form></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
 <h2>À jouer<small>grilles ouvertes, tickets pas encore déclarés joués</small></h2>
 {% for r in recomposed %}<div class="notice t-warn">{{ r }}</div>{% endfor %}
 {% if play_bulletins %}

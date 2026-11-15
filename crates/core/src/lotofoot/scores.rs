@@ -13,6 +13,7 @@
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 
+use super::alias_deduction::{self, Seen, SeenSource};
 use super::espn::{self, EspnGame, Phase, parse_scoreboard};
 use super::grid_page::MatchResult;
 use super::odds::{canonical_matches, name_pairs};
@@ -21,6 +22,7 @@ use crate::domain::Outcome;
 use crate::error::Result;
 use crate::ingest::aliases::Aliases;
 use crate::ingest::snapshot::Fetch;
+use crate::store::alias_proposals;
 use crate::store::journal::parse_timestamp;
 use crate::store::lotofoot::{self as store, RecoRow};
 use crate::store::lotofoot_live::{self as live, LiveScore};
@@ -35,8 +37,8 @@ pub const MIN_INTERVAL: Duration = Duration::seconds(60);
 /// Au-delà de ce délai après le coup d'envoi, on cesse de relever un match qu'ESPN ne dit toujours pas terminé.
 pub const GIVE_UP: Duration = Duration::hours(6);
 
-/// Écart toléré entre le coup d'envoi d'ESPN et le nôtre pour signaler un nom inconnu (pas pour apparier : l'appariement
-/// se fait sur les noms seuls).
+/// Écart toléré entre le coup d'envoi d'ESPN et le nôtre pour signaler un nom inconnu et en déduire un alias à proposer
+/// ([`alias_deduction::from_espn`]). Il ne sert jamais à apparier : l'appariement se fait sur les noms seuls.
 const NEARBY: Duration = Duration::hours(3);
 
 /// Une rencontre d'une grille recommandée, telle qu'on la cherche chez ESPN.
@@ -163,6 +165,8 @@ pub struct RefreshReport {
     pub fetched: Vec<String>,
     /// Ce qui a empêché d'apparier des rencontres pendant ce relevé.
     pub issues: Vec<String>,
+    /// Alias ESPN nouvellement proposés pendant ce relevé (phase 23), à valider sur la page.
+    pub proposed: usize,
 }
 
 /// Relève chez ESPN les rencontres suivies commencées depuis moins de [`GIVE_UP`] et pas encore finies ; une page au plus
@@ -210,6 +214,8 @@ pub fn refresh(
                 Err(error) => Some(format!("ESPN {league} : {error}")),
                 Ok(board) => {
                     let mut problems = Vec::new();
+                    // Les matchs de la page, pour la déduction d'alias si une rencontre n'y est pas appariée.
+                    let games: Vec<Seen> = board.games.iter().map(seen_of).collect();
                     for t in wanted {
                         match pair(aliases, t, &board.games) {
                             Ok(game) => live::upsert_score(
@@ -226,7 +232,10 @@ pub fn refresh(
                                     fetched_at: now,
                                 },
                             )?,
-                            Err(problem) => problems.push(problem),
+                            Err(problem) => {
+                                problems.push(problem);
+                                report.proposed += propose(conn, aliases, t, &games, now)?;
+                            }
                         }
                     }
                     (!problems.is_empty()).then(|| problems.join(" ; "))
@@ -239,6 +248,45 @@ pub fn refresh(
         report.issues.extend(issue);
     }
     Ok(report)
+}
+
+/// Un match d'ESPN, vu par la déduction d'alias.
+fn seen_of(game: &EspnGame) -> Seen {
+    Seen {
+        source: SeenSource::Espn,
+        id: game.id.clone(),
+        home: game.home.clone(),
+        away: game.away.clone(),
+        kickoff: game.kickoff,
+    }
+}
+
+/// Inscrit les alias ESPN déduits pour une rencontre non appariée ; renvoie le nombre de propositions nouvelles.
+fn propose(
+    conn: &Connection,
+    aliases: &Aliases,
+    t: &Tracked,
+    games: &[Seen],
+    now: DateTime<Utc>,
+) -> Result<usize> {
+    let context = format!(
+        "{}, rencontre {} : {} – {}",
+        t.grid, t.position, t.home, t.away
+    );
+    let mut new = 0;
+    for proposal in alias_deduction::from_espn(
+        aliases,
+        (&t.home, &t.away),
+        t.kickoff,
+        NEARBY,
+        games,
+        &context,
+    ) {
+        if alias_proposals::record(conn, &proposal, now)? {
+            new += 1;
+        }
+    }
+    Ok(new)
 }
 
 /// `true` si la rencontre est commencée et pas finie selon le dernier relevé ([`tracked`] a déjà écarté les grilles
@@ -661,6 +709,20 @@ mod tests {
             during.issues[0].contains("Dijon FCO, Rodez Aveyron"),
             "{:?}",
             during.issues
+        );
+        // Seul match de la page à l'heure exacte de Dijon – Rodez, aux deux noms inconnus : les alias sont proposés.
+        assert_eq!(during.proposed, 2);
+        let proposed: Vec<(String, String)> = alias_proposals::all(&conn)
+            .unwrap()
+            .into_iter()
+            .map(|s| (s.proposal.name, s.proposal.canonical))
+            .collect();
+        assert_eq!(
+            proposed,
+            [
+                ("Dijon FCO".to_string(), "Dijon".to_string()),
+                ("Rodez Aveyron".to_string(), "Rodez".to_string())
+            ]
         );
         // Trente secondes plus tard : pas de nouvel appel, mais le problème reste lisible.
         let soon = refresh(

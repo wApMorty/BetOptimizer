@@ -280,6 +280,25 @@ fn post(
             None => act(app, &Action::LotofootPlayedSession, "/lotofoot", now),
         },
         "/lotofoot/optimiser" => pages::lotofoot::optimize(app, form, now),
+        "/lotofoot/alias" => {
+            let accept = match form.get("decision") {
+                "valider" => true,
+                "refuser" => false,
+                _ => return Ok(bad_request()),
+            };
+            match form.get("proposition").parse::<i64>() {
+                Ok(proposal_id) => act(
+                    app,
+                    &Action::DecideAlias {
+                        proposal_id,
+                        accept,
+                    },
+                    "/lotofoot",
+                    now,
+                ),
+                Err(_) => return Ok(bad_request()),
+            }
+        }
         "/loto/jouee" => act(app, &Action::LotoPlayedSession, "/loto", now),
         "/loto/grille" => match crate::web::forms::LotoGridForm::from_form(form).to_action() {
             Ok(action) => act(app, &action, "/loto", now),
@@ -772,6 +791,66 @@ mod tests {
         let conn = crate::store::open_migrated(&sample.app.paths.db_file).unwrap();
         assert_eq!(crate::store::loto::plays(&conn).unwrap().len(), 3);
         assert!(sample.html("/loto").contains("hors modèle"));
+    }
+
+    /// Phase 23 : un alias proposé s'affiche avec sa preuve ; « Valider » l'enregistre et il quitte la liste.
+    #[test]
+    fn a_proposed_alias_is_shown_with_its_match_then_validated_by_its_button() {
+        use crate::lotofoot::alias_deduction::{Proposal, Seen, SeenSource};
+        let sample = sample();
+        let conn = crate::store::open_migrated(&sample.app.paths.db_file).unwrap();
+        let proposal = Proposal {
+            section: "LOTOFOOT".into(),
+            name: "Inconnu FC".into(),
+            canonical: "Inconnu Football Club".into(),
+            context: "LF8 n°151, rencontre 3 : Inconnu FC – Fulham".into(),
+            seen: Seen {
+                source: SeenSource::OddsApi,
+                id: "ev1".into(),
+                home: "Inconnu Football Club".into(),
+                away: "Fulham".into(),
+                kickoff: sample.now,
+            },
+        };
+        crate::store::alias_proposals::record(&conn, &proposal, sample.now).unwrap();
+        let html = sample.html("/lotofoot");
+        assert!(html.contains("Alias à valider"), "{html}");
+        assert!(html.contains("The Odds API : Inconnu Football Club – Fulham"));
+        assert!(html.contains("LF8 n°151, rencontre 3"));
+
+        // Saisies invalides : refusées sans rien écrire.
+        assert_eq!(
+            sample
+                .post("/lotofoot/alias", "proposition=1&decision=peut-etre")
+                .status,
+            400
+        );
+        assert_eq!(
+            sample
+                .post("/lotofoot/alias", "proposition=x&decision=valider")
+                .status,
+            400
+        );
+        let missing = sample.post("/lotofoot/alias", "proposition=9&decision=valider");
+        assert_eq!(flash_of(&missing).kind, "t-neg");
+
+        let done = sample.post("/lotofoot/alias", "proposition=1&decision=valider");
+        assert_eq!(done.location.as_deref(), Some("/lotofoot"));
+        assert!(
+            flash_of(&done)
+                .text
+                .contains("« Inconnu FC » → « Inconnu Football Club »"),
+            "{:?}",
+            flash_of(&done)
+        );
+        assert!(!sample.html("/lotofoot").contains("Alias à valider"));
+        let merged = sample.app.aliases.with_learned(&conn).unwrap();
+        assert_eq!(
+            merged.resolve("LOTOFOOT", "Inconnu FC"),
+            Some("Inconnu Football Club")
+        );
+        let again = sample.post("/lotofoot/alias", "proposition=1&decision=refuser");
+        assert_eq!(flash_of(&again).kind, "t-neg", "décision déjà prise");
     }
 
     #[test]
