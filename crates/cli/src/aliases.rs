@@ -14,7 +14,9 @@ use edge_core::store::{self, alias_proposals};
 
 /// `edge aliases list` : propositions en attente, puis alias acceptés (et s'ils sont déjà dans la table versionnée).
 pub fn list(paths: &Paths) -> Result<()> {
-    let conn = store::open_read_only(&paths.db_file)
+    // Base migrée plutôt que lecture seule : juste après une réinstallation, la table des propositions (migration 26)
+    // n'existerait pas encore, et la commande échouerait sur une erreur SQL au lieu de répondre.
+    let conn = store::open_migrated(&paths.db_file)
         .context("base inaccessible : lance d'abord `edge init`")?;
     let bundled = Aliases::bundled()?;
     let merged = bundled.with_learned(&conn)?;
@@ -57,7 +59,9 @@ pub fn list(paths: &Paths) -> Result<()> {
 
 /// `edge aliases export --to config/aliases.toml` : reporte les alias acceptés dans le fichier, commentaires gardés.
 pub fn export(paths: &Paths, to: &Path, dry_run: bool) -> Result<()> {
-    let conn = store::open_read_only(&paths.db_file)
+    // Base migrée plutôt que lecture seule : juste après une réinstallation, la table des propositions (migration 26)
+    // n'existerait pas encore, et la commande échouerait sur une erreur SQL au lieu de répondre.
+    let conn = store::open_migrated(&paths.db_file)
         .context("base inaccessible : lance d'abord `edge init`")?;
     let accepted = alias_proposals::accepted(&conn)?;
     let text = std::fs::read_to_string(to)
