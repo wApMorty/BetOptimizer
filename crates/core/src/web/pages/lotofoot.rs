@@ -23,7 +23,7 @@ use crate::lotofoot::live::{self, Live, Notified};
 use crate::lotofoot::price;
 use crate::lotofoot::scores::{self, MatchNow, Standing};
 use crate::lotofoot::session::{self, Request};
-use crate::lotofoot::{Game, Ticket, sign_char};
+use crate::lotofoot::{Ticket, sign_char};
 use crate::report::lotofoot_page::{
     self, GridTotal, Group, LineView, LotofootPage, RankView, TicketView,
 };
@@ -144,30 +144,84 @@ struct Page {
     auto_refresh: bool,
     /// Ce qui empêche de suivre certaines rencontres (noms inconnus, ESPN injoignable).
     live_issues: Vec<String>,
-    /// Pages de prono-match dont le dernier relevé est en erreur (injoignable, illisible, périmée) : tant que cela dure,
-    /// la formule n'a ni grille nouvelle ni répartition à jour.
-    source_issues: Vec<String>,
+    /// Pages dont le relevé est en défaut (la FDJ en échec, avec ou sans repli) : tant que cela dure, la formule n'a ni
+    /// grille nouvelle ni répartition à jour de la FDJ.
+    source_issues: Vec<SourceIssue>,
 }
 
-/// Une ligne par formule dont le relevé est en défaut : la raison, et la date du dernier relevé à jour.
-fn source_issues(conn: &store::Connection) -> Result<Vec<String>> {
+/// Un défaut de source, affiché en tête de page.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct SourceIssue {
+    /// Couleur de l'encadré : `t-warn` quand le repli sert la page, `t-neg` quand rien ne la sert.
+    tone: &'static str,
+    /// Début du message, en gras.
+    title: &'static str,
+    /// Ce qui se passe : la page, l'erreur de chaque source et la date de sa dernière lecture réussie.
+    text: String,
+    /// Ce qu'il faut en conclure.
+    advice: &'static str,
+}
+
+/// Dernière lecture réussie d'une source, dite en clair (« jamais » si la page n'a jamais été lue correctement).
+fn last_ok_label(health: &lotofoot_store::PageHealth) -> String {
+    health
+        .last_ok
+        .map_or("jamais".to_string(), crate::format::kickoff_label)
+}
+
+/// Un encadré par page dont la FDJ est en échec : la raison de la FDJ, celle du repli quand il a échoué aussi, et la date de
+/// la dernière lecture réussie de chacun. Rien si la FDJ sert la page.
+fn source_issues(conn: &store::Connection) -> Result<Vec<SourceIssue>> {
     let mut issues = Vec::new();
-    for game in Game::ALL {
-        let health = lotofoot_store::page_health(
-            conn,
-            lotofoot_store::Source::PronoMatch,
-            lotofoot_store::Page::Grid(game),
-        )?;
-        if let Some(reason) = health.failing {
-            let since = health
-                .last_ok
-                .map_or("jamais".to_string(), crate::format::kickoff_label);
-            issues.push(format!(
-                "{game} : {reason} (dernier relevé à jour : {since})"
-            ));
-        }
+    for page in [lotofoot_store::Page::Open, lotofoot_store::Page::Results] {
+        let health = lotofoot_store::SourcesHealth::read(conn, page)?;
+        let (Some(serving), Some(reason)) = (health.serving(), &health.fdj.failing) else {
+            continue;
+        };
+        let fdj = format!(
+            "FDJ : {reason} (dernière lecture réussie : {})",
+            last_ok_label(&health.fdj)
+        );
+        let fallback_name = lotofoot_store::Source::ResultatsFdj.label();
+        let issue = match serving {
+            lotofoot_store::Serving::Fallback => SourceIssue {
+                tone: "t-warn",
+                title: "FDJ en échec, repli en service.",
+                text: format!(
+                    "{page} : {fdj} ; {fallback_name} lu à la place (dernière lecture réussie : {})",
+                    last_ok_label(&health.fallback)
+                ),
+                advice: "La répartition vient d'un site tiers : elle peut différer d'un point de celle de la FDJ. \
+                         Rien à faire, le relevé repasse à la FDJ dès qu'elle répond.",
+            },
+            lotofoot_store::Serving::Failing => SourceIssue {
+                tone: "t-neg",
+                title: "Source en défaut.",
+                text: format!("{page} : {fdj}{}", fallback_failure(&health)),
+                advice: "Tant que cela dure, ni grille nouvelle, ni répartition à jour, ni résultat : ne lance pas de séance dessus.",
+            },
+            // Le repli n'est pas appelé quand la FDJ répond : `serving` ne peut pas être `Fdj` avec une erreur de la FDJ.
+            lotofoot_store::Serving::Fdj => continue,
+        };
+        issues.push(issue);
     }
     Ok(issues)
+}
+
+/// Ce que dit le repli quand il n'a pas pu servir la page : son erreur, ou rien s'il n'a pas été lu depuis.
+fn fallback_failure(health: &lotofoot_store::SourcesHealth) -> String {
+    let name = lotofoot_store::Source::ResultatsFdj.label();
+    match &health.fallback.failing {
+        Some(reason) => format!(
+            " ; {name} : {reason} (dernière lecture réussie : {})",
+            last_ok_label(&health.fallback)
+        ),
+        None if health.fallback.last_ok.is_some() => format!(
+            " ; {name} non lu depuis (dernière lecture réussie : {})",
+            last_ok_label(&health.fallback)
+        ),
+        None => String::new(),
+    }
 }
 
 /// Suivi en direct : état des rencontres de chaque grille de la semaine, et ce qu'il faut signaler.
@@ -493,7 +547,6 @@ fn detail(ticket: &TicketView, matches: &[MatchNow]) -> Detail {
 
 #[cfg(test)]
 mod tests {
-    use crate::lotofoot::Game;
     use crate::store::lotofoot::{Page, Source, record_fetch};
     use crate::web::testing::{empty, sample};
 
@@ -507,24 +560,96 @@ mod tests {
             site.html("/")
         );
 
-        // Le relevé suivant trouve la page du LF8 figée sur une grille close.
+        // Le relevé suivant trouve la page des grilles ouvertes figée sur une grille close : la FDJ est lue, mais en défaut,
+        // et le repli n'a pas été appelé.
         let conn = crate::store::open(&site.app.paths.db_file).unwrap();
         record_fetch(
             &conn,
             site.now,
-            Source::PronoMatch, Page::Grid(Game::Lf8),
+            Source::Fdj,
+            Page::Open,
             200,
-            Some("page périmée : LF8 n°154 encore affichée comme grille en cours, close depuis ven. 06/11 19:55"),
+            Some("page périmée (FDJ) : LF8 n°154 encore affichée comme grille en cours, close depuis ven. 06/11 19:55"),
         )
         .unwrap();
 
         let page = site.html("/lotofoot");
         assert!(
-            page.contains("<b>Source en défaut.</b> LF8 : page périmée : LF8 n°154"),
+            page.contains("class=\"notice t-neg\"><b>Source en défaut.</b> grilles ouvertes : FDJ : page périmée (FDJ) : LF8 n°154"),
             "{page}"
         );
-        assert!(page.contains("(dernier relevé à jour : jamais)"), "{page}");
-        // L'accueil passe la pastille au rouge, alors que la page du LF7 vient d'être lue.
+        // La dernière lecture réussie de la FDJ est celle qui précède, une heure avant.
+        let before = crate::format::kickoff_label(site.now - chrono::Duration::hours(1));
+        assert!(
+            page.contains(&format!("(dernière lecture réussie : {before})")),
+            "{page}"
+        );
+        assert!(page.contains("ne lance pas de séance dessus"), "{page}");
+        // L'accueil passe la pastille au rouge.
+        assert!(
+            site.html("/").contains("chip t-neg\">Loto Foot"),
+            "{}",
+            site.html("/")
+        );
+    }
+
+    /// La FDJ refuse (403), resultats-fdj.fr lit la page à sa place : un encadré ambre qui le dit, une pastille ambre à
+    /// l'accueil, et pas d'alarme rouge. Quand le repli échoue aussi, l'encadré devient rouge et cite les deux erreurs.
+    #[test]
+    fn the_fallback_in_service_is_amber_and_two_sources_down_are_red() {
+        let site = sample();
+        let conn = crate::store::open(&site.app.paths.db_file).unwrap();
+        record_fetch(
+            &conn,
+            site.now,
+            Source::Fdj,
+            Page::Open,
+            403,
+            Some("réponse HTTP 403 inattendue (accès refusé, anti-robots ?)"),
+        )
+        .unwrap();
+        record_fetch(&conn, site.now, Source::ResultatsFdj, Page::Open, 200, None).unwrap();
+
+        let page = site.html("/lotofoot");
+        assert!(
+            page.contains("class=\"notice t-warn\"><b>FDJ en échec, repli en service.</b> grilles ouvertes : FDJ : réponse HTTP 403 inattendue"),
+            "{page}"
+        );
+        assert!(page.contains("resultats-fdj.fr lu à la place"), "{page}");
+        assert!(!page.contains("Source en défaut"), "{page}");
+        let home = site.html("/");
+        assert!(home.contains("chip t-warn\">Loto Foot · "), "{home}");
+        assert!(home.contains("· repli"), "{home}");
+
+        // Une heure plus tard, la FDJ répond encore 403 et le repli tombe aussi : plus aucune source.
+        let later = site.now + chrono::Duration::hours(1);
+        record_fetch(
+            &conn,
+            later,
+            Source::Fdj,
+            Page::Open,
+            403,
+            Some("réponse HTTP 403 inattendue (accès refusé, anti-robots ?)"),
+        )
+        .unwrap();
+        record_fetch(
+            &conn,
+            later,
+            Source::ResultatsFdj,
+            Page::Open,
+            503,
+            Some("réponse HTTP 503 inattendue"),
+        )
+        .unwrap();
+        let page = site.html("/lotofoot");
+        assert!(
+            page.contains("class=\"notice t-neg\"><b>Source en défaut.</b> grilles ouvertes : FDJ : réponse HTTP 403 inattendue"),
+            "{page}"
+        );
+        assert!(
+            page.contains("resultats-fdj.fr : réponse HTTP 503 inattendue"),
+            "{page}"
+        );
         assert!(
             site.html("/").contains("chip t-neg\">Loto Foot"),
             "{}",
@@ -644,7 +769,7 @@ mod tests {
         let fetch_id = record_fetch(
             &conn,
             sample.now,
-            Source::PronoMatch,
+            Source::Fdj,
             FetchPage::Results,
             200,
             None,

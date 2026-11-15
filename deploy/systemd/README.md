@@ -9,7 +9,7 @@ Prérequis : lingering activé (`loginctl enable-linger $USER`) et binaire insta
 | `edge-nba` | 22 h UTC | cotes de la NBA (vainqueur, handicaps, totaux) et, un jour sur deux, résultats (`edge nba snapshot`) | 3 par jour + 2 tous les deux jours |
 | `edge-closing` | toutes les 10 minutes | clôture de Pinnacle des matchs suivis qui commencent dans 30 minutes (`edge closing`) | 1 par match suivi, 0 sinon |
 | `edge-latency` | lundi 9 h | historique OddsPapi des matchs terminés et verdict du test de latence (`edge latency fetch`, `edge latency report`, sources §34) | 0 (6 requêtes OddsPapi sur 250 par mois) |
-| `edge-lotofoot-fetch` | toutes les heures (minute 7) | grilles LF7 et LF8, répartition FDJ, résultats et rapports sur prono-match ; alerte Discord à la sortie de chaque grille, avec son heure de clôture (`edge lotofoot fetch --notify`, sources §38 et §47) | 0 |
+| `edge-lotofoot-fetch` | toutes les heures (minute 7) | grilles LF7 et LF8, répartition FDJ, résultats et rapports sur le site de la FDJ, et sur resultats-fdj.fr si la FDJ échoue ; alerte Discord à la sortie de chaque grille, avec son heure de clôture, et alertes de source (`edge lotofoot fetch --notify`, sources §38, §47 et §74) | 0 |
 | `edge-backup` | 14 h 30 (Paris) | copie datée et vérifiée de la base dans `backup_dir`, rotation sur `backup_keep` copies (`edge backup`, sources §73) | 0 |
 | `edge-loto` | 22 h 30 (Paris) | historique FDJ, alerte EuroMillions au plafond, séance du Grand Loto dû dans les 3 jours (`edge loto fetch --notify`, `edge loto recommend --notify`, sources §44) | 0 |
 
@@ -50,9 +50,18 @@ edge notify-failure edge-snapshot.service            # essai à la main : un vra
 systemctl --user status 'edge-notify-failure@*'      # les alertes envoyées ou tentées
 ```
 
-Le relevé du Loto Foot a en plus sa propre alerte, « source figée » : prono-match affiche encore comme grille en cours une grille close
-depuis trois heures. Elle part une fois par grille ; la pastille « Loto Foot » de l'accueil et le bandeau de `/lotofoot` restent rouges
-tant que la page n'est pas revenue (sources §73).
+Le relevé du Loto Foot a en plus ses propres alertes de source (`edge lotofoot fetch --notify`, sources §73 et §74), chacune
+mémorisée dans le même journal (`alert_log`) :
+- « source figée » : la page d'une source affiche encore comme ouverte une grille close depuis trois heures ; une fois par grille ;
+- « FDJ en échec, repli utilisé » : resultats-fdj.fr a lu une page à la place de la FDJ (HTTP 403 anti-robots, page de défi, réseau) ;
+  au plus une fois par 24 h ;
+- « aucune source ne répond » : ni la FDJ ni resultats-fdj.fr n'ont servi une page ; au plus une fois par 6 h et par page. L'unité
+  échoue alors aussi (`OnFailure=`) : l'alerte de panne générique et celle-ci se complètent ;
+- « grille annulée » : une grille entièrement annulée porte des tickets joués, mises remboursées au guichet, à saisir à la main ;
+  une fois par grille.
+
+La pastille « Loto Foot » de l'accueil et le bandeau de `/lotofoot` disent quelle source sert chaque page : ambre tant que le repli
+sert, rouge tant qu'aucune source ne répond ou que la page est périmée.
 
 ## Sauvegarde
 
@@ -78,8 +87,9 @@ consécutif au plafond sans gagnant : le cinquième verse le jackpot au rang 2),
 
 ## Loto Foot
 
-`edge-lotofoot-fetch` relève chaque heure la grille en cours du LF7 et du LF8 sur prono-match (répartition FDJ), et les derniers résultats
-et rapports : la dérive de la répartition jusqu'à la clôture est ainsi mesurée, et chaque grille est réglée dès ses résultats publiés. Une
+`edge-lotofoot-fetch` relève chaque heure les grilles ouvertes du LF7 et du LF8 sur le site de la FDJ (répartition FDJ), et les derniers
+résultats et rapports : la dérive de la répartition jusqu'à la clôture est ainsi mesurée, et chaque grille est réglée dès ses résultats
+publiés. Si la FDJ refuse ou ne répond pas, il lit resultats-fdj.fr à la place, sans jamais contourner un refus. Une
 grille vue pour la première fois est signalée sur Discord avec son heure de clôture, sans ticket (il est trop tôt).
 La séance se lance au guichet, juste avant de valider : bouton « Optimiser maintenant » de la page `/lotofoot` (ou `edge lotofoot recommend`).
 Tickets d'un euro dont l'espérance, dans le scénario défavorable, atteint 1,7, dans la mise demandée et le budget de la semaine (16 €,

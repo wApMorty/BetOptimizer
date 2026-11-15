@@ -24,8 +24,7 @@ use crate::betting::recommend::RECOMMEND_MIN_EDGE;
 use crate::domain::Euros;
 use crate::error::{Error, Result};
 use crate::format;
-use crate::lotofoot::Game;
-use crate::store::lotofoot::{self as lotofoot_store, Page, Source};
+use crate::store::lotofoot::{self as lotofoot_store, Page, Serving};
 use crate::store::{archive, history, nba, tennis};
 
 /// Les prix du dernier relevé, partagés en notifiés (avantage ≥ seuil, avec mise suggérée) et en dessous.
@@ -146,18 +145,24 @@ pub fn feeds(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<Feed>> {
     Ok(feeds)
 }
 
-/// Fraîcheur du relevé du Loto Foot : les pages LF7 et LF8 de prono-match, lues toutes les heures.
+/// Fraîcheur du relevé du Loto Foot : la page des grilles ouvertes et celle des résultats, lues toutes les heures sur la
+/// FDJ, et sur resultats-fdj.fr si la FDJ échoue (`docs/sources.md` §74).
 ///
-/// Rouge dès que la lecture la plus récente d'une des deux pages est en erreur (site injoignable, page illisible ou
-/// périmée, `docs/sources.md` §73) : du 5 au 12 novembre 2026, le site figé ne se voyait nulle part. Sinon, selon l'âge
-/// de la plus ancienne des dernières lectures réussies : vert sous 3 h, ambre sous 12 h, rouge au-delà.
+/// Rouge dès qu'une des deux pages n'est servie par aucune source (réseau, page illisible ou périmée, `docs/sources.md`
+/// §73) : du 5 au 12 novembre 2026, le site figé ne se voyait nulle part. Ambre tant que le repli sert une page (la FDJ est
+/// en échec, la répartition vient d'un site tiers). Sinon, selon l'âge de la plus ancienne des dernières lectures
+/// réussies : vert sous 3 h, ambre sous 12 h, rouge au-delà.
 fn lotofoot_feed(conn: &Connection, now: DateTime<Utc>) -> Result<Feed> {
     let mut oldest: Option<DateTime<Utc>> = None;
-    let mut failing = false;
-    for game in Game::ALL {
-        let health = lotofoot_store::page_health(conn, Source::PronoMatch, Page::Grid(game))?;
-        failing |= health.failing.is_some();
-        if let Some(at) = health.last_ok {
+    let (mut failing, mut fallback) = (false, false);
+    for page in [Page::Open, Page::Results] {
+        let health = lotofoot_store::SourcesHealth::read(conn, page)?;
+        match health.serving() {
+            Some(Serving::Failing) => failing = true,
+            Some(Serving::Fallback) => fallback = true,
+            Some(Serving::Fdj) | None => {}
+        }
+        if let Some(at) = health.last_ok() {
             // La plus ancienne des deux : le flux n'est à jour que si les deux pages le sont.
             oldest = Some(oldest.map_or(at, |o| o.min(at)));
         }
@@ -167,12 +172,20 @@ fn lotofoot_feed(conn: &Connection, now: DateTime<Utc>) -> Result<Feed> {
             let hours = (now - at).num_hours();
             let tone = if failing || hours >= 12 {
                 "t-neg"
-            } else if hours >= 3 {
+            } else if fallback || hours >= 3 {
                 "t-warn"
             } else {
                 "t-pos"
             };
-            (format::age(at, now), tone)
+            let age = format::age(at, now);
+            (
+                if fallback {
+                    format!("{age} · repli")
+                } else {
+                    age
+                },
+                tone,
+            )
         }
         None if failing => ("jamais lu".to_string(), "t-neg"),
         None => ("aucun relevé".to_string(), ""),

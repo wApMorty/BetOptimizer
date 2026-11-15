@@ -159,6 +159,71 @@ pub fn page_health(conn: &Connection, source: Source, page: Page) -> Result<Page
     })
 }
 
+/// Comment une page est servie à l'instant, d'après les dernières lectures de ses deux sources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Serving {
+    /// La FDJ a servi la page à la dernière lecture.
+    Fdj,
+    /// La FDJ a échoué, resultats-fdj.fr a servi la page à sa place (lu depuis la dernière lecture réussie de la FDJ).
+    Fallback,
+    /// Aucune source ne sert la page : la FDJ est en échec, et le repli n'a pas été lu depuis, ou a échoué lui aussi.
+    Failing,
+}
+
+/// État du relevé d'une page, vu à travers la FDJ et resultats-fdj.fr (les sources réellement lues depuis la phase 22).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcesHealth {
+    /// La page.
+    pub page: Page,
+    /// État chez la FDJ.
+    pub fdj: PageHealth,
+    /// État chez resultats-fdj.fr.
+    pub fallback: PageHealth,
+}
+
+impl SourcesHealth {
+    /// Lit l'état de `page` chez les deux sources. Sont utiles [`Page::Open`] et [`Page::Results`] : les deux sont lues à
+    /// chaque passage, par la FDJ d'abord, par le repli seulement si la FDJ échoue.
+    pub fn read(conn: &Connection, page: Page) -> Result<SourcesHealth> {
+        Ok(SourcesHealth {
+            page,
+            fdj: page_health(conn, Source::Fdj, page)?,
+            fallback: page_health(conn, Source::ResultatsFdj, page)?,
+        })
+    }
+
+    /// Dernière lecture réussie, de l'une ou l'autre source ; `None` si la page n'a jamais été lue correctement.
+    pub fn last_ok(&self) -> Option<DateTime<Utc>> {
+        // Une `Option` de date se compare : `None` est plus petit que tout `Some`, `max` garde donc la date existante.
+        self.fdj.last_ok.max(self.fallback.last_ok)
+    }
+
+    /// Comment la page est servie ; `None` si elle n'a jamais été relevée (installation neuve).
+    ///
+    /// Le repli sert la page s'il a réussi **après** la dernière lecture réussie de la FDJ et que sa lecture la plus récente
+    /// n'est pas en erreur. Il n'est lu que si la FDJ échoue : sa dernière lecture réussie, plus ancienne que celle de la
+    /// FDJ, ne dit rien d'aujourd'hui.
+    pub fn serving(&self) -> Option<Serving> {
+        let never_read = self.fdj.last_ok.is_none()
+            && self.fdj.failing.is_none()
+            && self.fallback.last_ok.is_none()
+            && self.fallback.failing.is_none();
+        if never_read {
+            return None;
+        }
+        if self.fdj.failing.is_none() {
+            return Some(Serving::Fdj);
+        }
+        let fallback_serves =
+            self.fallback.failing.is_none() && self.fallback.last_ok > self.fdj.last_ok;
+        Some(if fallback_serves {
+            Serving::Fallback
+        } else {
+            Serving::Failing
+        })
+    }
+}
+
 /// Nombre de grilles connues (LF7 et LF8).
 pub fn count_grids(conn: &Connection) -> Result<i64> {
     Ok(conn.query_row("SELECT COUNT(*) FROM lotofoot_grid", [], |row| row.get(0))?)
@@ -1294,6 +1359,104 @@ mod tests {
         let back = page_health(&conn, Source::PronoMatch, lf8).unwrap();
         assert_eq!(back.last_ok, Some(at("2026-11-13T09:07:00Z")));
         assert_eq!(back.failing, None);
+    }
+
+    /// Une lecture de `page` chez `source` à `when`, en erreur si `error` est donné.
+    fn read(conn: &Connection, when: &str, source: Source, page: Page, error: Option<&str>) {
+        let status = if error.is_some() { 403 } else { 200 };
+        record_fetch(conn, at(when), source, page, status, error).unwrap();
+    }
+
+    /// La page est servie par la FDJ, puis par le repli quand la FDJ échoue, puis par personne quand le repli échoue aussi ;
+    /// et la FDJ revenue reprend la main. Une page jamais lue n'a pas d'état.
+    #[test]
+    fn a_page_is_served_by_the_fdj_then_the_fallback_then_nobody() {
+        let conn = db();
+        let state = |conn: &Connection| SourcesHealth::read(conn, Page::Open).unwrap();
+        assert_eq!(state(&conn).serving(), None);
+        assert_eq!(state(&conn).last_ok(), None);
+
+        read(&conn, "2026-11-15T09:00:00Z", Source::Fdj, Page::Open, None);
+        assert_eq!(state(&conn).serving(), Some(Serving::Fdj));
+
+        // La FDJ refuse, le repli lit : repli en service.
+        read(
+            &conn,
+            "2026-11-15T10:00:00Z",
+            Source::Fdj,
+            Page::Open,
+            Some("HTTP 403"),
+        );
+        read(
+            &conn,
+            "2026-11-15T10:00:05Z",
+            Source::ResultatsFdj,
+            Page::Open,
+            None,
+        );
+        let fallback = state(&conn);
+        assert_eq!(fallback.serving(), Some(Serving::Fallback));
+        assert_eq!(fallback.last_ok(), Some(at("2026-11-15T10:00:05Z")));
+
+        // Le repli échoue à son tour : personne ne sert la page.
+        read(
+            &conn,
+            "2026-11-15T11:00:00Z",
+            Source::Fdj,
+            Page::Open,
+            Some("HTTP 403"),
+        );
+        read(
+            &conn,
+            "2026-11-15T11:00:05Z",
+            Source::ResultatsFdj,
+            Page::Open,
+            Some("HTTP 503"),
+        );
+        let down = state(&conn);
+        assert_eq!(down.serving(), Some(Serving::Failing));
+        assert_eq!(down.fallback.failing.as_deref(), Some("HTTP 503"));
+        // La dernière lecture réussie reste celle du repli, à 10 h.
+        assert_eq!(down.last_ok(), Some(at("2026-11-15T10:00:05Z")));
+
+        // La FDJ revient : l'ancien échec du repli ne compte plus.
+        read(&conn, "2026-11-15T12:00:00Z", Source::Fdj, Page::Open, None);
+        assert_eq!(state(&conn).serving(), Some(Serving::Fdj));
+    }
+
+    /// Une page FDJ périmée (lue, mais en erreur) sans repli lu depuis : personne ne la sert. Un repli lu AVANT la dernière
+    /// lecture réussie de la FDJ ne la sert pas non plus (il date d'une autre panne).
+    #[test]
+    fn a_stale_fdj_page_or_an_old_fallback_read_does_not_count_as_served() {
+        let conn = db();
+        read(
+            &conn,
+            "2026-11-10T09:00:00Z",
+            Source::ResultatsFdj,
+            Page::Results,
+            None,
+        );
+        read(
+            &conn,
+            "2026-11-15T09:00:00Z",
+            Source::Fdj,
+            Page::Results,
+            None,
+        );
+        read(
+            &conn,
+            "2026-11-15T10:00:00Z",
+            Source::Fdj,
+            Page::Results,
+            Some("page périmée (FDJ)"),
+        );
+        let health = SourcesHealth::read(&conn, Page::Results).unwrap();
+        assert_eq!(health.serving(), Some(Serving::Failing));
+        // Les pages sont indépendantes : la page des grilles ouvertes n'a jamais été lue.
+        assert_eq!(
+            SourcesHealth::read(&conn, Page::Open).unwrap().serving(),
+            None
+        );
     }
 
     /// La même page chez deux sources a deux états : l'échec de la FDJ ne dit rien de resultats-fdj.fr, ni de prono-match.

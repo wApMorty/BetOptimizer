@@ -180,15 +180,7 @@ pub fn sample() -> Sample {
 /// Une grille LF7 relevée il y a une heure et une séance de deux tickets dessus, pas encore déclarés joués.
 fn lotofoot_session(conn: &mut Connection, now: DateTime<Utc>) {
     let fetched = now - Duration::hours(1);
-    let fetch_id = record_fetch(
-        conn,
-        fetched,
-        Source::PronoMatch,
-        Page::Grid(Game::Lf7),
-        200,
-        None,
-    )
-    .unwrap();
+    let fetch_id = record_fetch(conn, fetched, Source::Fdj, Page::Open, 200, None).unwrap();
     let page = OpenGrid {
         game: Game::Lf7,
         accepting: true,
