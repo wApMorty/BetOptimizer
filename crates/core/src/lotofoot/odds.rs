@@ -74,7 +74,8 @@ fn same_team(aliases: &Aliases, left: &str, right: &str) -> bool {
 }
 
 /// Position (à partir de 0) de la première rencontre qui diffère entre deux listes de rencontres (domicile, extérieur), ou
-/// `None` si elles désignent les mêmes équipes dans le même ordre, noms comparés par [`same_team`].
+/// `None` si elles désignent les mêmes équipes dans le même ordre. Deux noms désignent la même équipe s'ils sont identiques, ou
+/// si la table d'alias les ramène au même nom canonique ; un nom inconnu de la table ne se compare qu'à lui-même.
 ///
 /// Deux listes de longueurs différentes diffèrent à la première position qui n'existe que dans la plus longue.
 pub fn first_difference(
