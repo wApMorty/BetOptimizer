@@ -3430,8 +3430,8 @@ par-dessus la table versionnée (`Aliases::with_learned`), sans recompiler ; sec
 `edge aliases export --to config/aliases.toml` insère les alias acceptés dans le fichier (commentaires gardés, résultat relu et
 vérifié avant écriture), à commiter puis réinstaller.
 
-**Écarts au plan validé, à confirmer par Paul.** Le plan disait « un seul match → proposition ; sinon des pistes ». Trois règles ont été
-ajoutées pendant le codage, sans son accord préalable ; aucune n'applique quoi que ce soit sans clic :
+**Écarts au plan validé, confirmés par Paul le 2026-11-15.** Le plan disait « un seul match → proposition ; sinon des pistes ». Trois
+règles ont été ajoutées pendant le codage, puis acceptées toutes trois ; aucune n'applique quoi que ce soit sans clic :
 1. **Plusieurs matchs qui conviennent** donnent plusieurs propositions, chacune avec son bouton (cas Bodø/Glimt), au lieu de simples
    pistes. Valider l'une fait disparaître les autres (le nom est désormais connu).
 2. **Ancrage par nom identique** : deux noms inconnus ne bloquent plus la déduction si l'un est écrit exactement comme chez la source
