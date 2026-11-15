@@ -8,6 +8,8 @@
 //!
 //! Une grille s'identifie par [`GridId`] : la FDJ renumérote chaque formule tous les 1er janvier (migration 22, §66).
 
+use std::fmt;
+
 use chrono::{DateTime, Datelike, Duration, SecondsFormat, Utc, Weekday};
 use chrono_tz::Europe::Paris;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -50,12 +52,21 @@ impl Source {
             Source::ResultatsFdj => "resultats_fdj",
         }
     }
+
+    /// Nom de la source dans les messages et dans l'application.
+    pub fn label(self) -> &'static str {
+        match self {
+            Source::PronoMatch => "prono-match",
+            Source::Fdj => "FDJ",
+            Source::ResultatsFdj => "resultats-fdj.fr",
+        }
+    }
 }
 
 /// Page lue : `lf7`, `lf8`, `results`, `open` ou `detail`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
-    /// Page d'une formule (prono-match).
+    /// Page d'une formule : celle de prono-match, que le programme ne lit plus (son archive garde ces lectures).
     Grid(Game),
     /// Page des derniers résultats.
     Results,
@@ -66,13 +77,25 @@ pub enum Page {
 }
 
 impl Page {
-    /// Code stocké dans `lotofoot_fetch.page`.
-    fn code(self) -> &'static str {
+    /// Code stocké dans `lotofoot_fetch.page` ; sert aussi de sujet aux alertes de source (`alert_log.subject`).
+    pub fn code(self) -> &'static str {
         match self {
             Page::Grid(game) => game.code(),
             Page::Results => "results",
             Page::Open => "open",
             Page::Detail => "detail",
+        }
+    }
+}
+
+/// Nom de la page dans les messages : « grilles ouvertes », « résultats », « détail d'une grille ».
+impl fmt::Display for Page {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Page::Grid(game) => write!(f, "page du {game}"),
+            Page::Results => write!(f, "résultats"),
+            Page::Open => write!(f, "grilles ouvertes"),
+            Page::Detail => write!(f, "détail d'une grille"),
         }
     }
 }

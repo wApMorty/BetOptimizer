@@ -379,9 +379,12 @@ fn summary(live: &Live) -> String {
     }
     if !live.fetched.failures.is_empty() {
         parts.push(format!(
-            "Relevé de prono-match incomplet : {} page(s) non lue(s).",
+            "Relevé des grilles incomplet : {} page(s) non lue(s) (ni la FDJ ni resultats-fdj.fr).",
             live.fetched.failures.len()
         ));
+    }
+    if !live.fetched.fallbacks.is_empty() {
+        parts.push("FDJ en échec : repli resultats-fdj.fr utilisé pour le relevé.".to_string());
     }
     match &live.notified {
         Notified::NotAsked => {}

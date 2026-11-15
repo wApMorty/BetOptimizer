@@ -34,6 +34,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0022_lotofoot_year.sql"),
     include_str!("migrations/0023_alert_log.sql"),
     include_str!("migrations/0024_lotofoot_sources.sql"),
+    include_str!("migrations/0025_alert_kinds.sql"),
 ];
 
 /// Version du schéma attendue par ce programme (le nombre de migrations connues).
@@ -398,6 +399,74 @@ mod tests {
             conn.execute("UPDATE lotofoot_result SET outcome = 'H'", [])
                 .is_err()
         );
+    }
+
+    /// La migration 25 reconstruit `alert_log` pour y ajouter trois natures d'alerte : les lignes existantes gardent leurs
+    /// identifiants, les nouvelles natures s'écrivent, une inconnue est refusée, et le journal reste immuable.
+    #[test]
+    fn the_alert_kinds_migration_keeps_rows_and_stays_immutable() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate_with(&mut conn, &MIGRATIONS[..24]).unwrap();
+        conn.execute_batch(
+            "INSERT INTO alert_log (id, sent_at, kind, subject, detail)
+                 VALUES (4, '2026-11-12T12:00:00Z', 'unit_failed', 'edge-snapshot.service', 'échec');
+             INSERT INTO alert_log (id, sent_at, kind, subject, detail)
+                 VALUES (9, '2026-11-12T13:00:00Z', 'stale_source', 'lf8-2026-154', 'figée');",
+        )
+        .unwrap();
+        // Avant la migration, une nature de la phase 22 est refusée.
+        assert!(
+            conn.execute(
+                "INSERT INTO alert_log (sent_at, kind, subject, detail) VALUES ('x', 'source_down', 'open', 'd')",
+                [],
+            )
+            .is_err()
+        );
+
+        assert_eq!(migrate(&mut conn).unwrap(), LATEST_VERSION);
+
+        let rows: Vec<(i64, String, String)> = conn
+            .prepare("SELECT id, kind, subject FROM alert_log ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            [
+                (
+                    4,
+                    "unit_failed".to_string(),
+                    "edge-snapshot.service".to_string()
+                ),
+                (9, "stale_source".to_string(), "lf8-2026-154".to_string()),
+            ]
+        );
+        let insert = |kind: &str| {
+            conn.execute(
+                "INSERT INTO alert_log (sent_at, kind, subject, detail) VALUES ('2026-11-15T09:00:00Z', ?1, 'x', 'd')",
+                [kind],
+            )
+        };
+        for kind in ["source_fallback", "source_down", "canceled_grid"] {
+            insert(kind).unwrap();
+        }
+        assert!(insert("autre").is_err());
+        assert!(
+            conn.execute("UPDATE alert_log SET detail = ''", [])
+                .is_err()
+        );
+        assert!(conn.execute("DELETE FROM alert_log", []).is_err());
+        // L'index de recherche par sujet est recréé : il ne reste qu'un seul index de ce nom.
+        let indexes: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'alert_log_by_subject'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexes, 1);
     }
 
     #[test]

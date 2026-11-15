@@ -49,6 +49,9 @@ pub struct ResultLink {
     pub number: u32,
     /// Lien tel que la page le donne, par exemple `/loto-foot/grille/4957-loto-foot-7-n140`.
     pub href: String,
+    /// Jour de clôture (heure de Paris), avec son année : le numéro seul ne dit pas de quelle année est la grille
+    /// (`docs/sources.md` §66). `None` si la cellule de date est absente ou illisible.
+    pub closed: Option<NaiveDate>,
 }
 
 impl ResultLink {
@@ -137,6 +140,32 @@ fn paris_to_utc(local: NaiveDateTime) -> Option<DateTime<Utc>> {
         .from_local_datetime(&local)
         .earliest()
         .map(|at| at.with_timezone(&Utc))
+}
+
+/// Mois abrégés de la liste des résultats (« oct. »), sans leur point : `Intl` du français les écrit ainsi.
+const SHORT_MONTHS: [&str; 12] = [
+    "janv", "févr", "mars", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc",
+];
+
+/// Numéro (1 à 12) d'un nom de mois, abrégé (« oct. ») ou entier (« octobre »).
+fn month_number(word: &str) -> Option<u32> {
+    let word = word.trim_end_matches('.').to_lowercase();
+    let index = MONTHS
+        .iter()
+        .position(|month| *month == word)
+        .or_else(|| SHORT_MONTHS.iter().position(|month| *month == word))?;
+    u32::try_from(index).ok().map(|index| index + 1)
+}
+
+/// « Mar. 20 oct. 2026 » → le 20 octobre 2026. Le jour de la semaine est ignoré ; le jour, le mois et l'année se suivent.
+fn parse_list_date(text: &str) -> Option<NaiveDate> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    // « Mar. » (mardi) n'est pas un nombre : le jour du mois est le premier mot qui en est un.
+    let at = words.iter().position(|word| word.parse::<u32>().is_ok())?;
+    let day: u32 = words.get(at)?.parse().ok()?;
+    let month = month_number(words.get(at + 1)?)?;
+    let year: i32 = words.get(at + 2)?.parse().ok()?;
+    NaiveDate::from_ymd_opt(year, month, day)
 }
 
 /// « Loto Foot 8 n°158 » → (formule, numéro) = (8, 158).
@@ -284,10 +313,15 @@ pub fn parse_results_list(html: &str) -> Result<Vec<ResultLink>> {
                 page_error(&format!("{game} n°{number} : lien vers le détail absent"))
             })?;
         check_href(href, game, number)?;
+        // Sans date lisible, le lien reste utile : l'appelant lira simplement sa page de détail.
+        let closed = first(row, "td.lr-date")
+            .map(text_of)
+            .and_then(|text| parse_list_date(&text));
         links.push(ResultLink {
             game,
             number,
             href: href.to_string(),
+            closed,
         });
     }
     Ok(links)
@@ -673,16 +707,38 @@ mod tests {
                 ResultLink {
                     game: Game::Lf7,
                     number: 140,
-                    href: "/loto-foot/grille/4957-loto-foot-7-n140".to_string()
+                    href: "/loto-foot/grille/4957-loto-foot-7-n140".to_string(),
+                    closed: NaiveDate::from_ymd_opt(2026, 11, 10)
                 },
                 ResultLink {
                     game: Game::Lf8,
                     number: 155,
-                    href: "/loto-foot/grille/852-loto-foot-8-n155".to_string()
+                    href: "/loto-foot/grille/852-loto-foot-8-n155".to_string(),
+                    closed: NaiveDate::from_ymd_opt(2026, 11, 10)
                 },
             ]
         );
         assert_eq!(links[0].path(), "loto-foot/grille/4957-loto-foot-7-n140");
+    }
+
+    #[test]
+    fn list_dates_are_read_with_abbreviated_or_full_months_and_never_guessed() {
+        let date = |y, m, d| NaiveDate::from_ymd_opt(y, m, d);
+        assert_eq!(parse_list_date("Mar. 20 oct. 2026"), date(2026, 10, 20));
+        assert_eq!(parse_list_date("Lun. 19 oct. 2026"), date(2026, 10, 19));
+        assert_eq!(parse_list_date("Sam. 1 janv. 2027"), date(2027, 1, 1));
+        assert_eq!(parse_list_date("Dim. 5 juil. 2026"), date(2026, 7, 5));
+        assert_eq!(parse_list_date("Ven. 7 août 2026"), date(2026, 8, 7));
+        assert_eq!(parse_list_date("Mar. 9 sept. 2026"), date(2026, 9, 9));
+        assert_eq!(
+            parse_list_date("dimanche 15 novembre 2026"),
+            date(2026, 11, 15)
+        );
+        // Un mois inconnu, une année absente ou un jour impossible : `None`, jamais une date devinée.
+        assert_eq!(parse_list_date("Mar. 20 octo. 2026"), None);
+        assert_eq!(parse_list_date("Mar. 20 oct."), None);
+        assert_eq!(parse_list_date("Mar. 31 nov. 2026"), None);
+        assert_eq!(parse_list_date(""), None);
     }
 
     #[test]
@@ -969,7 +1025,7 @@ mod tests {
                 let links = parse_results_list(&html).unwrap_or_else(|e| panic!("{name} : {e}"));
                 println!("{name} : {} liens", links.len());
                 for l in &links {
-                    println!("    {} n°{} {}", l.game, l.number, l.href);
+                    println!("    {} n°{} {} {:?}", l.game, l.number, l.href, l.closed);
                 }
             } else if name.starts_with("rfdj_detail_") {
                 let result = parse_result_detail(&html).unwrap_or_else(|e| panic!("{name} : {e}"));

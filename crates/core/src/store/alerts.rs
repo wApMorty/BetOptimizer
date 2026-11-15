@@ -17,6 +17,12 @@ pub enum AlertKind {
     StaleSource,
     /// Une unité systemd d'edge a échoué.
     UnitFailed,
+    /// La FDJ n'a pas servi une page du Loto Foot, resultats-fdj.fr l'a lue à la place (phase 22, §75).
+    SourceFallback,
+    /// Ni la FDJ ni resultats-fdj.fr n'ont pu servir une page du Loto Foot.
+    SourceDown,
+    /// Une grille du Loto Foot entièrement annulée porte des tickets joués : mises remboursées au guichet, à saisir à la main.
+    CanceledGrid,
 }
 
 impl AlertKind {
@@ -25,6 +31,9 @@ impl AlertKind {
         match self {
             AlertKind::StaleSource => "stale_source",
             AlertKind::UnitFailed => "unit_failed",
+            AlertKind::SourceFallback => "source_fallback",
+            AlertKind::SourceDown => "source_down",
+            AlertKind::CanceledGrid => "canceled_grid",
         }
     }
 }

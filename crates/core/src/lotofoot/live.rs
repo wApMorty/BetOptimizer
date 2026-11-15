@@ -1,4 +1,4 @@
-//! Séance avec les vrais clients : relevé frais de prono-match, cotes manquantes chez The Odds API puis chez OddsPapi
+//! Séance avec les vrais clients : relevé frais des grilles (FDJ, repli resultats-fdj.fr), cotes manquantes chez The Odds API puis chez OddsPapi
 //! (repli, si la clé existe), séance écrite au journal, et au besoin message Discord avec l'image des grilles à remplir.
 //!
 //! Partagée par `edge lotofoot recommend` (timer du samedi) et le bouton « Optimiser maintenant » de l'application Web.
@@ -7,7 +7,7 @@
 use chrono::Utc;
 use rusqlite::Connection;
 
-use super::fetch::{self, FetchReport, PronoMatchClient};
+use super::fetch::{self, FetchReport, SiteClient};
 use super::oddspapi::Access;
 use super::session::{self, Request, SessionReport};
 use crate::config::{API_KEY_ENV, Config, ODDSPAPI_KEY_ENV, WEBHOOK_ENV};
@@ -33,7 +33,7 @@ pub enum Notified {
 /// Bilan d'une séance avec les vrais clients.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Live {
-    /// Relevé de prono-match fait juste avant la séance.
+    /// Relevé des grilles (FDJ, ou repli resultats-fdj.fr) fait juste avant la séance.
     pub fetched: FetchReport,
     /// La séance.
     pub report: SessionReport,
@@ -41,7 +41,7 @@ pub struct Live {
     pub notified: Notified,
 }
 
-/// Relève prono-match, lance la séance demandée (mise plafond, remplacement, à blanc), puis envoie le message Discord
+/// Relève les grilles, lance la séance demandée (mise plafond, remplacement, à blanc), puis envoie le message Discord
 /// si `notify`. À blanc, rien n'est écrit, aucune compétition n'est relevée et aucun message n'est envoyé.
 pub fn recommend(
     conn: &mut Connection,
@@ -51,13 +51,14 @@ pub fn recommend(
     notify: bool,
 ) -> Result<Live> {
     // Un relevé juste avant la séance : la répartition utilisée a quelques minutes, pas une heure.
-    let pages = PronoMatchClient::new();
+    let pages = SiteClient::new();
     let fetched = fetch::run(
         conn,
         aliases,
         &mut Utc::now,
-        &mut |path, params| pages.get(path, params),
+        &mut |url, params| pages.get(url, params),
         &mut std::thread::sleep,
+        1,
     )?;
     let report = if request.dry_run {
         session::run(

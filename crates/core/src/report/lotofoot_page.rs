@@ -12,7 +12,7 @@ use crate::format::{chance, decimal, kickoff_label, long_date, rough_euros};
 use crate::ingest::aliases::Aliases;
 use crate::lotofoot::alert::Listed;
 use crate::lotofoot::bulletin::{Line, session_lines};
-use crate::lotofoot::fetch::StaleGrid;
+use crate::lotofoot::fetch::{PageIssue, StaleGrid};
 use crate::lotofoot::model::{FROZEN, GridModel, RankOdds};
 use crate::lotofoot::odds::ALIAS_SECTION;
 use crate::lotofoot::oddspapi;
@@ -22,7 +22,7 @@ use crate::lotofoot::session::{self, MonthBudget, SessionReport};
 use crate::lotofoot::settle::{self, Ledger};
 use crate::lotofoot::verify::{self, Verdict, Verification};
 use crate::lotofoot::{GridId, TICKET_PRICE, sign_char};
-use crate::store::lotofoot::{self as store, RecoRow};
+use crate::store::lotofoot::{self as store, RecoRow, Source};
 
 /// Un ticket recommandé, prêt à afficher.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -786,13 +786,14 @@ pub fn listing_text(
     text
 }
 
-/// Alerte « source figée » : le site affiche encore comme grille en cours une grille close depuis des heures
+/// Alerte « source figée » : la page d'une source affiche encore comme ouverte une grille close depuis des heures
 /// (`lotofoot::fetch::StaleGrid`, `docs/sources.md` §73). Envoyée une fois par grille.
 pub fn stale_text(stale: &[StaleGrid]) -> String {
     let mut text = String::from("**edge · Loto Foot** — ⚠ source figée\n");
     for shown in stale {
         text.push_str(&format!(
-            "prono-match affiche encore **{}** comme grille en cours, alors qu'elle est close depuis **{}**.\n",
+            "{} affiche encore **{}** comme grille en cours, alors qu'elle est close depuis **{}**.\n",
+            shown.source.label(),
             shown.grid,
             kickoff_label(shown.closes_at)
         ));
@@ -801,6 +802,51 @@ pub fn stale_text(stale: &[StaleGrid]) -> String {
         "Tant que cela dure : ni grille nouvelle, ni répartition à jour, ni résultat pour cette formule. \
          Ne lance pas de séance dessus ; la pastille « Loto Foot » de l'accueil repassera au vert au retour du site.",
     );
+    text
+}
+
+/// Alerte « FDJ en échec » : le site de la FDJ n'a pas servi une page et resultats-fdj.fr l'a lue à la place
+/// (`docs/sources.md` §74). Envoyée au plus une fois par 24 h.
+pub fn fallback_text(issues: &[PageIssue]) -> String {
+    let mut text = String::from("**edge · Loto Foot** — FDJ en échec, repli utilisé\n");
+    for issue in issues {
+        text.push_str(&format!(
+            "FDJ en échec, repli {} utilisé : {} ({}).\n",
+            Source::ResultatsFdj.label(),
+            issue.reason,
+            issue.page
+        ));
+    }
+    text.push_str(
+        "Le repli est un site tiers : sa répartition peut différer d'un point de celle de la FDJ. Rien à faire ; la pastille \
+         « Loto Foot » de l'accueil repasse au vert au retour de la FDJ.",
+    );
+    text
+}
+
+/// Alerte « aucune source » : ni la FDJ ni resultats-fdj.fr n'ont pu servir une page. Envoyée au plus une fois par 6 h et
+/// par page.
+pub fn down_text(issues: &[PageIssue]) -> String {
+    let mut text = String::from("**edge · Loto Foot** — ⚠ aucune source ne répond\n");
+    for issue in issues {
+        text.push_str(&format!("{} : {}.\n", issue.page, issue.reason));
+    }
+    text.push_str(
+        "Tant que cela dure : ni grille nouvelle, ni répartition à jour, ni résultat. Ne lance pas de séance dessus.",
+    );
+    text
+}
+
+/// Alerte « grille annulée » : une grille entièrement annulée porte des tickets joués (`docs/sources.md` §74). Les mises
+/// sont remboursées au guichet ; le programme ne règle rien tout seul. Envoyée une seule fois par grille.
+pub fn canceled_text(grids: &[GridId]) -> String {
+    let mut text = String::from("**edge · Loto Foot** — grille annulée\n");
+    for grid in grids {
+        text.push_str(&format!(
+            "**{grid}** : grille annulée, mises remboursées au guichet, à saisir à la main.\n"
+        ));
+    }
+    text.pop();
     text
 }
 
@@ -980,16 +1026,49 @@ mod tests {
         let stale = [StaleGrid {
             grid: GridId::closing(Game::Lf8, 154, closes_at),
             closes_at,
+            source: Source::Fdj,
         }];
 
         let text = stale_text(&stale);
 
         assert!(text.starts_with("**edge · Loto Foot** — ⚠ source figée"));
         assert!(
-            text.contains("**LF8 n°154** comme grille en cours, alors qu'elle est close depuis **ven. 06/11 19:55**"),
+            text.contains("FDJ affiche encore **LF8 n°154** comme grille en cours, alors qu'elle est close depuis **ven. 06/11 19:55**"),
             "{text}"
         );
         assert!(text.contains("Ne lance pas de séance"));
+    }
+
+    #[test]
+    fn the_source_alerts_name_the_page_the_reason_and_the_grid() {
+        let fallback = [PageIssue {
+            page: crate::store::lotofoot::Page::Open,
+            reason: "réponse HTTP 403 inattendue (accès refusé, anti-robots ?)".to_string(),
+        }];
+        let text = fallback_text(&fallback);
+        assert!(
+            text.contains("FDJ en échec, repli resultats-fdj.fr utilisé : réponse HTTP 403 inattendue (accès refusé, anti-robots ?) (grilles ouvertes)."),
+            "{text}"
+        );
+
+        let down = [PageIssue {
+            page: crate::store::lotofoot::Page::Results,
+            reason: "FDJ : délai dépassé ; resultats-fdj.fr : réponse HTTP 503 inattendue"
+                .to_string(),
+        }];
+        let text = down_text(&down);
+        assert!(
+            text.contains("résultats : FDJ : délai dépassé ; resultats-fdj.fr : réponse HTTP 503"),
+            "{text}"
+        );
+        assert!(text.contains("Ne lance pas de séance"));
+
+        let closes_at = "2026-11-10T17:40:00Z".parse().unwrap();
+        let text = canceled_text(&[GridId::closing(Game::Lf7, 140, closes_at)]);
+        assert_eq!(
+            text,
+            "**edge · Loto Foot** — grille annulée\n**LF7 n°140** : grille annulée, mises remboursées au guichet, à saisir à la main."
+        );
     }
 
     #[test]

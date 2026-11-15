@@ -50,7 +50,7 @@
   <div class="actions" style="align-items: flex-end">
     <label class="field" style="margin: 0"><span>Budget mensuel (€, de {{ budget_min }} à {{ budget_max }})</span><input type="text" name="budget" value="{{ budget.monthly }}" inputmode="numeric"></label>
     <label style="padding: 8px 0"><input type="checkbox" name="discord"> Envoyer sur Discord</label>
-    <button class="btn" type="submit" title="Relève prono-match et les cotes manquantes (1 crédit par compétition, 8 au plus), recalcule les grilles ouvertes pas encore jouées dans l'ordre de clôture, et écrit la séance au journal.">Optimiser maintenant</button>
+    <button class="btn" type="submit" title="Relève les grilles (FDJ) et les cotes manquantes (1 crédit par compétition, 8 au plus), recalcule les grilles ouvertes pas encore jouées dans l'ordre de clôture, et écrit la séance au journal.">Optimiser maintenant</button>
     <button class="btn" type="submit" name="action" value="budget" title="Enregistre le budget sans lancer de séance.">Enregistrer le budget</button>
   </div>
   <p class="meta" style="margin: 8px 0 0">À lancer au guichet, juste avant de valider. Les grilles ouvertes se partagent le budget du mois dans l'ordre de clôture : la plus proche prend d'abord ses tickets au-dessus du seuil. Une grille vue depuis moins de 8 h est évaluée sans engager de budget. Les tickets déclarés joués ne sont jamais recalculés.</p>

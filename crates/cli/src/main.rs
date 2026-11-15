@@ -141,7 +141,7 @@ enum Command {
         #[command(subcommand)]
         command: LatencyCommand,
     },
-    /// Loto Foot (LF7, LF8) : relevé de prono-match, séance du samedi, tickets joués, bilan (phase 14).
+    /// Loto Foot (LF7, LF8) : relevé des grilles (FDJ, repli resultats-fdj.fr), séance du samedi, tickets joués, bilan (phase 14).
     Lotofoot {
         #[command(subcommand)]
         command: LotofootCommand,
@@ -200,11 +200,17 @@ enum LotoCommand {
 
 #[derive(Subcommand)]
 enum LotofootCommand {
-    /// Relève les pages du LF7, du LF8 et des résultats sur prono-match (sans crédit ; timer horaire).
+    /// Relève les grilles ouvertes et les résultats sur la FDJ, et sur resultats-fdj.fr si la FDJ échoue (sans crédit ;
+    /// timer horaire).
     Fetch {
-        /// Signale sur Discord chaque grille vue pour la première fois, avec son heure de clôture.
+        /// Signale sur Discord chaque grille vue pour la première fois (avec son heure de clôture) et les alertes de
+        /// source : page périmée, FDJ en échec, grille annulée.
         #[arg(long)]
         notify: bool,
+        /// Nombre de pages de résultats à lire, de 1 à 5 (une page de la FDJ porte les deux dernières semaines : 1 suffit
+        /// au quotidien ; plus pour rattraper une longue panne).
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=5))]
+        result_pages: u32,
     },
     /// Séance : relevé frais, cotes Pinnacle, tickets au-dessus du seuil, écrits au journal.
     Recommend {
@@ -622,7 +628,10 @@ fn main() -> Result<()> {
             LatencyCommand::Report => latency::report(&paths),
         },
         Command::Lotofoot { command } => match command {
-            LotofootCommand::Fetch { notify } => lotofoot::fetch(&paths, notify),
+            LotofootCommand::Fetch {
+                notify,
+                result_pages,
+            } => lotofoot::fetch(&paths, notify, result_pages),
             LotofootCommand::Recommend { notify, dry_run } => {
                 lotofoot::recommend(&paths, notify, dry_run)
             }

@@ -319,16 +319,22 @@ fn open_grid(grid: Tracked, fetched_at: DateTime<Utc>) -> Result<OpenGrid> {
     } = grid;
     let label = format!("{game} n°{}", raw.grid_number);
     let starts_at = parse_instant(&raw.start_validation_date, "startValidationDate")?;
+    // Après la clôture, la FDJ retire la répartition (`outcomes` réduit à un élément sans libellé, `docs/sources.md` §74) :
+    // une grille close encore affichée n'a plus rien à lire de ce côté, et ne doit pas faire refuser la page entière. Le
+    // relevé la reconnaît à sa clôture passée (page périmée, `fetch::stale_grid`).
+    let closed = closes_at <= fetched_at;
     let mut matches = Vec::new();
     let mut split = Vec::new();
     // `raw.events` est consommé : les noms d'équipes passent dans l'`OpenGrid` sans `clone()`.
     for event in raw.events {
-        split.push(split_of(&event.outcomes, &label)?);
+        if !closed {
+            split.push(split_of(&event.outcomes, &label)?);
+        }
         matches.push(team_names(event.opponents, &label)?);
     }
     Ok(OpenGrid {
         game,
-        accepting: starts_at <= fetched_at,
+        accepting: starts_at <= fetched_at && !closed,
         number: raw.grid_number,
         closes_at,
         jackpot: Euros::new(raw.jackpot.amount).filter(|amount| amount.get() > 0.0),
@@ -646,6 +652,25 @@ mod tests {
 
         assert!(!grids[0].accepting);
         assert_eq!(grids[0].split, None);
+    }
+
+    /// Une grille close encore affichée (la FDJ a retiré sa répartition, `outcomes` réduit à un élément sans libellé) se lit
+    /// quand même : le relevé doit pouvoir la dire périmée, au lieu de refuser toute la page.
+    #[test]
+    fn a_closed_grid_still_listed_has_no_split_and_does_not_fail_the_page() {
+        let mut event = open_event("A", "B", [0, 0, 0]);
+        event["outcomes"] = json!([{"label": "", "percentagePlayed": 0}]);
+        let html = page(resolver(vec![open_lf8(vec![event; 8])]));
+
+        // Clôture le 15 novembre à 13 h 55 UTC ; lecture à 14 h 10.
+        let grids = parse_open_page(&html, at("2026-11-15T14:10:00Z")).unwrap();
+
+        assert_eq!(grids.len(), 1);
+        assert_eq!(grids[0].matches.len(), 8);
+        assert_eq!(grids[0].split, None);
+        assert!(!grids[0].accepting, "une grille close n'accepte plus");
+        // Avant la clôture, ce même état serait une erreur : la répartition manque.
+        assert!(parse_open_page(&html, at("2026-11-15T13:54:00Z")).is_err());
     }
 
     #[test]

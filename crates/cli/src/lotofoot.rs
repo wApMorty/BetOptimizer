@@ -1,4 +1,5 @@
-//! `edge lotofoot …` : Loto Foot (phase 14). Relevé horaire de prono-match, séance du samedi, tickets joués, bilan.
+//! `edge lotofoot …` : Loto Foot (phase 14). Relevé horaire des grilles (FDJ, repli resultats-fdj.fr), séance du samedi,
+//! tickets joués, bilan.
 //!
 //! La logique vit dans `edge_core::lotofoot` ; ce fichier lit la configuration, branche les vrais clients et affiche.
 
@@ -10,7 +11,7 @@ use edge_core::format::{chance, decimal, kickoff_label};
 use edge_core::ingest::aliases::Aliases;
 use edge_core::lotofoot::alert;
 use edge_core::lotofoot::bulletin;
-use edge_core::lotofoot::fetch::{self, FetchReport, PronoMatchClient, StaleGrid};
+use edge_core::lotofoot::fetch::{self, FetchReport, SiteClient};
 use edge_core::lotofoot::live::{self, Notified};
 use edge_core::lotofoot::outlets::Outlet;
 use edge_core::lotofoot::played::{self, Declared, Manual};
@@ -22,14 +23,14 @@ use edge_core::notify::discord;
 use edge_core::paths::Paths;
 use edge_core::report::lotofoot_page;
 use edge_core::store;
-use edge_core::store::alerts::{self, AlertKind};
 
-/// `edge lotofoot fetch` : relève les pages du LF7, du LF8 et des résultats (sans crédit) ; `--notify` signale sur Discord
-/// chaque grille vue pour la première fois, avec son heure de clôture.
-pub fn fetch(paths: &Paths, notify: bool) -> Result<()> {
+/// `edge lotofoot fetch` : relève les grilles ouvertes et les résultats (sans crédit) sur la FDJ, et sur resultats-fdj.fr
+/// si la FDJ échoue ; `result_pages` pages de résultats au plus (une suffit au quotidien). `--notify` signale sur Discord
+/// chaque grille vue pour la première fois, avec son heure de clôture, et les alertes de source.
+pub fn fetch(paths: &Paths, notify: bool, result_pages: u32) -> Result<()> {
     let mut conn = store::open_migrated(&paths.db_file)
         .context("base inaccessible : lance d'abord `edge init`")?;
-    let report = run_fetch(&mut conn)?;
+    let report = run_fetch(&mut conn, result_pages)?;
     print_fetch(&report);
     if notify {
         let now = Utc::now();
@@ -54,7 +55,7 @@ pub fn fetch(paths: &Paths, notify: bool) -> Result<()> {
                 listed.len()
             );
         }
-        alert_stale_source(paths, &conn, &report.stale, now)?;
+        send_source_alerts(paths, &conn, &report, now)?;
     }
     if !report.failures.is_empty() {
         // Code de sortie non nul : systemd marque l'unité en échec ; le passage suivant relira les pages.
@@ -63,50 +64,45 @@ pub fn fetch(paths: &Paths, notify: bool) -> Result<()> {
     Ok(())
 }
 
-/// Signale sur Discord les grilles closes que le site affiche encore « en cours », une seule fois par grille : le journal
-/// des alertes (`alert_log`) retient celles qui sont déjà parties. Une page périmée n'est pas un échec du relevé (elle a
-/// été lue) : le code de sortie reste nul, c'est cette alerte et la pastille de l'accueil qui préviennent.
-fn alert_stale_source(
+/// Envoie sur Discord les alertes de source dues (page périmée, FDJ en échec avec repli, aucune source, grille annulée) et
+/// les inscrit au journal des alertes (`alert_log`) : `edge_core::lotofoot::alert::source_alerts` décide de ce qui est dû
+/// et de la cadence de chaque alerte. Une page périmée, un repli ou une grille annulée ne sont pas un échec du relevé
+/// (les pages ont été lues) : le code de sortie reste nul, ce sont ces alertes et la pastille de l'accueil qui préviennent.
+fn send_source_alerts(
     paths: &Paths,
     conn: &store::Connection,
-    stale: &[StaleGrid],
+    report: &FetchReport,
     now: DateTime<Utc>,
 ) -> Result<()> {
-    let mut fresh = Vec::new();
-    for shown in stale {
-        if alerts::due(conn, AlertKind::StaleSource, &shown.grid.code(), now, None)? {
-            // `*shown` : `StaleGrid` est `Copy`, on en garde une copie plutôt qu'un emprunt du bilan.
-            fresh.push(*shown);
-        }
-    }
-    if fresh.is_empty() {
+    let due = alert::source_alerts(conn, report, now)?;
+    if due.is_empty() {
         return Ok(());
     }
     let config = Config::load(&paths.config_file)?;
     let webhook = config.discord_webhook(std::env::var(WEBHOOK_ENV).ok().as_deref())?;
-    let text = lotofoot_page::stale_text(&fresh);
-    // Comme pour les nouvelles grilles : rien n'est noté si l'envoi échoue, l'alerte repartira au relevé suivant.
-    discord::send(&webhook, &text, &[], &mut discord::http_post)
-        .context("alerte Discord « source figée » non envoyée")?;
-    for shown in &fresh {
-        alerts::record(conn, AlertKind::StaleSource, &shown.grid.code(), &text, now)?;
+    for alert in &due {
+        // Comme pour les nouvelles grilles : rien n'est noté si l'envoi échoue, l'alerte repartira au relevé suivant.
+        discord::send(&webhook, &alert.text, &[], &mut discord::http_post)
+            .context("alerte Discord de source non envoyée")?;
+        alert::record_source_alert(conn, alert, now)?;
+        println!(
+            "Alerte de source signalée sur Discord ({}).",
+            alert.subjects.join(", ")
+        );
     }
-    println!(
-        "{} page(s) périmée(s) signalée(s) sur Discord.",
-        fresh.len()
-    );
     Ok(())
 }
 
-fn run_fetch(conn: &mut store::Connection) -> Result<FetchReport> {
-    let client = PronoMatchClient::new();
+fn run_fetch(conn: &mut store::Connection, result_pages: u32) -> Result<FetchReport> {
+    let client = SiteClient::new();
     let aliases = Aliases::bundled()?;
     Ok(fetch::run(
         conn,
         &aliases,
         &mut Utc::now,
-        &mut |path, params| client.get(path, params),
+        &mut |url, params| client.get(url, params),
         &mut std::thread::sleep,
+        result_pages,
     )?)
 }
 
@@ -114,8 +110,11 @@ fn print_fetch(report: &FetchReport) {
     for shown in &report.stale {
         println!("  SOURCE FIGÉE : {}", shown.reason());
     }
-    if report.grids.is_empty() && report.stale.is_empty() {
-        println!("Aucune grille LF7 ou LF8 lue sur prono-match (page modifiée ?).");
+    for source in &report.sources {
+        println!("Source : {source}.");
+    }
+    if report.grids.is_empty() && report.stale.is_empty() && report.failures.is_empty() {
+        println!("Aucune grille LF7 ou LF8 ouverte (aucune n'est affichée par la source lue).");
     } else if !report.grids.is_empty() {
         println!("Grilles en cours : {}.", report.grids.join(" ; "));
     }
@@ -124,7 +123,7 @@ fn print_fetch(report: &FetchReport) {
         report.splits, report.new_results
     );
     for failure in &report.failures {
-        println!("  échec : {failure}");
+        println!("  échec : {} : {}", failure.page, failure.reason);
     }
     for warning in &report.warnings {
         println!("  attention : {warning}");
