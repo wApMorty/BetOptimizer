@@ -1,7 +1,8 @@
 //! Probabilités du marché des rencontres d'une grille : cote Pinnacle de notre archive The Odds API, marge retirée.
 //!
-//! 1. Les noms de prono-match sont traduits en noms de The Odds API par la section `LOTOFOOT` de `config/aliases.toml` :
-//!    un nom inconnu bloque la grille (règle du projet : jamais d'appariement approximatif).
+//! 1. Les noms des grilles (FDJ, ou repli resultats-fdj.fr) sont traduits en noms de The Odds API par la section
+//!    `LOTOFOOT` de `config/aliases.toml` : un nom inconnu bloque la grille (règle du projet : jamais d'appariement
+//!    approximatif).
 //!    The Odds API nomme parfois un club autrement selon la compétition (`FC Porto` en championnat, `Porto` en Ligue des
 //!    champions) : ce second nom est une variante de la même section, et chaque comparaison ci-dessous l'accepte.
 //! 2. On cherche dans l'archive le dernier relevé Pinnacle du match, assez récent.
@@ -22,7 +23,7 @@ use crate::ingest::snapshot::{self, Clock, Fetch, Outcome as LeagueOutcome};
 use crate::market::margin::{MarginMethod, remove_margin};
 use crate::store::archive::{self, Endpoint, NewApiCall};
 
-/// Section de la table d'alias : noms de prono-match → noms de The Odds API.
+/// Section de la table d'alias : noms des grilles → noms de The Odds API.
 pub const ALIAS_SECTION: &str = "LOTOFOOT";
 
 /// Bookmaker de référence.
@@ -62,7 +63,7 @@ pub fn canonical_matches(
 /// Deux noms désignent-ils la même équipe ?
 ///
 /// Oui s'ils sont écrits à l'identique, ou si la table d'alias les ramène **tous les deux** au même nom canonique (la FDJ
-/// écrit `Atl. Madrid` là où l'archive de prono-match garde `Atlético Madrid`). Un nom absent de la table ne se compare
+/// écrit `Atl. Madrid` là où l'archive de prono-match, que l'on ne lit plus, garde `Atlético Madrid`). Un nom absent de la table ne se compare
 /// qu'à lui-même : jamais d'appariement approximatif (CLAUDE.md, « Noms d'équipes »).
 fn same_team(aliases: &Aliases, left: &str, right: &str) -> bool {
     left == right

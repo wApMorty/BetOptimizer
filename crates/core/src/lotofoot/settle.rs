@@ -220,10 +220,10 @@ mod tests {
     use crate::domain::Outcome;
     use crate::ingest::aliases::Aliases;
     use crate::lotofoot::grid_of_2026;
-    use crate::lotofoot::grid_page::{GridPage, GridResult, OpenGrid, RankLine};
+    use crate::lotofoot::grid_page::{GridResult, OpenGrid, RankLine};
     use crate::lotofoot::played::{declare, declare_manual};
     use crate::store::lotofoot::{
-        NewReco, NewSession, Page, Source, record_fetch, record_grid_page, record_results,
+        NewReco, NewSession, Page, Source, record_fetch, record_open_grid, record_results,
         record_session,
     };
     use crate::store::migrate::migrate;
@@ -241,28 +241,25 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-23T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        let page = GridPage {
-            open: Some(OpenGrid {
-                game: Game::Lf7,
-                accepting: true,
-                number: 133,
-                closes_at: at("2026-10-25T16:10:00Z"),
-                jackpot: None,
-                matches: (1..=7)
-                    .map(|i| (format!("H{i}"), format!("A{i}")))
-                    .collect(),
-                split: Some(vec![[50, 30, 20]; 7]),
-                split_at: None,
-            }),
-            history: vec![],
+        let page = OpenGrid {
+            game: Game::Lf7,
+            accepting: true,
+            number: 133,
+            closes_at: at("2026-10-25T16:10:00Z"),
+            jackpot: None,
+            matches: (1..=7)
+                .map(|i| (format!("H{i}"), format!("A{i}")))
+                .collect(),
+            split: Some(vec![[50, 30, 20]; 7]),
+            split_at: None,
         };
-        record_grid_page(&mut conn, f, Game::Lf7, &page).unwrap();
+        record_open_grid(&mut conn, &Aliases::default(), f, &page).unwrap();
         let tickets = [
             Ticket::parse("1N21N21").unwrap(),
             Ticket::parse("2N21N21").unwrap(),
@@ -294,7 +291,7 @@ mod tests {
 
     /// Résultats « 1N21N21 » et rapports relevés à `fetched` : 476 € au sans-faute, 29,70 € à une erreur.
     fn publish(conn: &Connection, fetched: DateTime<Utc>) {
-        let f = record_fetch(conn, fetched, Source::PronoMatch, Page::Results, 200, None).unwrap();
+        let f = record_fetch(conn, fetched, Source::Fdj, Page::Results, 200, None).unwrap();
         for (i, outcome) in ["H", "D", "A", "H", "D", "A", "H"].iter().enumerate() {
             conn.execute(
                 "INSERT INTO lotofoot_result VALUES ('lf7', 2026, 133, ?1, ?2, ?3)",
@@ -557,12 +554,12 @@ mod tests {
             .collect();
         matches[0].2 = MatchResult::Canceled;
         let rank = |winners, gain| RankLine {
-            good: None,
+            good: 7,
             winners,
             unit_gain: Euros::new(gain),
         };
         let result = GridResult {
-            game: Some(Game::Lf7),
+            game: Game::Lf7,
             number: 133,
             date: NaiveDate::from_ymd_opt(2026, 10, 25),
             closes_at: None,

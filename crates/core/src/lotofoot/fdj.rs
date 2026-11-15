@@ -389,7 +389,7 @@ fn match_result(label: &str) -> Option<MatchResult> {
 fn rank_line(raw: &RawRank) -> RankLine {
     let winners = raw.rank_number_grid;
     RankLine {
-        good: Some(raw.rank_number_market),
+        good: raw.rank_number_market,
         winners,
         // Les gains tiennent largement dans les 53 bits de mantisse d'un `f64` : la conversion est exacte.
         unit_gain: (winners > 0)
@@ -430,7 +430,7 @@ fn read_result(grid: Tracked, page: &mut ResultsPage) -> Result<()> {
     // Rangs par bons pronostics décroissants : le sans-faute d'abord, quel que soit l'ordre de la page.
     ranks.sort_by_key(|rank| Reverse(rank.good));
     page.results.push(GridResult {
-        game: Some(game),
+        game,
         number: raw.grid_number,
         date: Some(closes_at.with_timezone(&Paris).date_naive()),
         closes_at: Some(closes_at),
@@ -753,7 +753,7 @@ mod tests {
         assert_eq!((result.total, result.offset, result.limit), (99, 0, 20));
         assert_eq!(result.results.len(), 1);
         let grid = &result.results[0];
-        assert_eq!(grid.game, Some(Game::Lf7));
+        assert_eq!(grid.game, Game::Lf7);
         assert_eq!(grid.number, 140);
         assert_eq!(grid.closes_at, Some(at("2026-11-10T17:40:00Z")));
         assert_eq!(grid.date, chrono::NaiveDate::from_ymd_opt(2026, 11, 10));
@@ -765,12 +765,12 @@ mod tests {
             grid.ranks,
             vec![
                 RankLine {
-                    good: Some(7),
+                    good: 7,
                     winners: 1883,
                     unit_gain: Euros::new(31.0)
                 },
                 RankLine {
-                    good: Some(6),
+                    good: 6,
                     winners: 26943,
                     unit_gain: Euros::new(2.6)
                 },
@@ -821,7 +821,7 @@ mod tests {
         assert_eq!(
             ranks[0],
             RankLine {
-                good: Some(7),
+                good: 7,
                 winners: 0,
                 unit_gain: None
             }

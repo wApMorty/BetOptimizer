@@ -66,10 +66,10 @@ fn a_manual_ticket_is_linked_or_off_model_and_an_unknown_number_writes_nothing()
 mod journal {
     use super::run_edge;
     use chrono::{Duration, Utc};
-    use edge_core::lotofoot::grid_page::{GridPage, OpenGrid};
+    use edge_core::lotofoot::grid_page::OpenGrid;
     use edge_core::lotofoot::{Game, GridId, Ticket};
     use edge_core::store::lotofoot::{
-        NewReco, NewSession, Page, Source, plays, record_fetch, record_grid_page, record_session,
+        NewReco, NewSession, Page, Source, plays, record_fetch, record_open_grid, record_session,
     };
     use edge_core::store::{migrate, open};
 
@@ -79,31 +79,26 @@ mod journal {
         let mut conn = open(&home.join("edge.db")).unwrap();
         migrate::migrate(&mut conn).unwrap();
         let now = Utc::now();
-        let fetch_id = record_fetch(
-            &conn,
-            now,
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
-            200,
-            None,
+        let fetch_id = record_fetch(&conn, now, Source::Fdj, Page::Open, 200, None).unwrap();
+        let page = OpenGrid {
+            game: Game::Lf7,
+            accepting: true,
+            number: 133,
+            closes_at: now + Duration::days(1),
+            jackpot: None,
+            matches: (1..=7)
+                .map(|i| (format!("H{i}"), format!("A{i}")))
+                .collect(),
+            split: Some(vec![[50, 30, 20]; 7]),
+            split_at: None,
+        };
+        record_open_grid(
+            &mut conn,
+            &edge_core::ingest::aliases::Aliases::default(),
+            fetch_id,
+            &page,
         )
         .unwrap();
-        let page = GridPage {
-            open: Some(OpenGrid {
-                game: Game::Lf7,
-                accepting: true,
-                number: 133,
-                closes_at: now + Duration::days(1),
-                jackpot: None,
-                matches: (1..=7)
-                    .map(|i| (format!("H{i}"), format!("A{i}")))
-                    .collect(),
-                split: Some(vec![[50, 30, 20]; 7]),
-                split_at: None,
-            }),
-            history: vec![],
-        };
-        record_grid_page(&mut conn, fetch_id, Game::Lf7, &page).unwrap();
         let tickets = [
             Ticket::parse("1N21N21").unwrap(),
             Ticket::parse("2N21N21").unwrap(),

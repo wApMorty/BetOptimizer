@@ -175,9 +175,10 @@ pub fn record_source_alert(
 mod tests {
     use super::*;
     use crate::domain::Euros;
+    use crate::ingest::aliases::Aliases;
     use crate::lotofoot::Game;
-    use crate::lotofoot::grid_page::{GridPage, OpenGrid};
-    use crate::store::lotofoot::{Page, Source, record_fetch, record_grid_page};
+    use crate::lotofoot::grid_page::OpenGrid;
+    use crate::store::lotofoot::{Page, Source, record_fetch, record_open_grid};
     use crate::store::migrate::migrate;
 
     fn at(text: &str) -> DateTime<Utc> {
@@ -191,28 +192,25 @@ mod tests {
         let fetch = record_fetch(
             conn,
             at("2026-10-24T08:07:00Z"),
-            Source::PronoMatch,
-            Page::Grid(game),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        let page = GridPage {
-            open: Some(OpenGrid {
-                game,
-                accepting: false,
-                number,
-                closes_at: at(closes),
-                jackpot: Euros::new(150_000.0),
-                matches: (1..=game.matches())
-                    .map(|i| (format!("H{i}"), format!("A{i}")))
-                    .collect(),
-                split: None,
-                split_at: None,
-            }),
-            history: vec![],
+        let page = OpenGrid {
+            game,
+            accepting: false,
+            number,
+            closes_at: at(closes),
+            jackpot: Euros::new(150_000.0),
+            matches: (1..=game.matches())
+                .map(|i| (format!("H{i}"), format!("A{i}")))
+                .collect(),
+            split: None,
+            split_at: None,
         };
-        record_grid_page(conn, fetch, game, &page).unwrap();
+        record_open_grid(conn, &Aliases::default(), fetch, &page).unwrap();
     }
 
     #[test]

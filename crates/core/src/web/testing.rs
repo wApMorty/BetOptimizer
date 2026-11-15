@@ -8,13 +8,13 @@ use crate::betting::recommend::{self, RECOMMEND_MIN_EDGE};
 use crate::config::{Config, GrandLotoEdition, ServeToken};
 use crate::domain::{Euros, Event, Odds, Quota, Quote};
 use crate::ingest::aliases::Aliases;
-use crate::lotofoot::grid_page::{GridPage, OpenGrid};
+use crate::lotofoot::grid_page::OpenGrid;
 use crate::lotofoot::{Game, Ticket, grid_of_2026};
 use crate::market::margin::MarginMethod;
 use crate::paths::Paths;
 use crate::store::archive::{Endpoint, NewApiCall, record_api_call, record_snapshot};
 use crate::store::lotofoot::{
-    NewReco, NewSession, Page, Source, record_fetch, record_grid_page, record_session,
+    NewReco, NewSession, Page, Source, record_fetch, record_open_grid, record_session,
 };
 use crate::store::{Connection, open_migrated};
 
@@ -189,22 +189,19 @@ fn lotofoot_session(conn: &mut Connection, now: DateTime<Utc>) {
         None,
     )
     .unwrap();
-    let page = GridPage {
-        open: Some(OpenGrid {
-            game: Game::Lf7,
-            accepting: true,
-            number: 133,
-            closes_at: now + Duration::days(1),
-            jackpot: None,
-            matches: (1..=7)
-                .map(|i| (format!("H{i}"), format!("A{i}")))
-                .collect(),
-            split: Some(vec![[50, 30, 20]; 7]),
-            split_at: None,
-        }),
-        history: vec![],
+    let page = OpenGrid {
+        game: Game::Lf7,
+        accepting: true,
+        number: 133,
+        closes_at: now + Duration::days(1),
+        jackpot: None,
+        matches: (1..=7)
+            .map(|i| (format!("H{i}"), format!("A{i}")))
+            .collect(),
+        split: Some(vec![[50, 30, 20]; 7]),
+        split_at: None,
     };
-    record_grid_page(conn, fetch_id, Game::Lf7, &page).unwrap();
+    record_open_grid(conn, &Aliases::default(), fetch_id, &page).unwrap();
     let tickets = [
         Ticket::parse("1N21N21").unwrap(),
         Ticket::parse("2N21N21").unwrap(),

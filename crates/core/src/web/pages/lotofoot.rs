@@ -651,7 +651,7 @@ mod tests {
         )
         .unwrap();
         let result = GridResult {
-            game: Some(Game::Lf7),
+            game: Game::Lf7,
             number: 133,
             date: chrono::NaiveDate::from_ymd_opt(2026, 10, 25),
             closes_at: None,

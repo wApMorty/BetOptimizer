@@ -1,9 +1,9 @@
 //! Loto Foot (FDJ) : jeu à répartition où les gagnants se partagent les mises des autres joueurs (phase 14).
 //!
 //! On y cherche les combinaisons que le marché juge plausibles mais que le public délaisse. Le module calcule
-//! l'espérance exacte d'un ticket ([`model`]), choisit les tickets de la semaine ([`optimize`]), lit les pages des
-//! sources ([`fdj`], [`resultats_fdj`], et [`pronomatch`] en cours de retrait ; leurs types communs sont dans
-//! [`grid_page`]) et règle les tickets joués ([`settle`]). Étude et choix : `docs/sources.md` §37, §38 et §74.
+//! l'espérance exacte d'un ticket ([`model`]), choisit les tickets de la semaine ([`optimize`]), lit les pages des deux
+//! sources ([`fdj`], source principale, et [`resultats_fdj`], repli ; leurs types communs sont dans [`grid_page`] et leur
+//! relevé dans [`fetch`]) et règle les tickets joués ([`settle`]). Étude et choix : `docs/sources.md` §37, §38 et §74.
 
 pub mod alert;
 pub mod bulletin;
@@ -20,7 +20,6 @@ pub mod optimize;
 pub mod outlets;
 pub mod played;
 pub mod price;
-pub mod pronomatch;
 pub mod resultats_fdj;
 pub mod scores;
 pub mod session;
@@ -49,7 +48,7 @@ impl Game {
     /// Les deux formules suivies.
     pub const ALL: [Game; 2] = [Game::Lf7, Game::Lf8];
 
-    /// Code court, en base et dans les URL de prono-match : `lf7`, `lf8`.
+    /// Code court, en base : `lf7`, `lf8`.
     pub fn code(self) -> &'static str {
         match self {
             Game::Lf7 => "lf7",

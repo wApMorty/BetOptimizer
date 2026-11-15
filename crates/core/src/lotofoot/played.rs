@@ -161,10 +161,11 @@ pub fn declare_manual(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lotofoot::grid_page::{GridPage, OpenGrid};
+    use crate::ingest::aliases::Aliases;
+    use crate::lotofoot::grid_page::OpenGrid;
     use crate::lotofoot::{Game, grid_of_2026};
     use crate::store::lotofoot::{
-        NewReco, NewSession, Page, Source, record_fetch, record_grid_page, record_session,
+        NewReco, NewSession, Page, Source, record_fetch, record_open_grid, record_session,
     };
     use crate::store::migrate::migrate;
 
@@ -179,28 +180,25 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        let page = GridPage {
-            open: Some(OpenGrid {
-                game: Game::Lf7,
-                accepting: true,
-                number: 133,
-                closes_at: at("2026-10-25T16:10:00Z"),
-                jackpot: None,
-                matches: (1..=7)
-                    .map(|i| (format!("H{i}"), format!("A{i}")))
-                    .collect(),
-                split: Some(vec![[50, 30, 20]; 7]),
-                split_at: None,
-            }),
-            history: vec![],
+        let page = OpenGrid {
+            game: Game::Lf7,
+            accepting: true,
+            number: 133,
+            closes_at: at("2026-10-25T16:10:00Z"),
+            jackpot: None,
+            matches: (1..=7)
+                .map(|i| (format!("H{i}"), format!("A{i}")))
+                .collect(),
+            split: Some(vec![[50, 30, 20]; 7]),
+            split_at: None,
         };
-        record_grid_page(&mut conn, f, Game::Lf7, &page).unwrap();
+        record_open_grid(&mut conn, &Aliases::default(), f, &page).unwrap();
         let tickets = [
             Ticket::parse("1N21N21").unwrap(),
             Ticket::parse("2N21N21").unwrap(),

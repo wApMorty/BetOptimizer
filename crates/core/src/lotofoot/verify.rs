@@ -421,9 +421,9 @@ mod tests {
     #[test]
     fn a_settled_grid_feeds_the_calibration() {
         use crate::ingest::aliases::Aliases;
-        use crate::lotofoot::grid_page::{GridPage, GridResult, MatchResult, OpenGrid, RankLine};
+        use crate::lotofoot::grid_page::{GridResult, MatchResult, OpenGrid, RankLine};
         use crate::store::lotofoot::{
-            Page, Source, record_fetch, record_grid_page, record_results,
+            Page, Source, record_fetch, record_open_grid, record_results,
         };
         let mut conn = Connection::open_in_memory().unwrap();
         crate::store::migrate::migrate(&mut conn).unwrap();
@@ -431,39 +431,36 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-25T15:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        let page = GridPage {
-            open: Some(OpenGrid {
-                game: Game::Lf7,
-                accepting: true,
-                number: 133,
-                closes_at: at("2026-10-25T16:10:00Z"),
-                jackpot: None,
-                matches: (1..=7)
-                    .map(|i| (format!("H{i}"), format!("A{i}")))
-                    .collect(),
-                split: Some(vec![[50, 30, 20]; 7]),
-                split_at: None,
-            }),
-            history: vec![],
+        let page = OpenGrid {
+            game: Game::Lf7,
+            accepting: true,
+            number: 133,
+            closes_at: at("2026-10-25T16:10:00Z"),
+            jackpot: None,
+            matches: (1..=7)
+                .map(|i| (format!("H{i}"), format!("A{i}")))
+                .collect(),
+            split: Some(vec![[50, 30, 20]; 7]),
+            split_at: None,
         };
-        record_grid_page(&mut conn, f, Game::Lf7, &page).unwrap();
+        record_open_grid(&mut conn, &Aliases::default(), f, &page).unwrap();
         let r = record_fetch(
             &conn,
             at("2026-10-25T21:00:00Z"),
-            Source::PronoMatch,
+            Source::Fdj,
             Page::Results,
             200,
             None,
         )
         .unwrap();
         let result = GridResult {
-            game: Some(Game::Lf7),
+            game: Game::Lf7,
             number: 133,
             date: chrono::NaiveDate::from_ymd_opt(2026, 10, 25),
             closes_at: None,
@@ -478,12 +475,12 @@ mod tests {
                 .collect(),
             ranks: vec![
                 RankLine {
-                    good: Some(7),
+                    good: 7,
                     winners: 1500,
                     unit_gain: Euros::new(40.0),
                 },
                 RankLine {
-                    good: Some(6),
+                    good: 6,
                     winners: 15000,
                     unit_gain: Euros::new(5.0),
                 },
@@ -508,9 +505,9 @@ mod tests {
     #[test]
     fn a_grid_with_a_canceled_match_is_left_out_of_the_calibration() {
         use crate::ingest::aliases::Aliases;
-        use crate::lotofoot::grid_page::{GridPage, GridResult, MatchResult, OpenGrid, RankLine};
+        use crate::lotofoot::grid_page::{GridResult, MatchResult, OpenGrid, RankLine};
         use crate::store::lotofoot::{
-            Page, Source, record_fetch, record_grid_page, record_results,
+            Page, Source, record_fetch, record_open_grid, record_results,
         };
         let mut conn = Connection::open_in_memory().unwrap();
         crate::store::migrate::migrate(&mut conn).unwrap();
@@ -518,30 +515,27 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-25T15:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
         // Deux grilles de même composition de numéros différents : n°133 sans annulé, n°134 avec.
         for (number, closes_at) in [(133, "2026-10-25T16:10:00Z"), (134, "2026-10-26T16:10:00Z")] {
-            let page = GridPage {
-                open: Some(OpenGrid {
-                    game: Game::Lf7,
-                    accepting: true,
-                    number,
-                    closes_at: at(closes_at),
-                    jackpot: None,
-                    matches: (1..=7)
-                        .map(|i| (format!("H{i}"), format!("A{i}")))
-                        .collect(),
-                    split: Some(vec![[50, 30, 20]; 7]),
-                    split_at: None,
-                }),
-                history: vec![],
+            let page = OpenGrid {
+                game: Game::Lf7,
+                accepting: true,
+                number,
+                closes_at: at(closes_at),
+                jackpot: None,
+                matches: (1..=7)
+                    .map(|i| (format!("H{i}"), format!("A{i}")))
+                    .collect(),
+                split: Some(vec![[50, 30, 20]; 7]),
+                split_at: None,
             };
-            record_grid_page(&mut conn, f, Game::Lf7, &page).unwrap();
+            record_open_grid(&mut conn, &Aliases::default(), f, &page).unwrap();
         }
         let r = record_fetch(
             &conn,
@@ -553,7 +547,7 @@ mod tests {
         )
         .unwrap();
         let result = |number: u32, day: u32, canceled: Option<usize>| GridResult {
-            game: Some(Game::Lf7),
+            game: Game::Lf7,
             number,
             date: chrono::NaiveDate::from_ymd_opt(2026, 10, day),
             closes_at: None,
@@ -569,12 +563,12 @@ mod tests {
                 .collect(),
             ranks: vec![
                 RankLine {
-                    good: Some(7),
+                    good: 7,
                     winners: 1500,
                     unit_gain: Euros::new(40.0),
                 },
                 RankLine {
-                    good: Some(6),
+                    good: 6,
                     winners: 15000,
                     unit_gain: Euros::new(5.0),
                 },

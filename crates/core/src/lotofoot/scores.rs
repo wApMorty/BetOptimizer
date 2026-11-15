@@ -493,9 +493,9 @@ impl Standing {
 mod tests {
     use super::*;
     use crate::ingest::client::HttpResponse;
-    use crate::lotofoot::grid_page::{GridPage, OpenGrid};
+    use crate::lotofoot::grid_page::OpenGrid;
     use crate::lotofoot::{Game, grid_of_2026};
-    use crate::store::lotofoot::{Page, Source, record_fetch, record_grid_page};
+    use crate::store::lotofoot::{Page, Source, record_fetch, record_open_grid};
     use crate::store::migrate::migrate;
 
     fn at(s: &str) -> DateTime<Utc> {
@@ -512,8 +512,8 @@ mod tests {
         let fetch_id = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
@@ -523,20 +523,17 @@ mod tests {
             ("Dijon".to_string(), "Rodez".to_string()),
         ];
         matches.extend((3..=7).map(|i| (format!("H{i}"), format!("A{i}"))));
-        let page = GridPage {
-            open: Some(OpenGrid {
-                game: Game::Lf7,
-                accepting: true,
-                number: 133,
-                closes_at: at("2026-10-24T11:50:00Z"),
-                jackpot: None,
-                matches,
-                split: None,
-                split_at: None,
-            }),
-            history: Vec::new(),
+        let page = OpenGrid {
+            game: Game::Lf7,
+            accepting: true,
+            number: 133,
+            closes_at: at("2026-10-24T11:50:00Z"),
+            jackpot: None,
+            matches,
+            split: None,
+            split_at: None,
         };
-        record_grid_page(&mut conn, fetch_id, Game::Lf7, &page).unwrap();
+        record_open_grid(&mut conn, &Aliases::default(), fetch_id, &page).unwrap();
         conn.execute_batch(
             "INSERT INTO api_call (id, called_at, endpoint, sport_key, params, http_status)
                VALUES (1, '2026-10-24T08:00:00Z', 'odds', 'soccer_france_ligue_two', '', 200);

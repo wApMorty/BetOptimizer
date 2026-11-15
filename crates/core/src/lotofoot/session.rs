@@ -69,7 +69,7 @@ pub struct Evaluated {
     pub stakes: f64,
     /// Espérance défavorable du meilleur ticket.
     pub best_pessimistic: f64,
-    /// Rencontres, dans l'ordre du bulletin (noms de prono-match).
+    /// Rencontres, dans l'ordre du bulletin (noms de la source : FDJ ou resultats-fdj.fr).
     pub matches: Vec<(String, String)>,
     /// Modèle de la grille (marché, public, masses) : sert à dire ce que peut rapporter une grille à remplir.
     pub model: GridModel,
@@ -680,11 +680,11 @@ mod tests {
     use super::*;
     use crate::domain::{Euros, Quota};
     use crate::ingest::client::HttpResponse;
-    use crate::lotofoot::grid_page::{GridPage, OpenGrid, PastRanks, RankLine};
+    use crate::lotofoot::grid_page::OpenGrid;
     use crate::lotofoot::played;
     use crate::lotofoot::{Game, grid_of_2026};
     use crate::store::archive::{self, Endpoint, NewApiCall};
-    use crate::store::lotofoot::{Page, Source, record_fetch, record_grid_page};
+    use crate::store::lotofoot::{Page, Source, record_fetch, record_open_grid};
     use crate::store::migrate::migrate;
 
     fn at(s: &str) -> DateTime<Utc> {
@@ -747,52 +747,35 @@ mod tests {
         fetched: DateTime<Utc>,
         teams: Vec<(String, String)>,
     ) {
-        let fetch_id = record_fetch(
-            conn,
-            fetched,
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
-            200,
-            None,
-        )
-        .unwrap();
-        let page = GridPage {
-            open: Some(OpenGrid {
-                game: Game::Lf7,
-                accepting: true,
-                number,
-                closes_at,
-                jackpot: Euros::new(100_000.0),
-                matches: teams,
-                split: Some(vec![
-                    [61, 20, 19],
-                    [31, 24, 45],
-                    [70, 18, 12],
-                    [45, 26, 29],
-                    [35, 25, 40],
-                    [47, 25, 28],
-                    [55, 25, 20],
-                ]),
-                split_at: None,
-            }),
-            history: vec![PastRanks {
-                number: 132,
-                closed: chrono::NaiveDate::from_ymd_opt(2026, 10, 20),
-                ranks: vec![
-                    RankLine {
-                        good: None,
-                        winners: 135,
-                        unit_gain: Euros::new(578.0),
-                    },
-                    RankLine {
-                        good: None,
-                        winners: 2393,
-                        unit_gain: Euros::new(39.8),
-                    },
-                ],
-            }],
+        let fetch_id = record_fetch(conn, fetched, Source::Fdj, Page::Open, 200, None).unwrap();
+        let page = OpenGrid {
+            game: Game::Lf7,
+            accepting: true,
+            number,
+            closes_at,
+            jackpot: Euros::new(100_000.0),
+            matches: teams,
+            split: Some(vec![
+                [61, 20, 19],
+                [31, 24, 45],
+                [70, 18, 12],
+                [45, 26, 29],
+                [35, 25, 40],
+                [47, 25, 28],
+                [55, 25, 20],
+            ]),
+            split_at: None,
         };
-        record_grid_page(conn, fetch_id, Game::Lf7, &page).unwrap();
+        record_open_grid(conn, &Aliases::default(), fetch_id, &page).unwrap();
+        // Rapports de la grille précédente (n°132, close le 20 octobre) : ils servent à estimer les mises.
+        for (rank, winners, gain) in [(1, 135, 578.0), (2, 2393, 39.8)] {
+            conn.execute(
+                "INSERT OR IGNORE INTO lotofoot_rank (game, year, number, rank, winners, unit_gain, fetch_id)
+                 VALUES ('lf7', 2026, 132, ?1, ?2, ?3, ?4)",
+                rusqlite::params![rank, winners, gain, fetch_id],
+            )
+            .unwrap();
+        }
     }
 
     /// Cotes Pinnacle archivées pour les 7 rencontres, relevées la veille à midi.
@@ -1135,15 +1118,8 @@ mod tests {
             Euros::new(1.0).unwrap(),
         )
         .unwrap();
-        let fetch_id = record_fetch(
-            conn,
-            published,
-            Source::PronoMatch,
-            Page::Results,
-            200,
-            None,
-        )
-        .unwrap();
+        let fetch_id =
+            record_fetch(conn, published, Source::Fdj, Page::Results, 200, None).unwrap();
         for (i, sign) in winner.ticket.signs().iter().enumerate() {
             conn.execute(
                 "INSERT INTO lotofoot_result VALUES ('lf7', 2026, ?1, ?2, ?3, ?4)",
@@ -1430,36 +1406,33 @@ mod tests {
         let fetch_id = record_fetch(
             &conn,
             at("2026-10-24T09:45:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        let fresh = GridPage {
-            open: Some(OpenGrid {
-                game: Game::Lf7,
-                accepting: true,
-                number: 133,
-                closes_at: at("2026-10-25T16:10:00Z"),
-                jackpot: Euros::new(100_000.0),
-                matches: (1..=7)
-                    .map(|i| (format!("H{i}"), format!("A{i}")))
-                    .collect(),
-                split: Some(vec![
-                    [95, 5, 0],
-                    [31, 24, 45],
-                    [70, 18, 12],
-                    [45, 26, 29],
-                    [35, 25, 40],
-                    [47, 25, 28],
-                    [55, 25, 20],
-                ]),
-                split_at: None,
-            }),
-            history: vec![],
+        let fresh = OpenGrid {
+            game: Game::Lf7,
+            accepting: true,
+            number: 133,
+            closes_at: at("2026-10-25T16:10:00Z"),
+            jackpot: Euros::new(100_000.0),
+            matches: (1..=7)
+                .map(|i| (format!("H{i}"), format!("A{i}")))
+                .collect(),
+            split: Some(vec![
+                [95, 5, 0],
+                [31, 24, 45],
+                [70, 18, 12],
+                [45, 26, 29],
+                [35, 25, 40],
+                [47, 25, 28],
+                [55, 25, 20],
+            ]),
+            split_at: None,
         };
-        record_grid_page(&mut conn, fetch_id, Game::Lf7, &fresh).unwrap();
+        record_open_grid(&mut conn, &Aliases::default(), fetch_id, &fresh).unwrap();
         let config = Config::default();
         let tau_config = 1.0;
         let mut clock = || at("2026-10-24T10:00:00Z");

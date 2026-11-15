@@ -391,7 +391,7 @@ fn rank_row(row: ElementRef<'_>, label: &str) -> Result<RankLine> {
         Some(gain)
     };
     Ok(RankLine {
-        good: Some(good),
+        good,
         winners,
         unit_gain,
     })
@@ -440,7 +440,7 @@ pub fn parse_result_detail(html: &str) -> Result<Option<GridResult>> {
     }
     ranks.sort_by_key(|rank| Reverse(rank.good));
     Ok(Some(GridResult {
-        game: Some(game),
+        game,
         number,
         date: Some(closes_at.with_timezone(&Paris).date_naive()),
         closes_at: Some(closes_at),
@@ -815,7 +815,7 @@ mod tests {
 
         let result = parse_result_detail(&html).unwrap().unwrap();
 
-        assert_eq!(result.game, Some(Game::Lf7));
+        assert_eq!(result.game, Game::Lf7);
         assert_eq!(result.number, 140);
         // 18 h 40 à Paris le 10 novembre (UTC+1) = 17 h 40 UTC ; le jour de clôture est celui de Paris.
         assert_eq!(result.closes_at, Some(at("2026-11-10T17:40:00Z")));
@@ -835,12 +835,12 @@ mod tests {
             result.ranks,
             vec![
                 RankLine {
-                    good: Some(7),
+                    good: 7,
                     winners: 1883,
                     unit_gain: Euros::new(31.0)
                 },
                 RankLine {
-                    good: Some(6),
+                    good: 6,
                     winners: 26943,
                     unit_gain: Euros::new(2.6)
                 },
@@ -875,7 +875,7 @@ mod tests {
         assert_eq!(result.matches[4].1, "Austr.Vienne F");
         assert_eq!(result.matches[4].2, MatchResult::Canceled);
         // Les libellés de rang ne changent pas : 7 et 6 bons (§74).
-        assert_eq!(result.ranks[0].good, Some(7));
+        assert_eq!(result.ranks[0].good, 7);
     }
 
     #[test]
@@ -939,7 +939,7 @@ mod tests {
         assert_eq!(
             result.ranks[0],
             RankLine {
-                good: Some(7),
+                good: 7,
                 winners: 0,
                 unit_gain: None
             }

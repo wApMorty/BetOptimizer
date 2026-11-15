@@ -18,7 +18,7 @@ use super::journal::parse_timestamp;
 use crate::domain::Euros;
 use crate::error::{Error, Result};
 use crate::ingest::aliases::Aliases;
-use crate::lotofoot::grid_page::{GridPage, GridResult, MatchResult, OpenGrid, RankLine};
+use crate::lotofoot::grid_page::{GridResult, MatchResult, OpenGrid, RankLine};
 use crate::lotofoot::odds::first_difference;
 use crate::lotofoot::{Game, GridId, PAYOUT_RATE, Ticket};
 
@@ -164,7 +164,7 @@ pub fn count_grids(conn: &Connection) -> Result<i64> {
     Ok(conn.query_row("SELECT COUNT(*) FROM lotofoot_grid", [], |row| row.get(0))?)
 }
 
-/// Ce qu'a écrit le relevé de la page d'une formule.
+/// Ce qu'a écrit le relevé d'une grille ouverte.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GridRecord {
     /// Répartitions de rencontres écrites (0 si la FDJ n'en a pas publié).
@@ -175,8 +175,6 @@ pub struct GridRecord {
     /// La grille en cours n'a pas été écrite : son nombre de rencontres n'est pas celui de la formule ([`wrong_size`]), ou
     /// sa clôture ou son numéro contredit ce qui est connu ([`refusal`]).
     pub refused: Option<String>,
-    /// Lignes de rapports non écrites, faute de jour de clôture lisible : leur année serait devinée.
-    pub undated: usize,
 }
 
 /// Écart maximal entre deux clôtures relevées pour une même grille. Au-delà, ce n'est plus un report : la grille a changé.
@@ -237,42 +235,28 @@ fn wrong_size(id: GridId, grid: &OpenGrid) -> Option<String> {
     })
 }
 
-/// Enregistre ce qu'a montré la page d'une formule : la grille en cours, sa composition si elle a changé, sa
-/// répartition, les rapports passés. Une seule transaction : tout ou rien.
+/// Enregistre une grille ouverte telle que la source l'affiche : sa ligne, sa composition si elle a changé, sa répartition.
+/// Une seule transaction : tout ou rien.
 ///
-/// Les rencontres sont comparées à l'identique (noms bruts, dans l'ordre) à la composition en vigueur : la répartition
-/// est publiée par position, et une rencontre retirée décale toutes les suivantes (LF7 n°133, `docs/sources.md` §52).
-pub fn record_grid_page(
+/// Les rencontres sont comparées à la composition en vigueur, dans l'ordre : la répartition est publiée par position, et une
+/// rencontre retirée décale toutes les suivantes (LF7 n°133, `docs/sources.md` §52). La comparaison passe par la table
+/// d'alias ([`first_difference`]) : un même club écrit autrement par une autre source (`Atl. Madrid` pour
+/// `Atlético Madrid`) n'est pas une nouvelle composition, qui écarterait les répartitions et les tickets déjà archivés.
+pub fn record_open_grid(
     conn: &mut Connection,
+    aliases: &Aliases,
     fetch_id: i64,
-    game: Game,
-    page: &GridPage,
+    grid: &OpenGrid,
 ) -> Result<GridRecord> {
     let tx = conn.transaction()?;
     let mut record = GridRecord::default();
-    if let Some(grid) = &page.open {
-        let id = GridId::closing(game, grid.number, grid.closes_at);
-        record.refused = match wrong_size(id, grid) {
-            Some(reason) => Some(reason),
-            None => refusal(&tx, id, grid.closes_at)?,
-        };
-        if record.refused.is_none() {
-            write_open_grid(&tx, fetch_id, id, grid, &mut record)?;
-        }
-    }
-    for past in &page.history {
-        let Some(closed) = past.closed else {
-            record.undated += 1;
-            continue;
-        };
-        let id = GridId {
-            game,
-            year: closed.year(),
-            number: past.number,
-        };
-        for (i, rank) in past.ranks.iter().enumerate().take(2) {
-            write_rank(&tx, id, int(i + 1), rank, fetch_id)?;
-        }
+    let id = GridId::closing(grid.game, grid.number, grid.closes_at);
+    record.refused = match wrong_size(id, grid) {
+        Some(reason) => Some(reason),
+        None => refusal(&tx, id, grid.closes_at)?,
+    };
+    if record.refused.is_none() {
+        write_open_grid(&tx, aliases, fetch_id, id, grid, &mut record)?;
     }
     tx.commit()?;
     Ok(record)
@@ -281,6 +265,7 @@ pub fn record_grid_page(
 /// Écrit la grille en cours : sa ligne si elle est nouvelle, sa composition si elle a changé, sa répartition.
 fn write_open_grid(
     conn: &Connection,
+    aliases: &Aliases,
     fetch_id: i64,
     id: GridId,
     grid: &OpenGrid,
@@ -300,7 +285,7 @@ fn write_open_grid(
     )?;
     let current = matches(conn, id)?;
     let first = current.is_empty();
-    record.recomposed = !first && current != grid.matches;
+    record.recomposed = !first && first_difference(aliases, &current, &grid.matches).is_some();
     for (i, (home, away)) in grid.matches.iter().enumerate() {
         if first {
             conn.execute(
@@ -382,9 +367,9 @@ pub struct ResultsRecord {
 /// ([`crate::lotofoot::odds::first_difference`]). Une grille dont la composition a changé après des tickets déclarés joués
 /// n'est pas réglée : ces tickets portent sur des rencontres qui ne sont plus celles de la grille, ils se règlent à la main.
 ///
-/// Toute grille non écrite est signalée dans [`ResultsRecord::refused`] : seules les formules non suivies sont ignorées
-/// sans bruit. Une rencontre annulée (`docs/sources.md` §74) s'écrit `C` dans la colonne `outcome` (migration 24) : la
-/// grille n'est pas refusée pour autant, son règlement la compte bonne pour tous les signes ([`MatchResult::is_good_for`]).
+/// Toute grille non écrite est signalée dans [`ResultsRecord::refused`]. Une rencontre annulée (`docs/sources.md` §74)
+/// s'écrit `C` dans la colonne `outcome` (migration 24) : la grille n'est pas refusée pour autant, son règlement la compte
+/// bonne pour tous les signes ([`MatchResult::is_good_for`]).
 pub fn record_results(
     conn: &mut Connection,
     aliases: &Aliases,
@@ -394,7 +379,7 @@ pub fn record_results(
     let tx = conn.transaction()?;
     let mut record = ResultsRecord::default();
     for result in results {
-        let Some(game) = result.game else { continue };
+        let game = result.game;
         if result.matches.len() != game.matches() {
             record.refused.push(format!(
                 "{game} n°{} : {} rencontres lues au lieu de {}, résultats non écrits",
@@ -1235,7 +1220,7 @@ mod tests {
     use super::*;
     use crate::domain::Outcome;
     use crate::lotofoot::grid_of_2026;
-    use crate::lotofoot::grid_page::{OpenGrid, PastRanks, RankLine};
+    use crate::lotofoot::grid_page::{OpenGrid, RankLine};
     use crate::store::migrate::migrate;
 
     fn db() -> Connection {
@@ -1349,6 +1334,7 @@ mod tests {
         let fallback = page_health(&conn, Source::ResultatsFdj, Page::Open).unwrap();
         assert_eq!(fallback.last_ok, Some(at("2026-11-15T10:00:05Z")));
         assert_eq!(fallback.failing, None);
+        // prono-match (archive) n'a aucune lecture de cette page : son état reste vide.
         let old = page_health(&conn, Source::PronoMatch, Page::Open).unwrap();
         assert_eq!((old.last_ok, old.failing), (None, None));
         // Les pages du détail et des résultats s'enregistrent aussi (migration 24).
@@ -1372,43 +1358,38 @@ mod tests {
         .unwrap();
     }
 
-    fn page(number: u32, split: Option<Vec<[u32; 3]>>) -> GridPage {
-        GridPage {
-            open: Some(OpenGrid {
-                game: Game::Lf7,
-                accepting: split.is_some(),
-                number,
-                closes_at: at("2026-10-25T16:10:00Z"),
-                jackpot: Euros::new(100_000.0),
-                matches: (1..=7)
-                    .map(|i| (format!("A{i}"), format!("B{i}")))
-                    .collect(),
-                split,
-                split_at: None,
-            }),
-            history: vec![
-                PastRanks {
-                    number: 131,
-                    closed: chrono::NaiveDate::from_ymd_opt(2026, 10, 20),
-                    ranks: vec![rank(135, 578.0), rank(2393, 39.8)],
-                },
-                PastRanks {
-                    number: 130,
-                    closed: chrono::NaiveDate::from_ymd_opt(2026, 10, 20),
-                    ranks: vec![rank(588, 170.0), rank(7124, 16.6)],
-                },
-                PastRanks {
-                    number: 129,
-                    closed: chrono::NaiveDate::from_ymd_opt(2026, 10, 20),
-                    ranks: vec![rank(2539, 24.0), rank(17631, 4.2)],
-                },
-            ],
+    fn page(number: u32, split: Option<Vec<[u32; 3]>>) -> OpenGrid {
+        OpenGrid {
+            game: Game::Lf7,
+            accepting: split.is_some(),
+            number,
+            closes_at: at("2026-10-25T16:10:00Z"),
+            jackpot: Euros::new(100_000.0),
+            matches: (1..=7)
+                .map(|i| (format!("A{i}"), format!("B{i}")))
+                .collect(),
+            split,
+            split_at: None,
+        }
+    }
+
+    /// Écrit les deux rangs de la grille LF7 `number` de 2026 : (gagnants, gain unitaire) du rang 1, puis du rang 2.
+    fn write_ranks(conn: &Connection, fetch_id: i64, number: u32, ranks: [(u32, f64); 2]) {
+        for (i, (winners, gain)) in ranks.into_iter().enumerate() {
+            write_rank(
+                conn,
+                grid_of_2026(Game::Lf7, number),
+                int(i + 1),
+                &rank(winners, gain),
+                fetch_id,
+            )
+            .unwrap();
         }
     }
 
     fn rank(winners: u32, gain: f64) -> RankLine {
         RankLine {
-            good: None,
+            good: 7,
             winners,
             unit_gain: Euros::new(gain),
         }
@@ -1420,14 +1401,14 @@ mod tests {
         let f1 = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
         assert_eq!(
-            record_grid_page(&mut conn, f1, Game::Lf7, &page(133, None))
+            record_open_grid(&mut conn, &Aliases::default(), f1, &page(133, None))
                 .unwrap()
                 .splits,
             0
@@ -1435,17 +1416,17 @@ mod tests {
         let f2 = record_fetch(
             &conn,
             at("2026-10-24T10:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
         assert_eq!(
-            record_grid_page(
+            record_open_grid(
                 &mut conn,
+                &Aliases::default(),
                 f2,
-                Game::Lf7,
                 &page(133, Some(vec![[50, 30, 20]; 7]))
             )
             .unwrap()
@@ -1455,16 +1436,16 @@ mod tests {
         let f3 = record_fetch(
             &conn,
             at("2026-10-24T11:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        record_grid_page(
+        record_open_grid(
             &mut conn,
+            &Aliases::default(),
             f3,
-            Game::Lf7,
             &page(133, Some(vec![[52, 29, 19]; 7])),
         )
         .unwrap();
@@ -1506,13 +1487,17 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        record_grid_page(&mut conn, f, Game::Lf7, &page(133, None)).unwrap();
+        record_open_grid(&mut conn, &Aliases::default(), f, &page(133, None)).unwrap();
+        // Rapports des trois grilles précédentes, tous clos le 20 octobre.
+        write_ranks(&conn, f, 131, [(135, 578.0), (2393, 39.8)]);
+        write_ranks(&conn, f, 130, [(588, 170.0), (7124, 16.6)]);
+        write_ranks(&conn, f, 129, [(2539, 24.0), (17631, 4.2)]);
         let open = target(Game::Lf7, 133, "2026-10-25T16:10:00Z", None);
         let stakes = stakes_estimate(&conn, &open, 8).unwrap().unwrap().get();
         // Masses du rang 2 : 95 241,4 ; 118 258,4 ; 74 050,2 → médiane 95 241,4 / 0,385.
@@ -1559,8 +1544,8 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
@@ -1601,16 +1586,16 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        record_grid_page(
+        record_open_grid(
             &mut conn,
+            &Aliases::default(),
             f,
-            Game::Lf7,
             &page(133, Some(vec![[50, 30, 20]; 7])),
         )
         .unwrap();
@@ -1697,20 +1682,18 @@ mod tests {
         ("FC Barcelone", "Real Madrid"),
     ];
 
-    fn composed(matches: &[(&str, &str)], split: Option<Vec<[u32; 3]>>) -> GridPage {
+    fn composed(matches: &[(&str, &str)], split: Option<Vec<[u32; 3]>>) -> OpenGrid {
         let mut grid = page(133, split);
-        if let Some(open) = &mut grid.open {
-            open.matches = matches
-                .iter()
-                .map(|(h, a)| (h.to_string(), a.to_string()))
-                .collect();
-        }
+        grid.matches = matches
+            .iter()
+            .map(|(h, a)| (h.to_string(), a.to_string()))
+            .collect();
         grid
     }
 
     fn results_of(matches: &[(&str, &str)]) -> GridResult {
         GridResult {
-            game: Some(Game::Lf7),
+            game: Game::Lf7,
             number: 133,
             date: chrono::NaiveDate::from_ymd_opt(2026, 10, 25),
             closes_at: None,
@@ -1754,21 +1737,13 @@ mod tests {
     fn a_changed_composition_voids_earlier_splits_and_tickets() {
         let mut conn = db();
         let grid_fetch = |conn: &Connection, when: &str| {
-            record_fetch(
-                conn,
-                at(when),
-                Source::PronoMatch,
-                Page::Grid(Game::Lf7),
-                200,
-                None,
-            )
-            .unwrap()
+            record_fetch(conn, at(when), Source::Fdj, Page::Open, 200, None).unwrap()
         };
         let f1 = grid_fetch(&conn, "2026-10-24T03:07:00Z");
-        let first = record_grid_page(
+        let first = record_open_grid(
             &mut conn,
+            &Aliases::default(),
             f1,
-            Game::Lf7,
             &composed(&ANNOUNCED, Some(vec![[50, 30, 20]; 7])),
         )
         .unwrap();
@@ -1783,10 +1758,10 @@ mod tests {
 
         // La grille ouvre avec d'autres rencontres : nouvelle composition, rattachée au relevé qui l'a vue.
         let f2 = grid_fetch(&conn, "2026-10-24T06:07:00Z");
-        let opened = record_grid_page(
+        let opened = record_open_grid(
             &mut conn,
+            &Aliases::default(),
             f2,
-            Game::Lf7,
             &composed(&OPENED, Some(vec![[40, 30, 30]; 7])),
         )
         .unwrap();
@@ -1827,7 +1802,8 @@ mod tests {
 
         // Même composition au relevé suivant : rien de nouveau.
         let f3 = grid_fetch(&conn, "2026-10-24T07:07:00Z");
-        let again = record_grid_page(&mut conn, f3, Game::Lf7, &composed(&OPENED, None)).unwrap();
+        let again =
+            record_open_grid(&mut conn, &Aliases::default(), f3, &composed(&OPENED, None)).unwrap();
         assert!(!again.recomposed);
         let revisions: i64 = conn
             .query_row("SELECT COUNT(*) FROM lotofoot_match_revision", [], |row| {
@@ -1844,7 +1820,7 @@ mod tests {
         let r = record_fetch(
             &conn,
             at("2026-10-26T09:00:00Z"),
-            Source::PronoMatch,
+            Source::Fdj,
             Page::Results,
             200,
             None,
@@ -1866,16 +1842,16 @@ mod tests {
         let f1 = record_fetch(
             &conn,
             at("2026-10-24T03:07:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        record_grid_page(
+        record_open_grid(
             &mut conn,
+            &Aliases::default(),
             f1,
-            Game::Lf7,
             &composed(&ANNOUNCED, Some(vec![[50, 30, 20]; 7])),
         )
         .unwrap();
@@ -1896,13 +1872,13 @@ mod tests {
         let f2 = record_fetch(
             &conn,
             at("2026-10-24T06:07:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        record_grid_page(&mut conn, f2, Game::Lf7, &composed(&OPENED, None)).unwrap();
+        record_open_grid(&mut conn, &Aliases::default(), f2, &composed(&OPENED, None)).unwrap();
         let change = recomposition(&conn, grid_of_2026(Game::Lf7, 133))
             .unwrap()
             .unwrap();
@@ -1912,7 +1888,7 @@ mod tests {
         let r = record_fetch(
             &conn,
             at("2026-10-26T09:00:00Z"),
-            Source::PronoMatch,
+            Source::Fdj,
             Page::Results,
             200,
             None,
@@ -1924,36 +1900,19 @@ mod tests {
         assert!(record.refused[0].contains("à la main"), "{record:?}");
     }
 
-    /// Page d'une grille LF7 `number` qui ferme à `closes` (rencontres propres au tag), avec les rapports donnés.
-    fn year_page(
-        number: u32,
-        closes: &str,
-        tag: &str,
-        split: bool,
-        history: Vec<PastRanks>,
-    ) -> GridPage {
-        GridPage {
-            open: Some(OpenGrid {
-                game: Game::Lf7,
-                accepting: true,
-                number,
-                closes_at: at(closes),
-                jackpot: None,
-                matches: (1..=7)
-                    .map(|i| (format!("{tag}H{i}"), format!("{tag}A{i}")))
-                    .collect(),
-                split: split.then(|| vec![[50, 30, 20]; 7]),
-                split_at: None,
-            }),
-            history,
-        }
-    }
-
-    fn past(number: u32, closed: (i32, u32, u32), winners: u32) -> PastRanks {
-        PastRanks {
+    /// Grille LF7 `number` qui ferme à `closes` (rencontres propres au tag).
+    fn year_page(number: u32, closes: &str, tag: &str, split: bool) -> OpenGrid {
+        OpenGrid {
+            game: Game::Lf7,
+            accepting: true,
             number,
-            closed: chrono::NaiveDate::from_ymd_opt(closed.0, closed.1, closed.2),
-            ranks: vec![rank(100, 500.0), rank(winners, 10.0)],
+            closes_at: at(closes),
+            jackpot: None,
+            matches: (1..=7)
+                .map(|i| (format!("{tag}H{i}"), format!("{tag}A{i}")))
+                .collect(),
+            split: split.then(|| vec![[50, 30, 20]; 7]),
+            split_at: None,
         }
     }
 
@@ -1972,7 +1931,7 @@ mod tests {
         gain: f64,
     ) -> GridResult {
         GridResult {
-            game: Some(Game::Lf7),
+            game: Game::Lf7,
             number,
             date: date.and_then(|(y, m, d)| chrono::NaiveDate::from_ymd_opt(y, m, d)),
             closes_at: None,
@@ -1994,25 +1953,17 @@ mod tests {
     fn a_new_year_reuses_numbers_without_touching_the_old_grid() {
         let mut conn = db();
         let grid_fetch = |conn: &Connection, when: &str| {
-            record_fetch(
-                conn,
-                at(when),
-                Source::PronoMatch,
-                Page::Grid(Game::Lf7),
-                200,
-                None,
-            )
-            .unwrap()
+            record_fetch(conn, at(when), Source::Fdj, Page::Open, 200, None).unwrap()
         };
         let f1 = grid_fetch(&conn, "2026-10-24T09:00:00Z");
-        let old = year_page(133, "2026-10-25T16:10:00Z", "A", true, Vec::new());
-        record_grid_page(&mut conn, f1, Game::Lf7, &old).unwrap();
+        let old = year_page(133, "2026-10-25T16:10:00Z", "A", true);
+        record_open_grid(&mut conn, &Aliases::default(), f1, &old).unwrap();
         let ticket = Ticket::parse("1111111").unwrap();
         recommend(&mut conn, f1, &ticket);
         let r1 = record_fetch(
             &conn,
             at("2026-10-26T09:00:00Z"),
-            Source::PronoMatch,
+            Source::Fdj,
             Page::Results,
             200,
             None,
@@ -2029,8 +1980,8 @@ mod tests {
         assert_eq!(before.len(), 1);
 
         let f2 = grid_fetch(&conn, "2027-10-20T09:00:00Z");
-        let new = year_page(133, "2027-10-24T16:10:00Z", "B", true, Vec::new());
-        let record = record_grid_page(&mut conn, f2, Game::Lf7, &new).unwrap();
+        let new = year_page(133, "2027-10-24T16:10:00Z", "B", true);
+        let record = record_open_grid(&mut conn, &Aliases::default(), f2, &new).unwrap();
         // Pas de fausse recomposition : c'est une autre grille, visible, avec ses rencontres.
         assert!(!record.recomposed);
         assert_eq!(record.refused, None);
@@ -2056,7 +2007,7 @@ mod tests {
         let r2 = record_fetch(
             &conn,
             at("2027-10-25T09:00:00Z"),
-            Source::PronoMatch,
+            Source::Fdj,
             Page::Results,
             200,
             None,
@@ -2077,55 +2028,46 @@ mod tests {
         );
     }
 
+    /// Le n°1 de janvier estime ses mises sur les rapports de décembre : la fenêtre passe à cheval sur l'année, les rapports
+    /// restant rangés sous l'année de leur grille.
     #[test]
-    fn past_ranks_take_the_year_of_their_closing_day() {
+    fn a_january_grid_sees_the_reports_of_december() {
         let mut conn = db();
         let f = record_fetch(
             &conn,
             at("2027-01-02T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        let mut page = year_page(1, "2027-01-03T13:55:00Z", "N", false, Vec::new());
-        page.history = vec![past(165, (2026, 12, 30), 3000)];
-        record_grid_page(&mut conn, f, Game::Lf7, &page).unwrap();
-        assert_eq!(ranks(&conn, lf7(2026, 165)).unwrap().len(), 2);
+        let page = year_page(1, "2027-01-03T13:55:00Z", "N", false);
+        record_open_grid(&mut conn, &Aliases::default(), f, &page).unwrap();
+        // Rapport du n°165, clos le 30 décembre 2026 : rangé sous 2026, sans ligne de grille (jamais vue ouverte).
+        let december = GridId {
+            game: Game::Lf7,
+            year: 2026,
+            number: 165,
+        };
+        for (i, (winners, gain)) in [(100, 500.0), (3000, 10.0)].into_iter().enumerate() {
+            write_rank(&conn, december, int(i + 1), &rank(winners, gain), f).unwrap();
+        }
+        assert_eq!(ranks(&conn, december).unwrap().len(), 2);
         assert!(ranks(&conn, lf7(2027, 165)).unwrap().is_empty());
-        // Le n°1 de janvier voit le rapport de décembre : sa fenêtre passe à cheval sur l'année.
         let open = grids_closing_after(&conn, at("2027-01-02T10:00:00Z")).unwrap();
         let stakes = stakes_estimate(&conn, &open[0], 8).unwrap().unwrap().get();
         assert!((stakes - 3000.0 * 10.0 / 0.385).abs() < 1e-6);
     }
 
+    /// Un résultat sans jour de clôture lisible n'est pas écrit : son année serait devinée.
     #[test]
-    fn a_line_without_a_readable_date_is_refused_not_guessed() {
+    fn a_result_without_a_readable_date_is_refused_not_guessed() {
         let mut conn = db();
-        let f = record_fetch(
-            &conn,
-            at("2027-01-02T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
-            200,
-            None,
-        )
-        .unwrap();
-        let mut undated = past(165, (2026, 12, 30), 3000);
-        undated.closed = None;
-        let page = GridPage {
-            open: None,
-            history: vec![undated],
-        };
-        let record = record_grid_page(&mut conn, f, Game::Lf7, &page).unwrap();
-        assert_eq!(record.undated, 1);
-        assert_eq!(rank_rows(&conn), 0);
-
         let r = record_fetch(
             &conn,
             at("2027-01-02T09:00:00Z"),
-            Source::PronoMatch,
+            Source::Fdj,
             Page::Results,
             200,
             None,
@@ -2154,33 +2096,27 @@ mod tests {
         let f1 = record_fetch(
             &conn,
             at("2027-03-01T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        let page = year_page(40, "2027-03-02T18:00:00Z", "A", false, Vec::new());
-        record_grid_page(&mut conn, f1, Game::Lf7, &page).unwrap();
+        let page = year_page(40, "2027-03-02T18:00:00Z", "A", false);
+        record_open_grid(&mut conn, &Aliases::default(), f1, &page).unwrap();
 
         // Même identité, clôture à un mois : ce n'est plus la même grille.
         let f2 = record_fetch(
             &conn,
             at("2027-04-01T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        let moved = year_page(
-            40,
-            "2027-04-02T18:00:00Z",
-            "B",
-            true,
-            vec![past(39, (2027, 2, 28), 500)],
-        );
-        let record = record_grid_page(&mut conn, f2, Game::Lf7, &moved).unwrap();
+        let moved = year_page(40, "2027-04-02T18:00:00Z", "B", true);
+        let record = record_open_grid(&mut conn, &Aliases::default(), f2, &moved).unwrap();
         assert!(!record.recomposed);
         assert!(record.refused.is_some_and(|r| r.contains("clôture")));
         let kept = grid(&conn, lf7(2027, 40)).unwrap().unwrap();
@@ -2190,35 +2126,33 @@ mod tests {
             latest_split(&conn, lf7(2027, 40), at("2027-04-02T09:00:00Z")).unwrap(),
             None
         );
-        // Les rapports de la page restent écrits : leur année se lit à part.
-        assert_eq!(ranks(&conn, lf7(2027, 39)).unwrap().len(), 2);
 
         // Un report de quelques jours reste la même grille.
         let f3 = record_fetch(
             &conn,
             at("2027-03-02T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        let shifted = year_page(40, "2027-03-05T18:00:00Z", "A", false, Vec::new());
-        let record = record_grid_page(&mut conn, f3, Game::Lf7, &shifted).unwrap();
+        let shifted = year_page(40, "2027-03-05T18:00:00Z", "A", false);
+        let record = record_open_grid(&mut conn, &Aliases::default(), f3, &shifted).unwrap();
         assert_eq!(record.refused, None);
 
         // Numéro inférieur à une grille close plus tôt la même année : l'année attribuée serait fausse.
-        let low = year_page(3, "2027-05-02T18:00:00Z", "C", false, Vec::new());
+        let low = year_page(3, "2027-05-02T18:00:00Z", "C", false);
         let f4 = record_fetch(
             &conn,
             at("2027-05-01T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        let record = record_grid_page(&mut conn, f4, Game::Lf7, &low).unwrap();
+        let record = record_open_grid(&mut conn, &Aliases::default(), f4, &low).unwrap();
         assert!(record.refused.is_some_and(|r| r.contains("n°40")));
         assert_eq!(grid(&conn, lf7(2027, 3)).unwrap(), None);
     }
@@ -2229,30 +2163,30 @@ mod tests {
         let f1 = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        record_grid_page(
+        record_open_grid(
             &mut conn,
+            &Aliases::default(),
             f1,
-            Game::Lf7,
             &page(133, Some(vec![[50, 30, 20]; 7])),
         )
         .unwrap();
         let f2 = record_fetch(
             &conn,
             at("2027-10-24T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        let next = year_page(133, "2027-10-25T16:10:00Z", "B", true, Vec::new());
-        record_grid_page(&mut conn, f2, Game::Lf7, &next).unwrap();
+        let next = year_page(133, "2027-10-25T16:10:00Z", "B", true);
+        record_open_grid(&mut conn, &Aliases::default(), f2, &next).unwrap();
         let ticket = Ticket::parse("1111111").unwrap();
         let reco = |grid, split_fetch_id| NewReco {
             grid,
@@ -2296,19 +2230,19 @@ mod tests {
     }
 
     #[test]
-    fn results_are_kept_for_lf7_and_lf8_only() {
+    fn a_second_identical_results_read_writes_nothing() {
         let mut conn = db();
         let f = record_fetch(
             &conn,
             at("2026-10-23T09:00:00Z"),
-            Source::PronoMatch,
+            Source::Fdj,
             Page::Results,
             200,
             None,
         )
         .unwrap();
         let lf7 = GridResult {
-            game: Some(Game::Lf7),
+            game: Game::Lf7,
             number: 132,
             date: chrono::NaiveDate::from_ymd_opt(2026, 10, 25),
             closes_at: None,
@@ -2323,15 +2257,16 @@ mod tests {
                 .collect(),
             ranks: vec![rank(135, 578.0), rank(2393, 39.8)],
         };
-        let lf15 = GridResult {
-            game: None,
-            number: 88,
-            ..lf7.clone()
-        };
+        // `from_ref` fait d'une référence un tableau d'un élément, sans cloner `lf7`, que le test relit ensuite.
         assert_eq!(
-            record_results(&mut conn, &Aliases::default(), f, &[lf7.clone(), lf15])
-                .unwrap()
-                .new,
+            record_results(
+                &mut conn,
+                &Aliases::default(),
+                f,
+                std::slice::from_ref(&lf7)
+            )
+            .unwrap()
+            .new,
             1
         );
         // Un second relevé identique n'écrit rien de nouveau.
@@ -2371,13 +2306,13 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        record_grid_page(&mut conn, f, Game::Lf7, &composed(&STORED, None)).unwrap();
+        record_open_grid(&mut conn, &Aliases::default(), f, &composed(&STORED, None)).unwrap();
         let r = record_fetch(
             &conn,
             at("2026-10-26T09:00:00Z"),
@@ -2423,13 +2358,13 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        record_grid_page(&mut conn, f, Game::Lf7, &composed(&OPENED, None)).unwrap();
+        record_open_grid(&mut conn, &Aliases::default(), f, &composed(&OPENED, None)).unwrap();
         let r = record_fetch(
             &conn,
             at("2026-10-26T09:00:00Z"),
@@ -2540,7 +2475,7 @@ mod tests {
     }
 
     /// Le règlement permet un LF8 à 7 rencontres (§74), mais le modèle suppose 8 : la grille est refusée avec un message,
-    /// et rien n'en est écrit (ni grille, ni rencontres, ni répartition). Les rapports de la page, eux, restent écrits.
+    /// et rien n'en est écrit (ni grille, ni rencontres, ni répartition).
     #[test]
     fn a_lf8_with_seven_matches_is_refused_loudly_and_not_written() {
         let mut conn = db();
@@ -2554,11 +2489,9 @@ mod tests {
         )
         .unwrap();
         let mut seven = page(150, Some(vec![[50, 30, 20]; 7]));
-        if let Some(open) = &mut seven.open {
-            open.game = Game::Lf8;
-        }
+        seven.game = Game::Lf8;
 
-        let record = record_grid_page(&mut conn, f, Game::Lf8, &seven).unwrap();
+        let record = record_open_grid(&mut conn, &Aliases::default(), f, &seven).unwrap();
 
         let reason = record.refused.as_deref().unwrap_or_default();
         assert!(
@@ -2579,16 +2512,11 @@ mod tests {
                 .unwrap();
             assert_eq!(rows, 0, "{table}");
         }
-        assert_eq!(
-            ranks(&conn, grid_of_2026(Game::Lf8, 131)).unwrap().len(),
-            2,
-            "les rapports de la page restent écrits"
-        );
         // Le même nombre de rencontres, pour un LF7, est bien accepté : le refus tient à la formule, non au nombre lu.
-        let accepted = record_grid_page(
+        let accepted = record_open_grid(
             &mut conn,
+            &Aliases::default(),
             f,
-            Game::Lf7,
             &page(133, Some(vec![[50, 30, 20]; 7])),
         )
         .unwrap();
@@ -2604,13 +2532,13 @@ mod tests {
         let f = record_fetch(
             &conn,
             at("2026-10-24T09:00:00Z"),
-            Source::PronoMatch,
-            Page::Grid(Game::Lf7),
+            Source::Fdj,
+            Page::Open,
             200,
             None,
         )
         .unwrap();
-        record_grid_page(&mut conn, f, Game::Lf7, &page(133, None)).unwrap();
+        record_open_grid(&mut conn, &Aliases::default(), f, &page(133, None)).unwrap();
         let id = grid_of_2026(Game::Lf7, 133);
         assert_eq!(played_count(&conn, id).unwrap(), 0);
 

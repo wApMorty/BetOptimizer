@@ -1,7 +1,7 @@
-//! Types communs aux sources du Loto Foot : grille en cours, rapports passés, résultat officiel.
+//! Types communs aux sources du Loto Foot : grille ouverte, rapports, résultat officiel.
 //!
-//! Chaque source (FDJ, resultats-fdj.fr, prono-match) est lue par son propre module, qui ne produit que ces types : le
-//! reste du programme (archive, règlement, application) ne sait pas d'où vient une grille. Seuls les faits extraits sont
+//! Chaque source (FDJ, resultats-fdj.fr) est lue par son propre module, qui ne produit que ces types : le reste du
+//! programme (archive, règlement, application) ne sait pas d'où vient une grille. Seuls les faits extraits sont
 //! conservés, jamais les pages (leurs mentions légales interdisent la reproduction).
 
 use chrono::{DateTime, NaiveDate, Utc};
@@ -30,35 +30,15 @@ pub struct OpenGrid {
     pub split_at: Option<DateTime<Utc>>,
 }
 
-/// Rapports d'une grille passée : un élément par rang, du sans-faute au dernier rang payé.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PastRanks {
-    /// Numéro du tirage.
-    pub number: u32,
-    /// Jour de clôture (`None` s'il est illisible) : le numéro seul ne dit pas de quelle année est la grille.
-    pub closed: Option<NaiveDate>,
-    /// Rangs : nombre de gagnants et gain unitaire (`None` quand il n'y a « aucun gagnant »).
-    pub ranks: Vec<RankLine>,
-}
-
 /// Un rang publié.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RankLine {
-    /// Bons pronostics du rang (7 pour le sans-faute du LF7) ; `None` si la source ne le dit pas (tableau d'historique).
-    pub good: Option<u32>,
+    /// Bons pronostics du rang (7 pour le sans-faute du LF7).
+    pub good: u32,
     /// Nombre de grilles gagnantes.
     pub winners: u32,
     /// Gain unitaire, `None` sans gagnant.
     pub unit_gain: Option<Euros>,
-}
-
-/// Page d'une formule : la grille en cours (s'il y en a une) et les rapports des dernières grilles.
-#[derive(Debug, Clone, PartialEq)]
-pub struct GridPage {
-    /// Grille ouverte.
-    pub open: Option<OpenGrid>,
-    /// Rapports des dernières grilles.
-    pub history: Vec<PastRanks>,
 }
 
 /// Résultat d'une rencontre : un signe, ou l'annulation de la rencontre.
@@ -120,13 +100,13 @@ pub fn signs_of(results: &[MatchResult]) -> Option<Vec<Outcome>> {
 /// Résultat officiel d'une grille.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GridResult {
-    /// Formule, `None` pour une formule non suivie (prono-match renvoie ainsi le LF12 et le LF15).
-    pub game: Option<Game>,
+    /// Formule (LF7 ou LF8 : les autres formules ne sont pas lues).
+    pub game: Game,
     /// Numéro du tirage.
     pub number: u32,
     /// Jour de clôture affiché (heure de Paris) : il donne l'année de la grille.
     pub date: Option<NaiveDate>,
-    /// Instant de la fin de validation, en UTC, quand la source le donne (FDJ, resultats-fdj.fr) ; `None` pour prono-match.
+    /// Instant de la fin de validation, en UTC, quand la source le donne ; `None` si elle ne le donne pas.
     pub closes_at: Option<DateTime<Utc>>,
     /// Rencontres dans l'ordre : équipes et résultat (signe, ou rencontre annulée).
     pub matches: Vec<(String, String, MatchResult)>,

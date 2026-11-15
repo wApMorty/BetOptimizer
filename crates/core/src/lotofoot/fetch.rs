@@ -26,7 +26,7 @@ use std::time::Duration;
 use chrono::{DateTime, Datelike, Utc};
 use rusqlite::Connection;
 
-use super::grid_page::{GridPage, OpenGrid};
+use super::grid_page::OpenGrid;
 use super::resultats_fdj::ResultLink;
 use super::{GridId, fdj, resultats_fdj};
 use crate::error::{Error, Result};
@@ -179,7 +179,7 @@ pub fn run(
         asked: false,
     };
     let mut report = FetchReport::default();
-    read_open_grids(conn, &mut io, &mut report)?;
+    read_open_grids(conn, aliases, &mut io, &mut report)?;
     for page_number in 1..=result_pages.max(1) {
         if !read_results(conn, aliases, &mut io, page_number, &mut report)? {
             break;
@@ -321,11 +321,16 @@ fn note_failure(
 // ---------------------------------------------------------------------------------------------------------------------
 
 /// Grilles ouvertes : la FDJ, puis resultats-fdj.fr si la FDJ échoue.
-fn read_open_grids(conn: &mut Connection, io: &mut Io, report: &mut FetchReport) -> Result<()> {
+fn read_open_grids(
+    conn: &mut Connection,
+    aliases: &Aliases,
+    io: &mut Io,
+    report: &mut FetchReport,
+) -> Result<()> {
     let (at, body) = io.get(&fdj_url(fdj::OPEN_PATH));
     let grids = body.and_then(|html| fdj::parse_open_page(&html, at).map_err(Failure::unreadable));
     let fdj_failure = match grids {
-        Ok(grids) => return record_open(conn, at, Source::Fdj, grids, report),
+        Ok(grids) => return record_open(conn, aliases, at, Source::Fdj, grids, report),
         Err(failure) => failure,
     };
     journal_failure(conn, at, Source::Fdj, Page::Open, &fdj_failure)?;
@@ -336,7 +341,7 @@ fn read_open_grids(conn: &mut Connection, io: &mut Io, report: &mut FetchReport)
     match grids {
         Ok(grids) => {
             note_fallback(Page::Open, &fdj_failure, report);
-            record_open(conn, at, Source::ResultatsFdj, grids, report)
+            record_open(conn, aliases, at, Source::ResultatsFdj, grids, report)
         }
         Err(fallback_failure) => {
             journal_failure(
@@ -359,6 +364,7 @@ fn read_open_grids(conn: &mut Connection, io: &mut Io, report: &mut FetchReport)
 /// avec cette erreur et la grille remontée dans [`FetchReport::stale`].
 fn record_open(
     conn: &mut Connection,
+    aliases: &Aliases,
     at: DateTime<Utc>,
     source: Source,
     grids: Vec<OpenGrid>,
@@ -389,34 +395,24 @@ fn record_open(
     report
         .sources
         .push(format!("{} : {}", Page::Open, source.label()));
-    for grid in open {
-        record_one_open_grid(conn, fetch_id, grid, report)?;
+    // `&open` : on emprunte la liste, les grilles restent à nous (le bilan relit chacune après l'écriture).
+    for grid in &open {
+        record_one_open_grid(conn, aliases, fetch_id, grid, report)?;
     }
     Ok(())
 }
 
-/// Écrit une grille ouverte : sa composition, sa répartition. Les rapports passés ne viennent plus de la page des grilles
+/// Écrit une grille ouverte : sa composition, sa répartition. Les rapports passés ne viennent pas de la page des grilles
 /// ouvertes : ils viennent des résultats.
 fn record_one_open_grid(
     conn: &mut Connection,
+    aliases: &Aliases,
     fetch_id: i64,
-    grid: OpenGrid,
+    grid: &OpenGrid,
     report: &mut FetchReport,
 ) -> Result<()> {
     let (game, number) = (grid.game, grid.number);
-    let state = if grid.split.is_some() {
-        "répartition publiée"
-    } else if grid.accepting {
-        "ouverte, sans répartition"
-    } else {
-        "pas encore ouverte"
-    };
-    // `grid` est déplacée dans la page : le numéro et l'état sont lus avant.
-    let page = GridPage {
-        open: Some(grid),
-        history: Vec::new(),
-    };
-    let record = store::record_grid_page(conn, fetch_id, game, &page)?;
+    let record = store::record_open_grid(conn, aliases, fetch_id, grid)?;
     report.splits += record.splits;
     let written = record.refused.is_none();
     // `extend` prend le refus (un `Option` se parcourt comme une liste de zéro ou un élément) : il n'est plus lu ensuite,
@@ -429,6 +425,13 @@ fn record_one_open_grid(
                  répartitions et tickets antérieurs écartés"
             ));
         }
+        let state = if grid.split.is_some() {
+            "répartition publiée"
+        } else if grid.accepting {
+            "ouverte, sans répartition"
+        } else {
+            "pas encore ouverte"
+        };
         report.grids.push(format!("{game} n°{number} ({state})"));
     }
     Ok(())
@@ -887,12 +890,12 @@ mod tests {
         )
         .unwrap();
         let rank = |good, winners, gain| RankLine {
-            good: Some(good),
+            good,
             winners,
             unit_gain: Euros::new(gain),
         };
         let result = GridResult {
-            game: Some(Game::Lf7),
+            game: Game::Lf7,
             number,
             date: chrono::NaiveDate::from_ymd_opt(2026, 11, 8),
             closes_at: None,
