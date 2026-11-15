@@ -3319,3 +3319,82 @@ collectées (§37, 2021 à juin 2026) et sur les 51 grilles lues ce jour.
   « en direct » chez resultats-fdj.fr à 21 h 13 UTC, figurait sur aucune page FDJ lue, d'où l'hypothèse d'une grille retirée tant que ses
   résultats manquent.
 - Le pactole d'une grille ouverte sur resultats-fdj.fr (aucune n'en avait) ; le nombre total de pages de sa liste.
+
+**Phase 22 livrée (2026-11-15).** Le relevé du Loto Foot lit la FDJ, avec resultats-fdj.fr en repli ; prono-match n'est plus lu (son
+archive reste). Code : `7532903` à `3df4313` (tâche 1 : lecteurs ; tâche 2a : migration 24, rencontres annulées ; tâche 2b : alias,
+relevé à deux sources, migration 25, application Web, systemd). Les mesures sur la base ont été faites sur des **copies** de la
+production, le 2026-11-15 : rien n'est déployé. (Les commentaires de la migration 25 et de `store/alerts.rs` renvoient à un « §75 » :
+c'est le présent paragraphe.)
+
+*Vérifié le 2026-11-15.*
+- **Migration 24 rejouée sur une copie de la production** : `user_version` 23 → 24 ; comptes identiques avant et après pour les treize
+  tables du Loto Foot (fetch 1 920, grid 17, match 129, match_revision 7, split 6 178, result 121, rank 60, reco 565, play 56, alert 16,
+  live 29, session 33, budget 3) ; `foreign_key_check` vide, `integrity_check` « ok ». La migration fait deux choses : `lotofoot_result.outcome`
+  accepte `C` (rencontre annulée), et `lotofoot_fetch` gagne `source` (`pronomatch` pour toutes les lectures existantes, puis `fdj` et
+  `resultats_fdj`) et deux pages, `open` et `detail`. `lotofoot_fetch`, référencée par six tables, est **reconstruite sous
+  `PRAGMA defer_foreign_keys = ON`** et non renommée : un renommage aurait fait suivre les clés étrangères des six tables vers l'ancienne
+  table. Contrôle fait à part, avec le SQLite 3.54.0 du poste, sur une paire parent/enfant : après `ALTER TABLE parent RENAME`, la clé de
+  l'enfant désigne la table renommée ; `DROP TABLE parent` est refusé tant que l'enfant a des lignes (clés actives) ; avec
+  `defer_foreign_keys`, la recréation puis la remise des mêmes identifiants laissent passer le `COMMIT`, qui est refusé si l'on ne remet pas
+  les lignes ; le réglage retombe à 0 après le `COMMIT`. Le test de la migration passe aussi clés étrangères inactives.
+- **Migration 25** : `alert_log` reconstruite (table provisoire, puis renommage : rien ne la référence) pour trois natures d'alerte de
+  plus, `source_fallback`, `source_down` et `canceled_grid`. Couverte par un test (lignes et identifiants conservés, natures nouvelles
+  acceptées, nature inconnue refusée, journal immuable). Le rapport de mesure sur copie porte sur la migration 24.
+- **Essai réel, une fois, sur une copie de la base, sans notification** : client `ureq` avec le `User-Agent` honnête `edge/0.1 (usage
+  personnel, une page par heure)` : HTTP 200 et état `serverApp-state`, **aucun défi anti-robot**. Deux requêtes, six secondes.
+  Écrits : LF8 n°158 avec sa répartition (90/6/4, 58/25/17… : les mêmes pourcentages qu'à l'étape 0) ; LF7 n°143 ouverte **sans**
+  répartition (tous les pourcentages à 0, une heure après l'ouverture).
+- **Rattrapage des grilles manquées** : huit grilles sur huit (LF7 n°139 à 142, LF8 n°154 à 157), seize rangs, aucun refus. Les n°139 et 155
+  ne passent que grâce aux alias `Atl. Madrid` et `Man. City`. LF7 n°140, rencontre 5 : écrite `C`. Rapport du LF7 n°140 : 1 883 gagnants à
+  31 € et 26 943 à 2,60 €. Tickets recommandés réglés sur la copie : 72 → 77 sur 77.
+- **Séance à blanc, hors réseau** : le LF8 n°158 est **écarté**, seize noms de sélections nationales étant inconnus de `[LOTOFOOT]`
+  (France, Turquie, Espagne, Angleterre, Chypre, Monténégro, Lettonie, Arménie, Finlande, San Marin, Biélorussie, Albanie, Croatie,
+  Rép.Tchèque, Belgique, Italie). Le LF7 n°143 est écarté faute de répartition.
+- **Lecture de la date de la liste de resultats-fdj.fr** vérifiée sur une vraie page copiée à l'étape 0.
+
+*Comportement d'un passage* (`edge lotofoot fetch`, toutes les heures).
+- Nominal : **deux requêtes** chez la FDJ, la page des grilles ouvertes puis la première page des résultats, à cinq secondes d'écart.
+  Une page FDJ « échoue » si le réseau tombe, si le statut n'est pas 200, si l'état `serverApp-state` manque ou si la page est illisible.
+  Les redirections ne sont jamais suivies ; un 403 ou un 429 est journalisé « accès refusé, anti-robots ? ». Aucun contournement.
+- Repli **page par page** : une page que la FDJ n'a pas servie est lue chez resultats-fdj.fr, à la place : l'accueil pour les grilles
+  ouvertes ; pour les résultats, la liste, puis la page de détail des seules grilles dont les résultats ou les rangs manquent en base.
+  Une FDJ en échec n'est pas relancée pour les pages de résultats suivantes du même passage. `--result-pages N` (1 à 5, défaut 1)
+  règle le nombre de pages de résultats lues.
+- Garde-fou « page périmée » (grille close depuis trois heures encore affichée « ouverte », §73), pour les deux sources. Une page FDJ
+  lisible mais périmée **n'appelle pas** le repli : alerte « source figée ».
+- Une grille dont le nombre de rencontres n'est pas celui de sa formule est refusée avec un message (LF8 à 7 rencontres : voir les limites).
+  Une rencontre annulée s'écrit `C` ; la grille n'est pas refusée.
+- **Alertes** (journal `alert_log`) : FDJ en échec avec repli utilisé, au plus une fois par 24 h ; aucune source ne répond, au plus une
+  fois par 6 h et par page (l'alerte générique `OnFailure=` de systemd part aussi : doublon connu) ; page périmée, et grille entièrement
+  annulée portant des tickets joués, une fois par grille. Application Web : la pastille « Loto Foot » et l'encadré de `/lotofoot` lisent la
+  santé de chaque source. systemd : l'unité attend le DNS de `www.pointdevente.parionssport.fdj.fr`, `TimeoutStartSec` 600 s.
+
+*Non vérifié.*
+- **Le repli n'a pas été essayé sur de vraies pages** : la FDJ répondait. Il est couvert par des tests sur des pages synthétiques.
+- Un passage sous systemd, à l'heure : le déploiement n'est pas fait.
+
+**Choix laissé ouvert, à trancher par Paul.** Dans la vérification figée (`lotofoot/verify.rs`), une grille à rencontre annulée compte,
+pour la **fréquence** des tickets payés et pour le **gain réalisé**, comme le règlement la compte : bonne pour tous les signes (art. 10.6).
+La loi simulée du gain et les probabilités annoncées, elles, ne connaissent pas l'annulation : le gain réalisé d'une telle grille peut
+dépasser un peu sa loi simulée. Ce biais est **indulgent** : le critère d'échec est un gain sous le 5e centile de la loi simulée, donc il
+ne peut que retarder un verdict « en défaut », jamais en créer un. Il touche peu de grilles : 89 sur 1 735 copies Wayback ont au moins
+un annulé (5 %). La **calibration** exclut déjà ces grilles. Option en place : les garder. Option stricte : les exclure aussi de la
+fréquence et du gain, sans biais, mais ces tickets, réellement réglés, ne pèseraient plus sur le verdict. À décider avant le premier
+point de contrôle (26 semaines après la première séance).
+
+**Limites.**
+- La cadence de mise à jour de la répartition chez la FDJ n'est pas établie (`Cache-Control: max-age=300`, soit au plus cinq minutes de
+  retard). La répartition n'est donnée qu'en pourcentages entiers : les mises restent estimées (§65).
+- Un blocage par rythme ou par empreinte TLS, sur des semaines de relevés horaires, n'est pas exclu (un seul essai réel).
+- Une grille **entièrement** annulée n'est pas réglée automatiquement : alerte, puis saisie à la main des remboursements.
+- Un LF8 à 7 rencontres est refusé (le modèle et l'optimiseur supposent huit rencontres).
+- Les **sélections nationales** n'ont ni alias ni cote vérifiée : The Odds API ne les couvre pas partout, et la clé OddsPapi est refusée
+  depuis le 2026-10-26 (§57). Les grilles qui en portent sont écartées de la séance, jamais appariées au jugé.
+
+**Déploiement restant, à faire par Paul** (README `deploy/systemd/`) : réinstaller le binaire (`cargo install --path crates/cli --locked
+--root ~/.local`) ; la base de production passe en version 25 à la première commande lancée avec le nouveau code, et une unité qui garderait
+l'ancien binaire échouerait ensuite (« la base est en version 25 mais ce programme ne connaît que… »). Puis copier les unités (`cp
+deploy/systemd/edge-*.service deploy/systemd/edge-*.timer ~/.config/systemd/user/`), `systemctl --user daemon-reload`, et
+`systemctl --user restart edge-serve.service` (le service garde l'ancien binaire en mémoire). Les alias de `config/aliases.toml` sont
+embarqués dans le binaire : la réinstallation les emporte. Puis surveiller les premiers passages (page `/lotofoot`, `journalctl --user -u
+edge-lotofoot-fetch.service`).
