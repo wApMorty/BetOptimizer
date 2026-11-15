@@ -28,3 +28,4 @@ trois questions pour vérifier la compréhension, trois fichiers à relire en pr
 | 20 | Règle Loto Foot à prix dynamique (valeur marginale exacte, 32 tickets par grille, table gelée à la place de l'abaque, regroupement au-delà de 16 tickets) | [docs/learning/phase-20.md](docs/learning/phase-20.md) |
 | 21 | Correctifs de l'audit du 2026-11-12 (horizon de 72 h, source figée, alertes de panne, `edge backup`) | [docs/learning/phase-21.md](docs/learning/phase-21.md) |
 | 22 | Le Loto Foot lit la FDJ, avec resultats-fdj.fr en repli (relevé page par page, rencontre annulée, alias FDJ, migrations 24 et 25) | [docs/learning/phase-22.md](docs/learning/phase-22.md) |
+| 23 | Alias d'équipes déduits par la rencontre (propositions validées d'un clic sur `/lotofoot`, `edge aliases`, migration 26) | [docs/learning/phase-23.md](docs/learning/phase-23.md) |

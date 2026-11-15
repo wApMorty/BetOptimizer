@@ -3397,3 +3397,58 @@ deploy/systemd/edge-*.service deploy/systemd/edge-*.timer ~/.config/systemd/user
 `systemctl --user restart edge-serve.service` (le service garde l'ancien binaire en mémoire). Les alias de `config/aliases.toml` sont
 embarqués dans le binaire : la réinstallation les emporte. Puis surveiller les premiers passages (page `/lotofoot`, `journalctl --user -u
 edge-lotofoot-fetch.service`).
+
+## 75. Phase 23 — Alias d'équipes déduits par la rencontre, validés d'un clic (2026-11-15)
+
+**Constat.** Sur 33 séances Loto Foot, 6 ont été écartées pour des noms inconnus de `[LOTOFOOT]` (22 noms, dont 13 à la séance du
+2026-10-25) ; s'y ajoutent les noms ESPN du suivi en direct. Chaque correction demandait de trouver le nom chez The Odds API ou ESPN,
+d'éditer `config/aliases.toml`, puis de réinstaller edge (la table est embarquée dans le binaire).
+
+**Principe.** Un nom inconnu se déduit du **match relevé** qui correspond à la rencontre, jamais d'une ressemblance de noms. Chaque place
+(domicile, extérieur) est ancrée (nom connu qui désigne la même équipe, ou nom identique chez les deux sources) ou libre (nom inconnu).
+Un match convient s'il respecte les places ancrées et en a au moins une. Rien n'entre en vigueur sans décision de Paul.
+- Grilles (`lotofoot/alias_deduction.rs`, `from_grid`) : matchs de la fenêtre de la grille (clôture − 2 h à clôture + 5 j), relevés
+  **avant la séance** : archive `/odds`, `oddspapi_fixture`, `lotofoot_oddspapi_quote`, plus (sauf à blanc) les `/events` gratuits
+  des compétitions actives (`leagues` puis `lotofoot_leagues`), chaque appel archivé, aucun crédit. The Odds API d'abord ; OddsPapi
+  seulement si The Odds API n'a aucun match qui convienne.
+- ESPN (`from_espn`, appelé par `scores::refresh`) : matchs de la page à moins de 3 h de notre coup d'envoi ; nos noms sont connus, ce
+  sont ceux d'ESPN qui manquent.
+
+**Mesure rétrospective** (archive de production, lecture seule, script de session non versionné) : les 22 noms des 6 séances
+bloquées, table d'alias de l'époque (git), matchs relevés au plus tard à la clôture de la grille.
+- Première règle seule (adversaire connu) : 7 noms proposés, **tous justes** ; 1 ambigu ; 14 rencontres aux deux noms inconnus.
+- Avec l'ancrage par nom identique : **17 noms proposés sur 22, tous justes, aucune proposition fausse** ; 1 ambigu (Bodø/Glimt :
+  Lille a joué Bodø/Glimt le 3/11 puis Rennes le 8/11, tous deux à l'extérieur, dans la fenêtre) ; 4 sans candidat (FC Copenhague,
+  Odense, Lask Linz, Slo.Bratislava : compétitions absentes de l'archive `/odds`).
+- Non mesurable après coup : l'apport des `/events` gratuits (leurs réponses ne sont pas archivées, seulement l'appel), qui devrait
+  couvrir les compétitions de `lotofoot_leagues` ; et la partie ESPN (les pages ne sont pas archivées).
+- Écart avec la production : la mesure accepte les relevés jusqu'à la clôture, la séance seulement jusqu'à son heure de départ.
+
+**Choix de Paul du 2026-11-15** : validation d'un clic dans l'application (page `/lotofoot`, boutons « Valider » et « Refuser ») ;
+alias appris en base (migration 26 : `alias_proposal` et `alias_decision`, insertion seule, une décision par proposition) et lus
+par-dessus la table versionnée (`Aliases::with_learned`), sans recompiler ; sections `LOTOFOOT` et `ESPN` seulement ;
+`edge aliases export --to config/aliases.toml` insère les alias acceptés dans le fichier (commentaires gardés, résultat relu et
+vérifié avant écriture), à commiter puis réinstaller.
+
+**Écarts au plan validé, à confirmer par Paul.** Le plan disait « un seul match → proposition ; sinon des pistes ». Trois règles ont été
+ajoutées pendant le codage, sans son accord préalable ; aucune n'applique quoi que ce soit sans clic :
+1. **Plusieurs matchs qui conviennent** donnent plusieurs propositions, chacune avec son bouton (cas Bodø/Glimt), au lieu de simples
+   pistes. Valider l'une fait disparaître les autres (le nom est désormais connu).
+2. **Ancrage par nom identique** : deux noms inconnus ne bloquent plus la déduction si l'un est écrit exactement comme chez la source
+   (Montpellier – Red Star, 10 noms de la séance du 25/10).
+3. **ESPN, coup d'envoi exact** : faute de tout ancrage, le seul match aux deux noms inconnus qui commence à la minute près à notre
+   heure fait foi ; s'il y en a plusieurs (multiplex), rien n'est proposé.
+
+**Garde-fous.** Une proposition s'inscrit une fois (`UNIQUE (section, name, canonical)`) : refusée, elle ne revient pas. Accepter est
+refusé si le nom est devenu connu entre-temps. Une équipe ne peut pas être proposée pour la place de son adversaire. Un alias appris qui
+contredirait la table versionnée est ignoré, avec un avertissement dans le journal : la table versionnée prime.
+
+**Limites.**
+- Les sélections nationales (§74) ne profitent de la déduction que si une compétition de `leagues` ou `lotofoot_leagues` les liste.
+- Une équipe vue seulement chez OddsPapi reçoit le nom d'OddsPapi comme nom canonique, que The Odds API pourra écrire autrement plus tard
+  (une variante de plus à valider).
+- `edge aliases export` ajoute une équipe nouvelle en fin de section (les sections `LOTOFOOT` et `ESPN` ne suivent aucun ordre).
+
+**Déploiement, à faire par Paul** : réinstaller le binaire (`cargo install --path crates/cli --locked --root ~/.local`) ; la base passe
+en version 26 à la première commande. Puis `systemctl --user restart edge-serve.service`. Après quelques validations :
+`edge aliases export --to config/aliases.toml`, relire le diff, commiter, réinstaller.

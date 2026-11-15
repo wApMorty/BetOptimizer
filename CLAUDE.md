@@ -127,7 +127,9 @@ edge/
   Winamax et Betclic n'existent pas gratuitement : notre archive sera la seule source. **Elle démarre
   en phase 1.**
 - **Noms d'équipes** : table d'alias versionnée. Un nom inconnu bloque l'ingestion avec un message
-  clair ; jamais d'appariement approximatif silencieux.
+  clair ; jamais d'appariement approximatif silencieux. Grilles Loto Foot et ESPN : l'outil propose l'alias déduit de la rencontre
+  (match relevé dont l'autre équipe est connue) ; il n'entre en vigueur qu'après validation dans l'application, et
+  `edge aliases export` le reporte dans la table versionnée (phase 23, `docs/sources.md` §75).
 - **Tennis** (phase 7) : données de Jeff Sackmann (licence CC BY-NC-SA 4.0, usage personnel), cotes
   historiques de tennis-data.co.uk ; The Odds API ne couvre que les Grands Chelems, ATP/WTA 1000 et 500.
 - **NBA** (phase 8) : sources à instruire en début de phase ; cotes historiques payantes, donc archive propre.
