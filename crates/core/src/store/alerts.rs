@@ -17,7 +17,7 @@ pub enum AlertKind {
     StaleSource,
     /// Une unité systemd d'edge a échoué.
     UnitFailed,
-    /// La FDJ n'a pas servi une page du Loto Foot, resultats-fdj.fr l'a lue à la place (phase 22, §75).
+    /// La FDJ n'a pas servi une page du Loto Foot, resultats-fdj.fr l'a lue à la place (phase 22, `docs/sources.md` §74).
     SourceFallback,
     /// Ni la FDJ ni resultats-fdj.fr n'ont pu servir une page du Loto Foot.
     SourceDown,

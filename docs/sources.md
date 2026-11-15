@@ -3323,8 +3323,7 @@ collectées (§37, 2021 à juin 2026) et sur les 51 grilles lues ce jour.
 **Phase 22 livrée (2026-11-15).** Le relevé du Loto Foot lit la FDJ, avec resultats-fdj.fr en repli ; prono-match n'est plus lu (son
 archive reste). Code : `7532903` à `3df4313` (tâche 1 : lecteurs ; tâche 2a : migration 24, rencontres annulées ; tâche 2b : alias,
 relevé à deux sources, migration 25, application Web, systemd). Les mesures sur la base ont été faites sur des **copies** de la
-production, le 2026-11-15 : rien n'est déployé. (Les commentaires de la migration 25 et de `store/alerts.rs` renvoient à un « §75 » :
-c'est le présent paragraphe.)
+production, le 2026-11-15 : rien n'est déployé.
 
 *Vérifié le 2026-11-15.*
 - **Migration 24 rejouée sur une copie de la production** : `user_version` 23 → 24 ; comptes identiques avant et après pour les treize

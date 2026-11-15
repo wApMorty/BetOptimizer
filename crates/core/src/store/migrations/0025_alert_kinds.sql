@@ -1,4 +1,4 @@
--- Phase 22 : trois natures d'alerte de plus dans `alert_log` (docs/sources.md §75) :
+-- Phase 22 : trois natures d'alerte de plus dans `alert_log` (docs/sources.md §74) :
 --   'source_fallback' : la FDJ n'a pas servi une page, resultats-fdj.fr l'a lue à la place ;
 --   'source_down'     : ni la FDJ ni resultats-fdj.fr n'ont pu servir une page ;
 --   'canceled_grid'   : une grille entièrement annulée porte des tickets joués (mises remboursées au guichet).
