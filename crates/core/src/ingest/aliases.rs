@@ -7,7 +7,10 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use rusqlite::Connection;
+
 use crate::error::{Error, Result};
+use crate::store::alias_proposals;
 
 /// Table versionnée dans le dépôt (`config/aliases.toml`), embarquée dans le binaire à la compilation.
 const BUNDLED: &str = include_str!("../../../../config/aliases.toml");
@@ -50,6 +53,41 @@ impl Aliases {
             by_div.insert(div, names);
         }
         Ok(Aliases { by_div })
+    }
+
+    /// Cette table, complétée des alias acceptés dans l'application (déduction par la rencontre, phase 23) : ils servent
+    /// tout de suite, sans recompiler edge, jusqu'à leur report dans `config/aliases.toml` (`edge aliases export`).
+    ///
+    /// `&self` et non `self` : l'application garde la table versionnée et en tire une table complète à chaque usage, car
+    /// un alias peut être accepté entre deux pages.
+    pub fn with_learned(&self, conn: &Connection) -> Result<Aliases> {
+        // `clone` : la table versionnée reste intacte pour le prochain appel.
+        let mut merged = self.clone();
+        for (section, name, canonical) in alias_proposals::accepted(conn)? {
+            merged.learn(&section, &name, &canonical);
+        }
+        Ok(merged)
+    }
+
+    /// Ajoute l'alias `name` → `canonical` à une section. Si `canonical` est lui-même une variante, l'alias va à l'équipe
+    /// qu'elle désigne. Un nom déjà attribué à une autre équipe n'est pas touché : la table versionnée prime, et le conflit
+    /// est journalisé (il se règle en refusant l'alias ou en corrigeant `config/aliases.toml`).
+    fn learn(&mut self, section: &str, name: &str, canonical: &str) {
+        let names = self.by_div.entry(section.to_string()).or_default();
+        let team = names
+            .get(canonical)
+            .cloned()
+            .unwrap_or_else(|| canonical.to_string());
+        names.entry(team.clone()).or_insert_with(|| team.clone());
+        match names.get(name) {
+            Some(other) if *other != team => tracing::warn!(
+                "alias appris ignoré : {section} « {name} » désigne déjà « {other} », pas « {team} »"
+            ),
+            Some(_) => {}
+            None => {
+                names.insert(name.to_string(), team);
+            }
+        }
     }
 
     /// Nom canonique d'un nom publié dans une ligue, ou `None` s'il est inconnu.
@@ -128,6 +166,30 @@ mod tests {
         let err = Aliases::parse("[E0]\n\"A\" = [\"X\"]\n\"B\" = [\"X\"]\n").unwrap_err();
         assert!(matches!(err, Error::Aliases(_)));
         assert!(err.to_string().contains("« X »"));
+    }
+
+    #[test]
+    fn learned_aliases_join_the_team_of_their_canonical_name_without_overriding_the_table() {
+        let mut aliases = Aliases::parse(SMALL).unwrap();
+        // Nom canonique connu : simple variante de plus.
+        aliases.learn("E0", "Man Utd FC", "Manchester United");
+        assert_eq!(
+            aliases.resolve("E0", "Man Utd FC"),
+            Some("Manchester United")
+        );
+        // Nom « canonique » qui n'est qu'une variante : l'alias va à l'équipe qu'elle désigne.
+        aliases.learn("E0", "MUFC", "Man United");
+        assert_eq!(aliases.resolve("E0", "MUFC"), Some("Manchester United"));
+        // Équipe nouvelle : elle se désigne elle-même.
+        aliases.learn("E0", "Wrexham AFC", "Wrexham");
+        assert_eq!(aliases.resolve("E0", "Wrexham"), Some("Wrexham"));
+        assert_eq!(aliases.resolve("E0", "Wrexham AFC"), Some("Wrexham"));
+        // Un nom déjà attribué garde son équipe.
+        aliases.learn("E0", "Burnley", "Manchester United");
+        assert_eq!(aliases.resolve("E0", "Burnley"), Some("Burnley"));
+        // Section absente : créée.
+        aliases.learn("ESPN", "FC Cologne", "1. FC Köln");
+        assert_eq!(aliases.resolve("ESPN", "FC Cologne"), Some("1. FC Köln"));
     }
 
     #[test]

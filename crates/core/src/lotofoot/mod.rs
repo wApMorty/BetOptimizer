@@ -6,6 +6,7 @@
 //! relevé dans [`fetch`]) et règle les tickets joués ([`settle`]). Étude et choix : `docs/sources.md` §37, §38 et §74.
 
 pub mod alert;
+pub mod alias_deduction;
 pub mod bulletin;
 pub mod espn;
 pub mod exact;

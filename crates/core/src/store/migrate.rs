@@ -35,6 +35,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0023_alert_log.sql"),
     include_str!("migrations/0024_lotofoot_sources.sql"),
     include_str!("migrations/0025_alert_kinds.sql"),
+    include_str!("migrations/0026_team_alias.sql"),
 ];
 
 /// Version du schéma attendue par ce programme (le nombre de migrations connues).
